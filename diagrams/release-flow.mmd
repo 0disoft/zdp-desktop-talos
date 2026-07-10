@@ -1,0 +1,9 @@
+flowchart LR
+  C["Candidate commit"] --> V["Tests, security, license, migration"]
+  V --> B["Native platform build"]
+  B --> S["Sign artifact and manifest"]
+  S --> I["Clean install and N-1 upgrade"]
+  I --> P["Promote channel"]
+  P --> O["Monitor bounded diagnostics"]
+  V -->|"failure"| X["Block release"]
+  I -->|"failure"| X

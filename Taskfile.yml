@@ -1,0 +1,39 @@
+version: '3'
+
+tasks:
+  format:
+    cmds:
+      - echo "format is not configured. Configure this validation before relying on it."
+      - exit 1
+  lint:
+    cmds:
+      - echo "lint is not configured. Configure this validation before relying on it."
+      - exit 1
+  typecheck:
+    cmds:
+      - echo "typecheck is not configured. Configure this validation before relying on it."
+      - exit 1
+  test:
+    cmds:
+      - echo "test is not configured. Configure this validation before relying on it."
+      - exit 1
+  contract:
+    cmds:
+      - echo "contract is not configured. Configure this validation before relying on it."
+      - exit 1
+  migration-check:
+    cmds:
+      - echo "migration-check is not configured. Configure this validation before relying on it."
+      - exit 1
+  smoke:
+    cmds:
+      - echo "smoke is not configured. Configure this validation before relying on it."
+      - exit 1
+  docs:
+    cmds:
+      - echo "docs is not configured. Configure this validation before relying on it."
+      - exit 1
+  check:
+    cmds:
+      - echo "check is not configured. Configure this validation before relying on it."
+      - exit 1

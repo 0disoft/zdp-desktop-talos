@@ -1,0 +1,10 @@
+flowchart TD
+  UI["Svelte renderer"] -->|"use-case bindings"| CP["Go control plane"]
+  CP --> D["Domain and application services"]
+  D --> P["Ports"]
+  P --> DB["SQLite and encrypted blob adapters"]
+  P --> MP["Model and egress adapters"]
+  P --> GI["Git, process, key-store adapters"]
+  CP -->|"versioned length-prefixed JSON"| WK["Restricted worker"]
+  WK --> WT["Task Git worktree"]
+  CLI["talosctl"] --> D

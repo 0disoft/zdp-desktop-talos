@@ -1,0 +1,14 @@
+flowchart TD
+  A["High-level task"] --> B["Task Contract revision"]
+  B --> C["Repository snapshot and Context Pack"]
+  C --> D["Redaction and model egress receipt"]
+  D --> E["Plan and Tool Intents"]
+  E --> F["Permission Broker"]
+  F --> G["Worker in task worktree"]
+  G --> H["Fresh verification evidence"]
+  H --> I["Patch review and apply or discard"]
+  I --> J["Memory candidates"]
+  J --> K["Memory Gate"]
+  K --> C
+  F -->|"human choice needed"| Q["Decision Queue"]
+  Q --> F

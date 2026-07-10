@@ -1,0 +1,11 @@
+flowchart TD
+  A["Release or migration failure"] --> B["Stop new side effects"]
+  B --> C["Preserve current Vault and evidence"]
+  C --> D{"Previous binary reads current schema?"}
+  D -->|"yes"| E["Roll back signed binary"]
+  D -->|"no"| F{"Verified compatible backup?"}
+  F -->|"yes"| G["Restore into isolation, verify, replace"]
+  F -->|"no"| H["Forward repair with explicit recovery plan"]
+  E --> I["Reconcile attempts and rebuild derivatives"]
+  G --> I
+  H --> I

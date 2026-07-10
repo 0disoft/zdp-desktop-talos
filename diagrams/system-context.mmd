@@ -1,0 +1,8 @@
+flowchart LR
+  U["Developer"] --> T["Talos desktop"]
+  T <-->|"identity, consent, membership"| Z["ZDP core"]
+  T -->|"approved context only"| M["Model provider"]
+  T -->|"scoped IPC"| W["Talos worker"]
+  W -->|"task worktree"| G["Local Git repository"]
+  T --> V["Encrypted local Vault"]
+  T -.->|"manual encrypted packs later"| S["Git sync or relay"]
