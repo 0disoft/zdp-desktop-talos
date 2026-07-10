@@ -8,7 +8,7 @@
 talosctl doctor [--json]
 ```
 
-`doctor` inspects runtime, OS, architecture, desktop-shell version, Node, Git availability, key-store support, worker handshake compatibility, and a temporary SQLite open/write/checkpoint cycle. It prints versions and availability only; it never prints environment variable values, credentials, Vault payloads, or repository content.
+`doctor` inspects runtime, OS, architecture, Git availability, key-store support, worker handshake compatibility, and a temporary SQLite open/write/checkpoint cycle. On Windows it performs a temporary current-user DPAPI put, reopen, rotate, and delete cycle. It prints versions and availability only; it never prints environment variable values, credentials, Vault payloads, protected key blobs, or repository content. `production_blockers` lists release gates that the local probe cannot prove.
 
 ## General Rules
 

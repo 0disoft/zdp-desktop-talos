@@ -6,7 +6,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
 )
 
-const ApplicationVersion = "0.1.1"
+const ApplicationVersion = "0.1.2"
 
 type HealthSnapshot struct {
 	Application     string `json:"application"`

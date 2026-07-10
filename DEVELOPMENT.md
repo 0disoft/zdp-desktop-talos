@@ -5,7 +5,7 @@
 
 ## Current Phase
 
-The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, and encrypted events survive a SQLite restart without exposing the test plaintext marker. The production OS key-store adapter and signed installer remain explicit release blockers.
+The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, encrypted events survive a SQLite restart, and Windows current-user DPAPI protects Vault key-encryption keys. Signed packaging and native release checks remain explicit release blockers.
 
 ## Current Layout
 
@@ -41,4 +41,4 @@ docs/
 - an encrypted event survives restart and no plaintext marker appears in storage;
 - domain/application packages remain free of Wails, SQLite-driver, and model-SDK imports;
 - selected dependency versions and current platform evidence are recorded in ADRs;
-- `talosctl doctor --json` reports `ready: true` while keeping `production_ready: false` until a production key store exists.
+- `talosctl doctor --json` proves Windows DPAPI persistence and reports remaining production blockers explicitly.

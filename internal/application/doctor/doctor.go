@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,9 +12,11 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapikeyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/eventstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
 )
@@ -25,19 +28,38 @@ type Check struct {
 }
 
 type Report struct {
-	Schema          string  `json:"schema"`
-	Ready           bool    `json:"ready"`
-	ProductionReady bool    `json:"production_ready"`
-	Checks          []Check `json:"checks"`
+	Schema             string   `json:"schema"`
+	Ready              bool     `json:"ready"`
+	ProductionReady    bool     `json:"production_ready"`
+	ProductionBlockers []string `json:"production_blockers,omitempty"`
+	Checks             []Check  `json:"checks"`
 }
 
 func Run(ctx context.Context, workerPath string) Report {
-	report := Report{Schema: "talos.doctor/1", Ready: true, ProductionReady: false}
+	report := Report{
+		Schema:             "talos.doctor/1",
+		Ready:              true,
+		ProductionReady:    false,
+		ProductionBlockers: []string{"signed distribution and native release checks are not verified by this local doctor"},
+	}
 	report.Checks = append(report.Checks,
 		Check{Name: "runtime", Status: "passed", Details: map[string]any{"go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH}},
 		gitCheck(),
-		Check{Name: "key_store", Status: "unsupported", Details: map[string]any{"reason": "phase 0 has no production OS key-store adapter; plaintext fallback is forbidden"}},
 	)
+
+	keyStoreCheck, err := keyStoreCheck(ctx)
+	if err != nil {
+		if errors.Is(err, keyvault.ErrUnsupported) {
+			report.ProductionBlockers = append(report.ProductionBlockers, "the current platform has no supported OS key-store adapter")
+			report.Checks = append(report.Checks, Check{Name: "key_store", Status: "unsupported", Details: map[string]any{"reason": err.Error()}})
+		} else {
+			report.Ready = false
+			report.ProductionBlockers = append(report.ProductionBlockers, "the OS key-store self-test failed")
+			report.Checks = append(report.Checks, Check{Name: "key_store", Status: "failed", Details: map[string]any{"error": err.Error()}})
+		}
+	} else {
+		report.Checks = append(report.Checks, keyStoreCheck)
+	}
 
 	if check, err := sqliteCheck(ctx); err != nil {
 		report.Ready = false
@@ -61,6 +83,7 @@ func Run(ctx context.Context, workerPath string) Report {
 			report.Checks = append(report.Checks, Check{Name: "worker_handshake", Status: "passed", Details: map[string]any{"protocol": handshake.ProtocolVersion, "worker": handshake.WorkerVersion, "capabilities": handshake.Capabilities}})
 		}
 	}
+	report.ProductionReady = report.Ready && len(report.ProductionBlockers) == 0
 	return report
 }
 
@@ -70,6 +93,74 @@ func gitCheck() Check {
 		return Check{Name: "git", Status: "unavailable"}
 	}
 	return Check{Name: "git", Status: "passed", Details: map[string]any{"available": true, "executable": filepath.Base(path)}}
+}
+
+func keyStoreCheck(ctx context.Context) (Check, error) {
+	directory, err := os.MkdirTemp("", "talos-key-store-doctor-")
+	if err != nil {
+		return Check{}, fmt.Errorf("create key-store test directory: %w", err)
+	}
+	defer os.RemoveAll(directory)
+
+	store, err := dpapikeyvault.Open(directory)
+	if err != nil {
+		return Check{}, err
+	}
+	ref := keyvault.Reference{VaultID: "doctor-vault", KeyID: "vault-kek"}
+	first := []byte("talos-doctor-dpapi-marker-first")
+	second := []byte("talos-doctor-dpapi-marker-next!")
+	if err := store.Put(ctx, ref, first); err != nil {
+		return Check{}, fmt.Errorf("store DPAPI test key: %w", err)
+	}
+	got, err := store.Get(ctx, ref)
+	if err != nil {
+		return Check{}, fmt.Errorf("load DPAPI test key: %w", err)
+	}
+	if !bytes.Equal(got, first) {
+		return Check{}, fmt.Errorf("DPAPI key store returned different initial key bytes")
+	}
+	if err := store.Rotate(ctx, ref, second); err != nil {
+		return Check{}, fmt.Errorf("rotate DPAPI test key: %w", err)
+	}
+	got, err = store.Get(ctx, ref)
+	if err != nil {
+		return Check{}, fmt.Errorf("load rotated DPAPI test key: %w", err)
+	}
+	if !bytes.Equal(got, second) {
+		return Check{}, fmt.Errorf("DPAPI key store returned different rotated key bytes")
+	}
+
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return Check{}, fmt.Errorf("inspect DPAPI test directory: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		stored, err := os.ReadFile(filepath.Join(directory, entry.Name()))
+		if err != nil {
+			return Check{}, fmt.Errorf("inspect DPAPI record: %w", err)
+		}
+		if bytes.Contains(stored, first) || bytes.Contains(stored, second) {
+			return Check{}, fmt.Errorf("plaintext marker found in DPAPI record")
+		}
+	}
+	if err := store.Delete(ctx, ref); err != nil {
+		return Check{}, fmt.Errorf("delete DPAPI test key: %w", err)
+	}
+
+	return Check{
+		Name:   "key_store",
+		Status: "passed",
+		Details: map[string]any{
+			"provider":                "windows-dpapi",
+			"scope":                   "current_user",
+			"roundtrip":               true,
+			"rotation":                true,
+			"plaintext_marker_absent": true,
+		},
+	}, nil
 }
 
 func sqliteCheck(ctx context.Context) (Check, error) {

@@ -17,9 +17,10 @@ Talos owns the installed desktop application, local Vault, task execution, Decis
 - Go desktop process, versioned worker process, and `talosctl doctor`
 - SQLite event store with transactional idempotency and encrypted payloads
 - AES-256-GCM envelope encryption with a random data key per payload
+- Windows current-user DPAPI storage for Vault key-encryption keys
 - a 4 MiB-bounded, length-prefixed JSON worker protocol over stdio
 
-The current build and doctor evidence covers Windows amd64. Production readiness remains false until a supported OS key-store adapter, signed packaging, and platform release checks exist. Plaintext key-file fallback is forbidden.
+The current build and doctor evidence covers Windows amd64, including DPAPI persistence, rotation, reference binding, and plaintext-marker checks. Production readiness remains false until signed packaging and native platform release checks exist. Plaintext key-file fallback is forbidden.
 
 ## Start Here
 

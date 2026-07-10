@@ -13,7 +13,9 @@ Event and state updates share one database transaction. WAL files, checkpoints, 
 
 The OS key store protects a Vault key-encryption key. Each stored event payload receives a random 256-bit data key and AES-256-GCM nonce; that data key is separately wrapped by the key-encryption key with authenticated context binding the Vault, object, schema, and sensitivity. Worker processes do not receive the Vault root key. Platforms without a supported secure key store fail with an explicit unsupported error; plaintext key-file fallback is forbidden.
 
-Phase 0 implements and tests the envelope and SQLite round trip but deliberately reports the production key store as unsupported. The test and doctor paths use an ephemeral in-memory key only to prove ciphertext integrity, restart behavior, wrong-key rejection, and plaintext-marker absence.
+On Windows, Talos stores Vault key-encryption keys with current-user DPAPI and forbids the machine-wide scope. Vault and key identifiers are hashed for filenames and bound into DPAPI optional entropy, so moving a protected record to another Vault or key reference cannot unseal it. Writes and rotations use same-directory temporary files and Windows atomic replacement APIs. The doctor path verifies put, reopen, rotate, delete, and plaintext-marker absence without printing key material.
+
+The event-envelope test path still uses an ephemeral in-memory key to isolate ciphertext integrity, restart behavior, wrong-key rejection, and plaintext-marker absence from the OS adapter. macOS and Linux key-store adapters remain unsupported and must fail explicitly.
 
 ## Classification
 
