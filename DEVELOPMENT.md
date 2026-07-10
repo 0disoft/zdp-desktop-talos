@@ -5,7 +5,7 @@
 
 ## Current Phase
 
-The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, encrypted events survive a SQLite restart, and Windows current-user DPAPI protects Vault key-encryption keys. Signed packaging and native release checks remain explicit release blockers.
+The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, encrypted events survive a SQLite restart, Windows current-user DPAPI protects Vault key-encryption keys, and the Windows NSIS/signing source contract is tested. A provisioned signing-host run and native clean-install/N-1-upgrade evidence remain explicit release blockers.
 
 ## Current Layout
 
@@ -22,6 +22,7 @@ internal/transport
 internal/security
 contracts/
 migrations/
+packaging/windows/
 docs/
 ```
 
@@ -42,3 +43,6 @@ docs/
 - domain/application packages remain free of Wails, SQLite-driver, and model-SDK imports;
 - selected dependency versions and current platform evidence are recorded in ADRs;
 - `talosctl doctor --json` proves Windows DPAPI persistence and reports remaining production blockers explicitly.
+- Windows packaging scripts parse and their per-user, signing, companion-binary, prerequisite, and Vault-retention contracts pass static tests.
+
+Phase 0 is not release-ready until a provisioned Windows host produces signed artifacts, verifies the package receipt, and passes clean-install and N-1 upgrade smoke checks.
