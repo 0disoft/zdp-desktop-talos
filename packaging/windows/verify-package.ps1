@@ -3,7 +3,11 @@ param(
     [Parameter(Mandatory)]
     [string]$ReceiptPath,
 
-    [switch]$RequireSignature
+    [switch]$RequireSignature,
+
+    [string]$ExpectedSignerThumbprint,
+
+    [string]$ExpectedSourceCommit
 )
 
 Set-StrictMode -Version Latest
@@ -17,6 +21,21 @@ if ($receipt.schema -ne 'talos.windows-package-receipt/1') {
 }
 if ($receipt.version -notmatch '^\d+\.\d+\.\d+$' -or $receipt.architecture -ne 'amd64') {
     throw 'Package receipt has an invalid version or architecture.'
+}
+if (-not [string]::IsNullOrWhiteSpace($ExpectedSourceCommit)) {
+    if ($ExpectedSourceCommit -notmatch '^[a-fA-F0-9]{40}$' -or $receipt.source_commit -ne $ExpectedSourceCommit.ToLowerInvariant()) {
+        throw 'Package receipt source commit does not match the expected workflow commit.'
+    }
+}
+
+if ($RequireSignature -and [string]::IsNullOrWhiteSpace($ExpectedSignerThumbprint)) {
+    $ExpectedSignerThumbprint = $env:TALOS_EXPECTED_SIGNER_SHA1
+    if ([string]::IsNullOrWhiteSpace($ExpectedSignerThumbprint)) {
+        $ExpectedSignerThumbprint = $env:TALOS_SIGN_CERTIFICATE_SHA1
+    }
+}
+if ($RequireSignature -and $ExpectedSignerThumbprint -notmatch '^[A-Fa-f0-9]{40}$') {
+    throw 'An expected 40-character signer thumbprint is required for signed package verification.'
 }
 
 foreach ($artifact in $receipt.artifacts) {
@@ -36,6 +55,9 @@ foreach ($artifact in $receipt.artifacts) {
         $signature = Get-AuthenticodeSignature -LiteralPath $resolvedArtifact
         if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
             throw "Authenticode verification failed for $($artifact.name): $($signature.Status)"
+        }
+        if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $ExpectedSignerThumbprint) {
+            throw "Unexpected Authenticode signer for $($artifact.name)."
         }
     }
 }

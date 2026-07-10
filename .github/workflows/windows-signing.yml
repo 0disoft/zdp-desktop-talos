@@ -1,0 +1,71 @@
+name: Windows Signed Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact Talos application version to package
+        required: true
+        type: string
+        default: 0.1.4
+
+permissions:
+  contents: read
+
+concurrency:
+  group: talos-windows-signing
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Sign Windows amd64 package
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - windows
+      - x64
+      - talos-signing
+    environment: windows-signing
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      TALOS_RELEASE_VERSION: ${{ inputs.version }}
+      TALOS_SIGN_CERTIFICATE_SHA1: ${{ vars.TALOS_SIGN_CERTIFICATE_SHA1 }}
+      TALOS_SIGNTOOL_PATH: ${{ vars.TALOS_SIGNTOOL_PATH }}
+      TALOS_TIMESTAMP_URL: ${{ vars.TALOS_TIMESTAMP_URL }}
+    steps:
+      - name: Check out trusted source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Verify signing host
+        shell: pwsh
+        run: ./packaging/windows/verify-signing-host.ps1
+
+      - name: Restore frontend dependencies
+        shell: pwsh
+        working-directory: frontend
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Build and sign package
+        shell: pwsh
+        run: ./packaging/windows/package.ps1 -Version $env:TALOS_RELEASE_VERSION -RequireSignature
+
+      - name: Verify signed package receipt
+        shell: pwsh
+        run: |
+          $receipt = Join-Path '.artifacts/windows' $env:TALOS_RELEASE_VERSION
+          $receipt = Join-Path $receipt "talos-agent-$($env:TALOS_RELEASE_VERSION)-windows-amd64-receipt.json"
+          ./packaging/windows/verify-package.ps1 -ReceiptPath $receipt -RequireSignature -ExpectedSourceCommit $env:GITHUB_SHA
+
+      - name: Upload signed package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: talos-windows-${{ inputs.version }}
+          path: .artifacts/windows/${{ inputs.version }}/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+          include-hidden-files: false

@@ -1,0 +1,14 @@
+{
+  "schema": "talos.windows-signing-host/1",
+  "architecture": "amd64",
+  "go_major_minor": "1.26",
+  "bun_version": "1.3.14",
+  "nsis_major": 3,
+  "certificate_min_validity_days": 30,
+  "runner_labels": [
+    "self-hosted",
+    "windows",
+    "x64",
+    "talos-signing"
+  ]
+}

@@ -1,0 +1,66 @@
+name: Windows CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Windows amd64
+    runs-on: windows-2025
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Restore frontend dependencies
+        shell: pwsh
+        working-directory: frontend
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Check frontend
+        shell: pwsh
+        working-directory: frontend
+        run: bun run check
+
+      - name: Build frontend
+        shell: pwsh
+        working-directory: frontend
+        run: bun run build
+
+      - name: Test Go packages
+        shell: pwsh
+        run: go test ./...
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP 'talos-ci-bin'
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          go build -trimpath -o (Join-Path $output 'talos-desktop.exe') .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o (Join-Path $output 'talos-worker.exe') ./cmd/talos-worker
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go build -trimpath -o (Join-Path $output 'talosctl.exe') ./cmd/talosctl

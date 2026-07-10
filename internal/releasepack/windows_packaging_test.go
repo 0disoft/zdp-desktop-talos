@@ -18,6 +18,7 @@ func TestWindowsPackagingPowerShellParses(t *testing.T) {
 		"sign-artifact.ps1",
 		"upgrade-smoke.ps1",
 		"verify-package.ps1",
+		"verify-signing-host.ps1",
 	}
 	for _, name := range scripts {
 		name := name
@@ -87,16 +88,20 @@ func TestWindowsPackagingVersionIsSynchronized(t *testing.T) {
 	packageJSON := readFile(t, filepath.Join(root, "frontend", "package.json"))
 	worker := readFile(t, filepath.Join(root, "internal", "workeripc", "server.go"))
 	health := readFile(t, filepath.Join(root, "internal", "transport", "wailsapi", "health.go"))
+	signingWorkflow := readFile(t, filepath.Join(root, ".github", "workflows", "windows-signing.yml"))
+	packagingReadme := readFile(t, filepath.Join(root, "packaging", "windows", "README.md"))
 	for path, content := range map[string]string{
-		"config.yml":   config,
-		"project.nsi":  project,
-		"Taskfile.yml": taskfile,
-		"package.json": packageJSON,
-		"worker.go":    worker,
-		"health.go":    health,
+		"config.yml":          config,
+		"project.nsi":         project,
+		"Taskfile.yml":        taskfile,
+		"package.json":        packageJSON,
+		"worker.go":           worker,
+		"health.go":           health,
+		"windows-signing.yml": signingWorkflow,
+		"packaging/README.md": packagingReadme,
 	} {
-		if !strings.Contains(content, "0.1.3") {
-			t.Errorf("%s does not contain release version 0.1.3", path)
+		if !strings.Contains(content, "0.1.4") {
+			t.Errorf("%s does not contain release version 0.1.4", path)
 		}
 	}
 }

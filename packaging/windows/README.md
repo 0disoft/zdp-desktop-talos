@@ -2,7 +2,7 @@
 
 - Status: implemented contract; signing-host execution pending
 - Installer: NSIS, current-user scope, Windows amd64
-- Product version: `0.1.3`
+- Product version: `0.1.4`
 
 The package source uses the build-asset generator from the exact Wails module pinned in `go.mod`. Generated Wails assets live only in `.artifacts/`; the repository owns the Talos NSIS overlay and release scripts.
 
@@ -13,3 +13,5 @@ The installer contains `talos-desktop.exe`, `talos-worker.exe`, and `talosctl.ex
 The build emits a versioned JSON receipt containing the source commit, file sizes, SHA-256 digests, and Authenticode status. The clean-worktree gate prevents that commit from being a false label for uncommitted source bytes. `verify-package.ps1` validates the receipt and can fail closed on any unsigned artifact. `upgrade-smoke.ps1` is hard-blocked outside an ephemeral CI account because it installs and removes the real per-user product registration.
 
 Automatic update remains disabled. A signed NSIS installer and a passing N-1 upgrade smoke test are release evidence, not permission to enable unattended update checks.
+
+The dedicated signing-host contract is `signing-host.json` and its fail-closed probe is `verify-signing-host.ps1`. Runner enrollment and GitHub environment setup are documented in `docs/ops/windows-signing-host.md`. The signing host and destructive upgrade-smoke runner are intentionally different machines and labels.

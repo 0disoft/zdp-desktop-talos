@@ -1,0 +1,74 @@
+name: Windows Upgrade Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      old_run_id:
+        description: Workflow run ID containing the signed N-1 package
+        required: true
+        type: string
+      old_artifact_name:
+        description: Artifact name containing the signed N-1 package
+        required: true
+        type: string
+      new_run_id:
+        description: Workflow run ID containing the signed candidate package
+        required: true
+        type: string
+      new_artifact_name:
+        description: Artifact name containing the signed candidate package
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: talos-windows-upgrade-smoke
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    name: Verify signed N-1 upgrade
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      - self-hosted
+      - windows
+      - x64
+      - talos-upgrade-smoke
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      TALOS_EXPECTED_SIGNER_SHA1: ${{ vars.TALOS_EXPECTED_SIGNER_SHA1 }}
+    steps:
+      - name: Check out verification script
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          clean: true
+          persist-credentials: false
+
+      - name: Download signed N-1 package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.old_artifact_name }}
+          path: ${{ runner.temp }}/talos-old
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.old_run_id }}
+
+      - name: Download signed candidate package
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.new_artifact_name }}
+          path: ${{ runner.temp }}/talos-new
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.new_run_id }}
+
+      - name: Run upgrade retention smoke test
+        shell: pwsh
+        run: |
+          $oldInstallers = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'talos-old') -Filter '*-setup.exe' -File -Recurse)
+          $newInstallers = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'talos-new') -Filter '*-setup.exe' -File -Recurse)
+          if ($oldInstallers.Count -ne 1) { throw "Expected exactly one old installer, found $($oldInstallers.Count)." }
+          if ($newInstallers.Count -ne 1) { throw "Expected exactly one new installer, found $($newInstallers.Count)." }
+          ./packaging/windows/upgrade-smoke.ps1 -OldInstaller $oldInstallers[0].FullName -NewInstaller $newInstallers[0].FullName

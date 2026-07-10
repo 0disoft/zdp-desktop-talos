@@ -4,7 +4,9 @@ param(
     [string]$OldInstaller,
 
     [Parameter(Mandatory)]
-    [string]$NewInstaller
+    [string]$NewInstaller,
+
+    [string]$ExpectedSignerThumbprint = $env:TALOS_EXPECTED_SIGNER_SHA1
 )
 
 Set-StrictMode -Version Latest
@@ -13,6 +15,9 @@ $ErrorActionPreference = 'Stop'
 if ($env:CI -ne 'true' -or [string]::IsNullOrWhiteSpace($env:RUNNER_TEMP)) {
     throw 'The upgrade smoke test is restricted to an ephemeral CI Windows account.'
 }
+if ($ExpectedSignerThumbprint -notmatch '^[A-Fa-f0-9]{40}$') {
+    throw 'An expected 40-character signer thumbprint is required for upgrade smoke testing.'
+}
 
 $oldInstallerPath = (Resolve-Path -LiteralPath $OldInstaller).Path
 $newInstallerPath = (Resolve-Path -LiteralPath $NewInstaller).Path
@@ -20,6 +25,9 @@ foreach ($installer in @($oldInstallerPath, $newInstallerPath)) {
     $signature = Get-AuthenticodeSignature -LiteralPath $installer
     if ($signature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
         throw "Upgrade smoke input is not Authenticode-valid: $installer"
+    }
+    if ($null -eq $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $ExpectedSignerThumbprint) {
+        throw "Upgrade smoke input has an unexpected publisher: $installer"
     }
 }
 
