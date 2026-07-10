@@ -5,7 +5,7 @@
 
 | Phase | Scope | Exit evidence |
 |---|---|---|
-| 0. Architecture spine | repository layout, ADRs, Wails/package spike, worker IPC, encrypted event round trip | signed-platform build spike and storage/IPC tests |
+| 0. Architecture spine (active) | repository layout, ADRs, Wails/package spike, worker IPC, encrypted event round trip | storage/IPC tests and Windows amd64 binaries pass; OS key store and signed packaging remain |
 | 1. Vault and ledger | key abstraction, event append, encrypted blobs, materialized state | crash recovery without duplicate event effects |
 | 2. Workspace and contract | Git inspection, baseline snapshot, Task and contract revisions | task can be contracted without a live model |
 | 3. Decision Queue | scoped blocking, answer revision, conflict handling | unrelated steps continue while a decision is open |

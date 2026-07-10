@@ -1,16 +1,16 @@
 # Development
 
-- Status: Architecture phase
+- Status: Phase 0 implementation baseline
 - Technical owner: ZDP/Talos maintainers
 
 ## Current Phase
 
-The repository is design-only. Phase 0 must prove desktop packaging, worker IPC, OS key-store access, encrypted event round trips, SQLite crash recovery, and frontend bindings before product features are added.
+The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, and encrypted events survive a SQLite restart without exposing the test plaintext marker. The production OS key-store adapter and signed installer remain explicit release blockers.
 
-## Planned Layout
+## Current Layout
 
 ```text
-cmd/talos-desktop
+main.go
 cmd/talos-worker
 cmd/talosctl
 frontend/
@@ -36,8 +36,9 @@ docs/
 
 ## Definition of Phase 0 Done
 
-- desktop, worker, and CLI executables build on the selected first platform;
+- desktop, worker, and CLI executables build on Windows amd64;
 - desktop and worker negotiate a versioned length-prefixed IPC handshake;
 - an encrypted event survives restart and no plaintext marker appears in storage;
 - domain/application packages remain free of Wails, SQLite-driver, and model-SDK imports;
-- selected dependency versions and platform support are recorded in ADRs.
+- selected dependency versions and current platform evidence are recorded in ADRs;
+- `talosctl doctor --json` reports `ready: true` while keeping `production_ready: false` until a production key store exists.

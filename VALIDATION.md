@@ -1,6 +1,6 @@
 # Validation
 
-- Status: Draft
+- Status: Active
 
 ## Validation Source of Truth
 
@@ -35,8 +35,8 @@ tracked secret files, ignored build/cache artifacts, and generated-output drift.
 
 ## Scope
 
-general validation routes must stay stack-neutral unless a runner file explicitly defines a command.
+The Taskfile defines repository-local commands. Agents still execute them only through configured workspace mustflow intents.
 
 ## Repository Shape
 
-desktop-app, cli-tool validation must stay repository-shape focused and must not imply generated application source code.
+Desktop and CLI validation cover Go tests, Svelte diagnostics/build, encrypted storage restart, IPC framing, worker handshake, and binary compilation. Installer signing and packaged WebView startup remain release-only manual gates.

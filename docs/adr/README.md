@@ -9,5 +9,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 
 - `0001-initial-architecture-boundaries.md`: private modular monolith, desktop/worker/CLI split, ZDP identity boundary
 - `0002-contract-source-of-truth.md`: ledger, materialized state, schema, projection, and platform-contract authority
+- `0003-phase-0-runtime-and-encryption.md`: pinned Phase 0 runtime, IPC, encryption, and production-readiness boundary
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

@@ -3,37 +3,48 @@ version: '3'
 tasks:
   format:
     cmds:
-      - echo "format is not configured. Configure this validation before relying on it."
-      - exit 1
+      - go fmt ./...
+
   lint:
     cmds:
-      - echo "lint is not configured. Configure this validation before relying on it."
-      - exit 1
+      - go vet ./...
+
   typecheck:
+    dir: frontend
     cmds:
-      - echo "typecheck is not configured. Configure this validation before relying on it."
-      - exit 1
+      - bun run check
+
   test:
+    deps: [typecheck]
     cmds:
-      - echo "test is not configured. Configure this validation before relying on it."
-      - exit 1
+      - go test ./...
+
   contract:
     cmds:
-      - echo "contract is not configured. Configure this validation before relying on it."
-      - exit 1
+      - go test ./internal/workeripc ./internal/domain/event
+
   migration-check:
     cmds:
-      - echo "migration-check is not configured. Configure this validation before relying on it."
-      - exit 1
+      - go test ./internal/adapters/sqliteevent
+
   smoke:
     cmds:
-      - echo "smoke is not configured. Configure this validation before relying on it."
-      - exit 1
+      - go run ./cmd/talosctl doctor --json
+
   docs:
     cmds:
-      - echo "docs is not configured. Configure this validation before relying on it."
+      - echo "Use the configured ssealed strict-doctor intent from the workspace root."
       - exit 1
+
   check:
+    deps: [lint, typecheck, test, contract, migration-check]
+
+  frontend:build:
+    dir: frontend
     cmds:
-      - echo "check is not configured. Configure this validation before relying on it."
-      - exit 1
+      - bun run build
+
+  build:
+    deps: [frontend:build]
+    cmds:
+      - go build ./...

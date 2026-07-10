@@ -4,9 +4,9 @@
 
 Scope: general
 
-This repository owns product, architecture, ADR, engineering, and operational design scaffolds.
+This repository owns the Talos desktop product, worker, CLI, domain/application core, local Vault adapters, frontend, contracts, tests, and their durable design documents.
 
-This scaffold does not generate implementation source code; any existing source remains project-owned.
+The original ssealed documents remain project-owned guidance; application source is now an explicit repository responsibility.
 
 ## Repository Shape
 
@@ -21,16 +21,21 @@ This scaffold does not generate implementation source code; any existing source 
 
 - Product scope: docs/product/02-spec.md
 - Architecture decisions: docs/adr/*.md
+- Runtime implementation: main.go, cmd/, internal/, frontend/
+- Dependency declarations: go.mod, frontend/package.json, frontend/bun.lock
 - Validation: VALIDATION.md
 - Agent routing: .agents/context-map.md
 - Repository hygiene: .editorconfig, .gitattributes, .gitignore
 
 ## Hard Rules
 
-- Do not generate or infer application source code from this scaffold.
+- Implement only behavior authorized by the product specification and accepted ADRs.
 - Do not invent technology choices. Use UNDECIDED when a decision is not known.
 - Do not create fake credentials, tokens, secrets, or private values.
 - Do not rely on generated, cache, or build output as source truth.
+- Keep Wails in the root desktop assembly and transport packages; domain and application packages must not import Wails, SQLite drivers, model SDKs, or Git implementations.
+- Treat renderer inputs, repository content, worker frames, model output, paths, and process arguments as untrusted.
+- Do not expose generic filesystem, SQL, credential, URL, or shell execution methods through Wails services.
 
 ## Repository Hygiene
 
@@ -48,9 +53,9 @@ This scaffold does not generate implementation source code; any existing source 
 
 ## Out of Scope
 
-- Application source scaffolding.
-- Runtime infrastructure such as Docker, Kubernetes, Terraform, or framework apps.
+- Docker, Kubernetes, Terraform, cloud relay, plugin marketplace, and multi-agent orchestration.
 - Project-specific credentials or deployment secrets.
+- Automatic commit, push, merge, dependency installation by the product, or unrestricted network egress.
 
 ## Final Response Requirements
 

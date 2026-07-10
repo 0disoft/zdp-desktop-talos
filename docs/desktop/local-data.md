@@ -11,7 +11,9 @@ Event and state updates share one database transaction. WAL files, checkpoints, 
 
 ## Encryption and Keys
 
-The OS key store protects a Vault key-encryption key. Per-object random data keys encrypt payloads and artifacts. Worker processes do not receive the Vault root key. Platforms without a supported secure key store fail with an explicit unsupported error; plaintext key-file fallback is forbidden.
+The OS key store protects a Vault key-encryption key. Each stored event payload receives a random 256-bit data key and AES-256-GCM nonce; that data key is separately wrapped by the key-encryption key with authenticated context binding the Vault, object, schema, and sensitivity. Worker processes do not receive the Vault root key. Platforms without a supported secure key store fail with an explicit unsupported error; plaintext key-file fallback is forbidden.
+
+Phase 0 implements and tests the envelope and SQLite round trip but deliberately reports the production key store as unsupported. The test and doctor paths use an ephemeral in-memory key only to prove ciphertext integrity, restart behavior, wrong-key rejection, and plaintext-marker absence.
 
 ## Classification
 

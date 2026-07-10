@@ -21,3 +21,7 @@ coverage/
 tmp/
 *.tsbuildinfo
 # <<< ssealed ignore patterns <<<
+
+# Project build artifacts
+bin/
+.bun-cache/
