@@ -84,6 +84,29 @@ func TestExecutorRejectsScopeEnvironmentAndShellExpansion(t *testing.T) {
 	}
 }
 
+func TestExecutorRejectsArgumentsBeyondCapabilityMaximum(t *testing.T) {
+	t.Parallel()
+	executable, root := workerTestInputs(t)
+	executor, err := New(Policy{WorktreeRoot: root, Capabilities: []Capability{{
+		ID:             "exact-test",
+		Executable:     executable,
+		ArgumentPrefix: []string{"-test.run=TestWorkerExecHelper"},
+		MaxArguments:   1,
+		MaxTimeout:     time.Minute,
+		MaxOutputBytes: 1024,
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = executor.Execute(context.Background(), Request{
+		CapabilityID: "exact-test",
+		Arguments:    []string{"-test.run=TestWorkerExecHelper", "--unexpected"},
+	})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("extra argument error=%v", err)
+	}
+}
+
 func TestExecutorEnforcesOutputLimitAndTimeout(t *testing.T) {
 	t.Parallel()
 	executable, root := workerTestInputs(t)

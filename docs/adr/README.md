@@ -28,5 +28,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0019-decision-conflict-resolution-and-question-supersession.md`: explicit answer selection and revision-scoped question replacement
 - `0020-owned-task-worktree-lifecycle.md`: baseline-bound detached worktrees with verified ownership and bounded cleanup
 - `0021-policy-bound-worker-process-execution.md`: direct argv execution with scoped policy, bounded output, and process-tree cancellation
+- `0022-deterministic-process-permission-broker.md`: task-contract-first process authorization with exact-intent scoped grants
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

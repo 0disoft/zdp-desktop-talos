@@ -41,6 +41,7 @@ type Capability struct {
 	ID               string
 	Executable       string
 	ArgumentPrefix   []string
+	MaxArguments     int
 	EnvironmentNames []string
 	MaxTimeout       time.Duration
 	MaxOutputBytes   int
@@ -91,6 +92,12 @@ func New(policy Policy) (*Executor, error) {
 		if _, exists := capabilities[capability.ID]; exists {
 			return nil, ErrInvalidPolicy
 		}
+		if capability.MaxArguments == 0 {
+			capability.MaxArguments = len(capability.ArgumentPrefix)
+		}
+		if capability.MaxArguments < len(capability.ArgumentPrefix) || capability.MaxArguments > MaxArguments {
+			return nil, ErrInvalidPolicy
+		}
 		if capability.MaxTimeout <= 0 {
 			capability.MaxTimeout = DefaultTimeout
 		}
@@ -125,7 +132,7 @@ func (e *Executor) Execute(ctx context.Context, request Request) (Result, error)
 	if !ok {
 		return Result{}, ErrCapabilityDenied
 	}
-	if len(request.Arguments) < len(capability.ArgumentPrefix) || len(request.Arguments) > MaxArguments {
+	if len(request.Arguments) < len(capability.ArgumentPrefix) || len(request.Arguments) > capability.MaxArguments {
 		return Result{}, ErrInvalidRequest
 	}
 	for index, expected := range capability.ArgumentPrefix {

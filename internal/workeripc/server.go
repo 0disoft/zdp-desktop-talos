@@ -13,7 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/workerexec"
 )
 
-const WorkerVersion = "0.1.23"
+const WorkerVersion = "0.1.24"
 
 type StartRunPayload struct {
 	RunID        string                 `json:"run_id"`
@@ -25,6 +25,7 @@ type ProcessCapabilityDTO struct {
 	ID               string   `json:"id"`
 	Executable       string   `json:"executable"`
 	ArgumentPrefix   []string `json:"argument_prefix"`
+	MaxArguments     int      `json:"max_arguments"`
 	EnvironmentNames []string `json:"environment_names"`
 	MaxTimeoutMS     int64    `json:"max_timeout_ms"`
 	MaxOutputBytes   int      `json:"max_output_bytes"`
@@ -136,7 +137,7 @@ func (s *server) startRun(message Message) error {
 		if item.MaxTimeoutMS < 0 || item.MaxTimeoutMS > int64(workerexec.AbsoluteMaxTimeout/time.Millisecond) {
 			return s.writeError(message.RequestID, "WORKER_START_RUN_INVALID", "run policy is invalid", false)
 		}
-		capabilities = append(capabilities, workerexec.Capability{ID: item.ID, Executable: item.Executable, ArgumentPrefix: item.ArgumentPrefix, EnvironmentNames: item.EnvironmentNames, MaxTimeout: time.Duration(item.MaxTimeoutMS) * time.Millisecond, MaxOutputBytes: item.MaxOutputBytes})
+		capabilities = append(capabilities, workerexec.Capability{ID: item.ID, Executable: item.Executable, ArgumentPrefix: item.ArgumentPrefix, MaxArguments: item.MaxArguments, EnvironmentNames: item.EnvironmentNames, MaxTimeout: time.Duration(item.MaxTimeoutMS) * time.Millisecond, MaxOutputBytes: item.MaxOutputBytes})
 	}
 	executor, err := s.newExecutor(workerexec.Policy{WorktreeRoot: payload.WorktreeRoot, Capabilities: capabilities})
 	if err != nil {
