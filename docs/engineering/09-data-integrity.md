@@ -10,6 +10,8 @@ Implemented artifact storage writes exclusive same-directory staging files, reco
 
 Implemented Vault metadata uses a `STRICT` materialized table. Vault creation and retention changes append an encrypted event, update the revisioned state row, and claim idempotency atomically. Stale revisions and changed-intent key reuse fail without partial writes. Session lock state is deliberately not persisted: a restarted process must reacquire key authority from the supported OS key store.
 
+Task creation, immutable contract revision 1, its encrypted event, and idempotency claim share one transaction. The Task and revision pointer repeat the baseline under a composite foreign key, while private contract body fields remain encrypted in the event instead of being copied into materialized rows.
+
 SQLite schema changes use monotonic `PRAGMA user_version` migrations. Each migration commits atomically, newer application-incompatible schemas are rejected, and the adapter validates required columns after migration instead of trusting the version integer alone. Migrations are forward-only; backup and roll-forward policy are separate release gates for destructive changes.
 
 ## Integrity Metadata

@@ -7,9 +7,11 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -218,7 +220,16 @@ func (*serviceDatabase) GetArtifact(context.Context, string) (artifact.Record, [
 	return artifact.Record{}, nil, artifactstore.ErrNotFound
 }
 func (*serviceDatabase) ReconcileArtifacts(context.Context) error { return nil }
-func (d *serviceDatabase) Close() error                           { d.closed = true; return d.closeErr }
+func (*serviceDatabase) CreateTaskContract(context.Context, taskstore.CreateInput) (taskstore.Created, error) {
+	return taskstore.Created{}, taskstore.ErrNotFound
+}
+func (*serviceDatabase) GetTask(context.Context, string) (task.Record, error) {
+	return task.Record{}, taskstore.ErrNotFound
+}
+func (*serviceDatabase) GetTaskContract(context.Context, string, int) (task.ContractRevision, error) {
+	return task.ContractRevision{}, taskstore.ErrNotFound
+}
+func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
 
 type serviceCatalog struct{ entries []vaultcatalog.Entry }
 

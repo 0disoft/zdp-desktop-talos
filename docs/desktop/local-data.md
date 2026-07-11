@@ -13,6 +13,8 @@ Event and state updates share one database transaction. WAL files, checkpoints, 
 
 The schema-version-3 Vault read model stores retention and lifecycle metadata with optimistic revisions and a reference to its last event. It does not store whether a Vault is unlocked. Unlock authority is process-local and must be re-established from the OS key store after every restart.
 
+Schema version 5 adds Task metadata and immutable contract-revision pointers. The actual workspace path, contract goals, scopes, forbidden actions, and acceptance criteria remain only in encrypted event payloads; plaintext tables retain a workspace-path hash, baseline, and provenance needed for bounded lifecycle queries and integrity constraints.
+
 On Windows, the application bootstrap keeps protected key records and per-Vault databases under separate children of `%LocalAppData%/0disoft/Talos Agent`. Creation is a compensated workflow: a database or initial-state failure removes any partial database and the newly protected key. Locking closes the database and clears the envelope sealer's in-memory key copy.
 
 The Vault discovery catalog is a versioned DPAPI-protected record, and catalog/key filenames are hashes rather than raw Vault IDs. Vault IDs still exist as SQLite event and state metadata; payload encryption does not claim to hide database structure or all metadata from a process that can read the local database file.

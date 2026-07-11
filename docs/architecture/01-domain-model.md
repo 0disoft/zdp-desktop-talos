@@ -25,6 +25,7 @@
 
 - one repository has at most one active Run;
 - one Task Contract revision never changes its baseline;
+- Task creation and its first encrypted contract revision commit atomically; materialized contract pointers never duplicate private contract bodies;
 - repository snapshots use a canonical worktree root, an exact commit baseline, bounded porcelain-v2 changes, and a capture time;
 - stale Decision revisions cannot resolve the current question;
 - duplicate commands and events produce at most one side effect;

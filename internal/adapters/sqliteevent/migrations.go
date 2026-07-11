@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 4
+const currentSchemaVersion = 5
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -75,6 +75,33 @@ var migrations = []migration{
 			`CREATE INDEX artifacts_state_idx ON artifacts(state, created_at)`,
 		},
 	},
+	{
+		version: 5,
+		statements: []string{
+			`CREATE TABLE tasks (
+				task_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				workspace_root_hash TEXT NOT NULL,
+				baseline_commit TEXT NOT NULL,
+				status TEXT NOT NULL CHECK (status IN ('contracted')),
+				current_revision INTEGER NOT NULL CHECK (current_revision > 0),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				UNIQUE(task_id, baseline_commit)
+			) STRICT`,
+			`CREATE TABLE task_contract_revisions (
+				task_id TEXT NOT NULL,
+				revision INTEGER NOT NULL CHECK (revision > 0),
+				baseline_commit TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				PRIMARY KEY(task_id, revision),
+				FOREIGN KEY(task_id, baseline_commit) REFERENCES tasks(task_id, baseline_commit) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE INDEX tasks_vault_created_idx ON tasks(vault_id, created_at, task_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -109,6 +136,8 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT idempotency_key, event_id, request_hash FROM idempotency_keys LIMIT 0`,
 		`SELECT vault_id, revision, status, retention_days, created_at, updated_at, last_event_id FROM vault_states LIMIT 0`,
 		`SELECT artifact_id, vault_id, schema_version, sensitivity, content_type, size_bytes, content_hash, ciphertext_hash, storage_name, staging_name, state, created_at FROM artifacts LIMIT 0`,
+		`SELECT task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id FROM tasks LIMIT 0`,
+		`SELECT task_id, revision, baseline_commit, created_at, event_id FROM task_contract_revisions LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

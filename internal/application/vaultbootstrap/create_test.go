@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -366,7 +368,16 @@ func (*fakeDatabase) GetArtifact(context.Context, string) (artifact.Record, []by
 	return artifact.Record{}, nil, artifactstore.ErrNotFound
 }
 func (*fakeDatabase) ReconcileArtifacts(context.Context) error { return nil }
-func (d *fakeDatabase) Close() error                           { d.closed = true; return nil }
+func (*fakeDatabase) CreateTaskContract(context.Context, taskstore.CreateInput) (taskstore.Created, error) {
+	return taskstore.Created{}, taskstore.ErrNotFound
+}
+func (*fakeDatabase) GetTask(context.Context, string) (task.Record, error) {
+	return task.Record{}, taskstore.ErrNotFound
+}
+func (*fakeDatabase) GetTaskContract(context.Context, string, int) (task.ContractRevision, error) {
+	return task.ContractRevision{}, taskstore.ErrNotFound
+}
+func (d *fakeDatabase) Close() error { d.closed = true; return nil }
 
 type fakeCatalog struct {
 	entries   []vaultcatalog.Entry
