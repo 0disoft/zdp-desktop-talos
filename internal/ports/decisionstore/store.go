@@ -52,5 +52,6 @@ type Result struct {
 type Store interface {
 	CreateDecision(context.Context, CreateInput) (Result, error)
 	GetDecision(context.Context, string) (Result, error)
+	ListDecisions(context.Context, string, string, int) ([]Result, error)
 	AnswerDecision(context.Context, AnswerInput) (Result, error)
 }

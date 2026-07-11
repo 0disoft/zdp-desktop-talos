@@ -6,6 +6,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
@@ -64,6 +65,21 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, taskstore.ErrNotFound):
 		mapped.Code = "TASK_NOT_FOUND"
 		mapped.Message = "요청한 Task를 찾을 수 없습니다."
+	case errors.Is(err, decisionstore.ErrInvalidCommand):
+		mapped.Code = "DECISION_INPUT_INVALID"
+		mapped.Message = "Decision 질문, 범위, 선택지 또는 답변을 확인해 주세요."
+	case errors.Is(err, decisionstore.ErrQuestionStale):
+		mapped.Code = "DECISION_REVISION_CONFLICT"
+		mapped.Message = "질문이 변경되어 이 답변을 적용할 수 없습니다."
+	case errors.Is(err, decisionstore.ErrRepositoryStale):
+		mapped.Code = "DECISION_REPOSITORY_CHANGED"
+		mapped.Message = "저장소 기준점이 달라 이 답변을 적용할 수 없습니다."
+	case errors.Is(err, decisionstore.ErrIdempotencyConflict), errors.Is(err, decisionstore.ErrIdempotencyUnverified):
+		mapped.Code = "DECISION_REQUEST_CONFLICT"
+		mapped.Message = "같은 요청 식별자가 다른 Decision 작업에 사용되었습니다."
+	case errors.Is(err, decisionstore.ErrNotFound):
+		mapped.Code = "DECISION_NOT_FOUND"
+		mapped.Message = "요청한 Decision을 찾을 수 없습니다."
 	case errors.Is(err, vaultbootstrap.ErrInvalidInput), errors.Is(err, vaultstore.ErrInvalidCommand):
 		mapped.Code = "VAULT_INPUT_INVALID"
 		mapped.Message = "Vault 설정값을 확인해 주세요."

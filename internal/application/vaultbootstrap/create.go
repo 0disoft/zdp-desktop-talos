@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -74,6 +76,29 @@ type ReviseTaskContractInput struct {
 	AcceptanceCriteria []string
 	Risk               task.Risk
 	IdempotencyKey     string
+}
+
+type CreateDecisionInput struct {
+	TaskID                     string
+	WorkspaceRoot              string
+	ExpectedRepositoryRevision string
+	Category                   decision.Category
+	Question                   string
+	Reason                     string
+	RiskIfUnanswered           string
+	SafeDefault                decision.SafeDefault
+	BlockingScopes             []string
+	Options                    []decision.Option
+	IdempotencyKey             string
+}
+
+type AnswerDecisionInput struct {
+	DecisionID                 string
+	QuestionRevision           int
+	ExpectedRepositoryRevision string
+	SelectedOptionID           string
+	Text                       string
+	IdempotencyKey             string
 }
 
 type HardPurgeInput struct {
@@ -182,6 +207,40 @@ func (s *Session) ReviseTaskContract(ctx context.Context, input ReviseTaskContra
 		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk,
 		IdempotencyKey: input.IdempotencyKey,
 	})
+}
+
+func (s *Session) CreateDecision(ctx context.Context, input CreateDecisionInput) (decisionstore.Result, error) {
+	if s == nil || s.database == nil {
+		return decisionstore.Result{}, ErrNotOpen
+	}
+	if input.TaskID == "" || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return decisionstore.Result{}, ErrInvalidInput
+	}
+	current, err := s.database.GetTask(ctx, input.TaskID)
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	if current.VaultID != s.Record.ID || current.WorkspaceRoot != input.WorkspaceRoot || current.BaselineCommit != input.ExpectedRepositoryRevision {
+		return decisionstore.Result{}, ErrTaskWorkspaceMismatch
+	}
+	return s.database.CreateDecision(ctx, decisionstore.CreateInput{VaultID: s.Record.ID, TaskID: input.TaskID, Category: input.Category, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: input.BlockingScopes, Options: input.Options, IdempotencyKey: input.IdempotencyKey})
+}
+
+func (s *Session) ListDecisions(ctx context.Context, taskID string, limit int) ([]decisionstore.Result, error) {
+	if s == nil || s.database == nil {
+		return nil, ErrNotOpen
+	}
+	return s.database.ListDecisions(ctx, s.Record.ID, taskID, limit)
+}
+
+func (s *Session) AnswerDecision(ctx context.Context, input AnswerDecisionInput) (decisionstore.Result, error) {
+	if s == nil || s.database == nil {
+		return decisionstore.Result{}, ErrNotOpen
+	}
+	if input.DecisionID == "" || input.QuestionRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return decisionstore.Result{}, ErrInvalidInput
+	}
+	return s.database.AnswerDecision(ctx, decisionstore.AnswerInput{VaultID: s.Record.ID, DecisionID: input.DecisionID, QuestionRevision: input.QuestionRevision, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, SelectedOptionID: input.SelectedOptionID, Text: input.Text, IdempotencyKey: input.IdempotencyKey})
 }
 
 type Creator struct {

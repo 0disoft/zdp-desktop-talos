@@ -133,6 +133,52 @@ func (s *Store) GetDecision(ctx context.Context, decisionID string) (decisionsto
 	return result, nil
 }
 
+func (s *Store) ListDecisions(ctx context.Context, vaultID, taskID string, limit int) ([]decisionstore.Result, error) {
+	if vaultID == "" || taskID == "" || limit < 1 || limit > 256 {
+		return nil, decisionstore.ErrInvalidCommand
+	}
+	rows, err := s.db.QueryContext(ctx, decisionSelect+" WHERE vault_id = ? AND task_id = ? ORDER BY created_at, decision_id LIMIT ?", vaultID, taskID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list decisions: %w", err)
+	}
+	defer rows.Close()
+	pointers := make([]decisionPointer, 0)
+	for rows.Next() {
+		pointer, err := scanDecisionPointer(rows)
+		if err != nil {
+			return nil, err
+		}
+		pointers = append(pointers, pointer)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate decisions: %w", err)
+	}
+	results := make([]decisionstore.Result, 0, len(pointers))
+	for _, pointer := range pointers {
+		questionEvent, err := s.Get(ctx, pointer.questionEventID)
+		if err != nil {
+			return nil, err
+		}
+		result, err := decisionResultFromPointer(questionEvent, pointer)
+		if err != nil {
+			return nil, err
+		}
+		if pointer.lastEventID != pointer.questionEventID {
+			answerEvent, err := s.Get(ctx, pointer.lastEventID)
+			if err != nil {
+				return nil, err
+			}
+			answer, _, err := answerFromEvent(answerEvent)
+			if err != nil {
+				return nil, err
+			}
+			result.Answer = &answer
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
 func (s *Store) AnswerDecision(ctx context.Context, input decisionstore.AnswerInput) (decisionstore.Result, error) {
 	if input.VaultID == "" || input.DecisionID == "" || input.QuestionRevision < 1 || input.ExpectedRepositoryRevision == "" || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
 		return decisionstore.Result{}, decisionstore.ErrInvalidCommand

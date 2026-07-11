@@ -81,6 +81,14 @@ func (s *WorkspaceService) Close() WorkspaceResult {
 }
 
 func (s *WorkspaceService) contractSnapshot() (workspace.RepositorySnapshot, error) {
+	return s.currentSnapshot(true)
+}
+
+func (s *WorkspaceService) decisionSnapshot() (workspace.RepositorySnapshot, error) {
+	return s.currentSnapshot(false)
+}
+
+func (s *WorkspaceService) currentSnapshot(requireClean bool) (workspace.RepositorySnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.snapshot == nil {
@@ -95,7 +103,7 @@ func (s *WorkspaceService) contractSnapshot() (workspace.RepositorySnapshot, err
 	if current.Root != previous.Root || current.BaselineCommit != previous.BaselineCommit {
 		return workspace.RepositorySnapshot{}, errWorkspaceChanged
 	}
-	if current.Dirty {
+	if requireClean && current.Dirty {
 		return workspace.RepositorySnapshot{}, errWorkspaceDirty
 	}
 	return current, nil

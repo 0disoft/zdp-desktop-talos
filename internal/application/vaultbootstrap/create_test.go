@@ -382,6 +382,9 @@ func (*fakeDatabase) CreateDecision(context.Context, decisionstore.CreateInput) 
 func (*fakeDatabase) GetDecision(context.Context, string) (decisionstore.Result, error) {
 	return decisionstore.Result{Decision: decision.Record{}}, decisionstore.ErrNotFound
 }
+func (*fakeDatabase) ListDecisions(context.Context, string, string, int) ([]decisionstore.Result, error) {
+	return nil, nil
+}
 func (*fakeDatabase) AnswerDecision(context.Context, decisionstore.AnswerInput) (decisionstore.Result, error) {
 	return decisionstore.Result{}, decisionstore.ErrNotFound
 }

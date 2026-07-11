@@ -334,6 +334,111 @@ h1 {
   cursor: pointer;
 }
 
+.decision-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.decision-item {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(17, 22, 32, 0.72);
+}
+
+.decision-item.conflicted {
+  border-color: rgba(255, 112, 98, 0.48);
+}
+
+.decision-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #8792a4;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.decision-item h3,
+.decision-item p {
+  margin: 0;
+}
+
+.decision-item h3 {
+  color: #f4f7fb;
+  font-size: 1rem;
+}
+
+.decision-item p {
+  color: #aeb8c8;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.decision-item .decision-risk {
+  color: #f0b59d;
+}
+
+.decision-item .decision-default {
+  color: #8fd7bc;
+}
+
+.decision-options {
+  display: grid;
+  gap: 8px;
+}
+
+.decision-options button {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(111, 231, 186, 0.3);
+  border-radius: 10px;
+  color: #e8fff6;
+  text-align: left;
+  background: rgba(40, 104, 81, 0.18);
+  cursor: pointer;
+}
+
+.decision-options button span {
+  color: #aeb8c8;
+  font-size: 0.76rem;
+}
+
+.decision-text {
+  display: grid;
+  gap: 7px;
+  color: #8792a4;
+  font-size: 0.78rem;
+}
+
+.decision-text textarea {
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #f4f7fb;
+  background: #111620;
+  font: inherit;
+}
+
+.decision-item button.secondary {
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #d7deea;
+  background: transparent;
+  cursor: pointer;
+}
+
+.decision-empty {
+  color: #8792a4;
+  font-size: 0.82rem;
+}
+
 .vault-actions {
   flex-wrap: wrap;
   display: flex;

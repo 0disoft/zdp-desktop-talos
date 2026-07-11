@@ -14,6 +14,7 @@
   } from './lib/api/vault';
   import { closeWorkspace, inspectRepository, type WorkspaceStatus } from './lib/api/workspace';
   import { createTaskContract, reviseTaskContract, type TaskStatus } from './lib/api/task';
+  import { answerDecision, listDecisions, type DecisionItem } from './lib/api/decision';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -32,6 +33,8 @@
   let taskCriteria = $state('');
   let taskRisk = $state<'low' | 'medium' | 'high'>('medium');
   let editingTask = $state(false);
+  let decisions = $state<DecisionItem[]>([]);
+  let decisionDrafts = $state<Record<string, string>>({});
 
   onMount(async () => {
     try {
@@ -60,6 +63,7 @@
         latestError = result.error;
       } else if (result.vault) {
         vault = result.vault;
+        if (vault.state === 'locked') clearPrivateTaskState();
         if (vault.state === 'unlocked') retentionDays = vault.retention_days ?? retentionDays;
         if (vault.state === 'unlocked') {
           const catalog = await listVaults();
@@ -122,9 +126,11 @@
         latestError = result.error;
         if (result.error.code === 'VAULT_PURGE_INCOMPLETE') {
           vault = { state: 'locked', persistent_key_store: vault.persistent_key_store };
+          clearPrivateTaskState();
         }
       } else if (result.vault) {
         vault = result.vault;
+        clearPrivateTaskState();
       }
       const catalog = await listVaults();
       if (catalog.error) latestError ??= catalog.error;
@@ -137,6 +143,7 @@
     } catch {
       latestError = localError('VAULT_PURGE_STATUS_UNKNOWN', '완전 삭제 상태를 확인하지 못했습니다. 앱을 다시 시작해 주세요.');
       vault = { state: 'locked', persistent_key_store: vault.persistent_key_store };
+      clearPrivateTaskState();
     } finally {
       loading = false;
     }
@@ -182,6 +189,7 @@
       } else if (result.task) {
         task = result.task;
         editingTask = false;
+        await refreshDecisions();
       }
     } catch {
       latestError = localError('TASK_REQUEST_FAILED', 'Task Contract를 저장하지 못했습니다.');
@@ -192,6 +200,33 @@
 
   function lines(value: string): string[] {
     return [...new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))];
+  }
+
+  async function refreshDecisions() {
+    if (!task || vault.state !== 'unlocked') { decisions = []; return; }
+    const result = await listDecisions(task.task_id);
+    if (result.error) latestError = result.error;
+    else decisions = result.decisions;
+  }
+
+  async function handleDecisionAnswer(item: DecisionItem, optionID = '') {
+    loading = true;
+    latestError = null;
+    try {
+      const result = await answerDecision(item.decision_id, item.question_revision, optionID, optionID ? '' : (decisionDrafts[item.decision_id] ?? ''));
+      if (result.error) latestError = result.error;
+      else if (result.decision) {
+        decisions = decisions.map((current) => current.decision_id === result.decision?.decision_id ? result.decision : current);
+        decisionDrafts[item.decision_id] = '';
+      }
+    } catch {
+      latestError = localError('DECISION_REQUEST_FAILED', 'Decision 답변을 저장하지 못했습니다.');
+    } finally { loading = false; }
+  }
+
+  function clearPrivateTaskState() {
+    task = null; decisions = []; decisionDrafts = {}; editingTask = false;
+    taskGoal = ''; taskPaths = ''; taskCriteria = '';
   }
 
   function localError(code: string, message: string): TalosError {
@@ -346,6 +381,39 @@
           {/if}
         </div>
       {/if}
+    </article>
+
+    <article class="status-card decision-card">
+      <div class="status-heading">
+        <span class:error={decisions.some((item) => item.state === 'conflicted')} class:unlocked={decisions.some((item) => item.state === 'open')} class="status-dot clear" aria-hidden="true"></span>
+        <h2>Decision Queue</h2>
+      </div>
+      <strong>{decisions.filter((item) => item.state === 'open').length}개 대기</strong>
+      <p>{decisions.some((item) => item.state === 'conflicted') ? '충돌한 답변을 확인해야 합니다.' : '안전하게 계속할 수 없는 선택만 여기에 모입니다.'}</p>
+      <div class="decision-list">
+        {#each decisions as item (item.decision_id)}
+          <section class:conflicted={item.state === 'conflicted'} class="decision-item">
+            <div class="decision-meta"><span>{item.category}</span><span>{item.state}</span><span>rev {item.question_revision}</span></div>
+            <h3>{item.question}</h3>
+            <p>{item.reason}</p>
+            <p class="decision-risk">답하지 않으면: {item.risk_if_unanswered}</p>
+            <p class="decision-default">기본값: {item.safe_default.action}</p>
+            {#if item.state === 'open'}
+              <div class="decision-options">
+                {#each item.options as option}
+                  <button type="button" onclick={() => handleDecisionAnswer(item, option.id)} disabled={loading}><strong>{option.label}</strong><span>{option.consequence}</span></button>
+                {/each}
+              </div>
+              <label class="decision-text"><span>직접 답변</span><textarea bind:value={decisionDrafts[item.decision_id]} rows="2" maxlength="4096" disabled={loading}></textarea></label>
+              <button type="button" class="secondary" onclick={() => handleDecisionAnswer(item)} disabled={loading || !(decisionDrafts[item.decision_id] ?? '').trim()}>답변 저장</button>
+            {:else if item.answer}
+              <p class="decision-answer">최근 답변: {item.answer.selected_option_id ?? item.answer.text}</p>
+            {/if}
+          </section>
+        {:else}
+          <p class="decision-empty">현재 대기 중인 질문이 없습니다.</p>
+        {/each}
+      </div>
     </article>
 
     <article class="status-card">
