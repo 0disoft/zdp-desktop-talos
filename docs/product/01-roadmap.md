@@ -6,7 +6,7 @@
 | Phase | Scope | Exit evidence |
 |---|---|---|
 | 0. Architecture spine (active) | repository layout, ADRs, Wails/package spike, worker IPC, encrypted event round trip | storage/IPC/DPAPI and packaging-contract tests pass; provisioned-host signed installer and native upgrade evidence remain |
-| 1. Vault and ledger | key abstraction, event append, encrypted blobs, materialized state | crash recovery without duplicate event effects |
+| 1. Vault and ledger (active) | key abstraction, event append, encrypted blobs, materialized state | atomic Vault metadata and duplicate-effect recovery are implemented; user-facing bootstrap, hard purge, and blob staging remain |
 | 2. Workspace and contract | Git inspection, baseline snapshot, Task and contract revisions | task can be contracted without a live model |
 | 3. Decision Queue | scoped blocking, answer revision, conflict handling | unrelated steps continue while a decision is open |
 | 4. Worker and Git | task worktree, argv process execution, capabilities, cancellation | primary worktree remains untouched |

@@ -85,58 +85,90 @@ func (s *Store) Append(ctx context.Context, input eventstore.AppendInput) (event
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	existing, existingHash, err := s.getByIdempotency(ctx, tx, input.IdempotencyKey)
-	if err == nil {
-		if len(existingHash) == 0 {
-			return event.Record{}, ErrIdempotencyUnverifiable
-		}
-		if !bytes.Equal(existingHash, requestHash) {
-			return event.Record{}, ErrIdempotencyConflict
-		}
-		return existing, nil
-	}
-	if !errors.Is(err, ErrNotFound) {
+	existing, found, err := s.resolveIdempotency(ctx, tx, input.IdempotencyKey, requestHash)
+	if err != nil {
 		return event.Record{}, err
 	}
+	if found {
+		return existing, nil
+	}
 
-	eventID, err := id.UUIDv7(input.OccurredAt, s.random)
+	record, err := s.newEventRecord(input.VaultID, input.Type, input.SchemaVersion, input.Sensitivity, input.Payload, input.OccurredAt)
+	if err != nil {
+		return event.Record{}, err
+	}
+	if err := s.insertEvent(ctx, tx, record); err != nil {
+		return event.Record{}, err
+	}
+	if err := claimIdempotency(ctx, tx, input.IdempotencyKey, record.ID, requestHash); err != nil {
+		return event.Record{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return event.Record{}, fmt.Errorf("commit event append: %w", err)
+	}
+	return record, nil
+}
+
+func (s *Store) resolveIdempotency(ctx context.Context, tx *sql.Tx, key string, requestHash []byte) (event.Record, bool, error) {
+	existing, existingHash, err := s.getByIdempotency(ctx, tx, key)
+	if errors.Is(err, ErrNotFound) {
+		return event.Record{}, false, nil
+	}
+	if err != nil {
+		return event.Record{}, false, err
+	}
+	if len(existingHash) == 0 {
+		return event.Record{}, false, ErrIdempotencyUnverifiable
+	}
+	if !bytes.Equal(existingHash, requestHash) {
+		return event.Record{}, false, ErrIdempotencyConflict
+	}
+	return existing, true, nil
+}
+
+func (s *Store) newEventRecord(vaultID, eventType string, schemaVersion int, sensitivity event.Sensitivity, payload []byte, occurredAt time.Time) (event.Record, error) {
+	eventID, err := id.UUIDv7(occurredAt, s.random)
 	if err != nil {
 		return event.Record{}, fmt.Errorf("generate event id: %w", err)
 	}
 	record := event.Record{
 		ID:            eventID,
-		VaultID:       input.VaultID,
-		Type:          input.Type,
-		SchemaVersion: input.SchemaVersion,
-		Sensitivity:   input.Sensitivity,
-		Payload:       append([]byte(nil), input.Payload...),
-		OccurredAt:    input.OccurredAt.UTC(),
+		VaultID:       vaultID,
+		Type:          eventType,
+		SchemaVersion: schemaVersion,
+		Sensitivity:   sensitivity,
+		Payload:       append([]byte(nil), payload...),
+		OccurredAt:    occurredAt.UTC(),
 	}
 	if err := record.Validate(); err != nil {
 		return event.Record{}, err
 	}
+	return record, nil
+}
 
+func (s *Store) insertEvent(ctx context.Context, tx *sql.Tx, record event.Record) error {
 	encrypted, err := s.sealer.Seal(record.Payload, associatedData(record))
 	if err != nil {
-		return event.Record{}, fmt.Errorf("encrypt event payload: %w", err)
+		return fmt.Errorf("encrypt event payload: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO events(event_id, vault_id, event_type, schema_version, sensitivity, payload_envelope, occurred_at)
 		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
 		record.ID, record.VaultID, record.Type, record.SchemaVersion, string(record.Sensitivity), encrypted, record.OccurredAt.Format(time.RFC3339Nano),
 	); err != nil {
-		return event.Record{}, fmt.Errorf("insert event: %w", err)
+		return fmt.Errorf("insert event: %w", err)
 	}
+	return nil
+}
+
+func claimIdempotency(ctx context.Context, tx *sql.Tx, key, eventID string, requestHash []byte) error {
 	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO idempotency_keys(idempotency_key, event_id, request_hash) VALUES(?, ?, ?)",
-		input.IdempotencyKey, record.ID, requestHash,
+		key, eventID, requestHash,
 	); err != nil {
-		return event.Record{}, fmt.Errorf("claim idempotency key: %w", err)
+		return fmt.Errorf("claim idempotency key: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return event.Record{}, fmt.Errorf("commit event append: %w", err)
-	}
-	return record, nil
+	return nil
 }
 
 func (s *Store) Get(ctx context.Context, eventID string) (event.Record, error) {
@@ -218,7 +250,7 @@ func appendRequestHash(input eventstore.AppendInput) ([]byte, error) {
 	if !input.OccurredAt.IsZero() {
 		occurredAt = input.OccurredAt.UTC().Format(time.RFC3339Nano)
 	}
-	encoded, err := json.Marshal(struct {
+	return requestHash(struct {
 		VaultID       string            `json:"vault_id"`
 		Type          string            `json:"type"`
 		SchemaVersion int               `json:"schema_version"`
@@ -233,6 +265,10 @@ func appendRequestHash(input eventstore.AppendInput) ([]byte, error) {
 		Payload:       input.Payload,
 		OccurredAt:    occurredAt,
 	})
+}
+
+func requestHash(intent any) ([]byte, error) {
+	encoded, err := json.Marshal(intent)
 	if err != nil {
 		return nil, err
 	}

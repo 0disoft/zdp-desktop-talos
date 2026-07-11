@@ -17,6 +17,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/eventstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
 )
@@ -197,6 +198,38 @@ func sqliteCheck(ctx context.Context) (Check, error) {
 		_ = store.Close()
 		return Check{}, err
 	}
+	conflictingInput := eventstore.AppendInput{
+		VaultID:        "doctor-vault",
+		Type:           "doctor.roundtrip",
+		SchemaVersion:  1,
+		Sensitivity:    event.SensitivityPrivate,
+		Payload:        []byte("different-doctor-payload"),
+		OccurredAt:     record.OccurredAt,
+		IdempotencyKey: "doctor-roundtrip",
+	}
+	if _, err := store.Append(ctx, conflictingInput); !errors.Is(err, sqliteevent.ErrIdempotencyConflict) {
+		_ = store.Close()
+		return Check{}, fmt.Errorf("idempotency conflict self-test returned %v", err)
+	}
+	vaultCreated, err := store.CreateVault(ctx, vaultstore.CreateInput{
+		VaultID:        "doctor-vault",
+		RetentionDays:  30,
+		IdempotencyKey: "doctor-vault-create",
+	})
+	if err != nil {
+		_ = store.Close()
+		return Check{}, fmt.Errorf("create materialized Vault state: %w", err)
+	}
+	vaultUpdated, err := store.UpdateVaultRetention(ctx, vaultstore.UpdateRetentionInput{
+		VaultID:          vaultCreated.ID,
+		ExpectedRevision: vaultCreated.Revision,
+		RetentionDays:    60,
+		IdempotencyKey:   "doctor-vault-retention",
+	})
+	if err != nil {
+		_ = store.Close()
+		return Check{}, fmt.Errorf("update materialized Vault state: %w", err)
+	}
 	if err := store.Checkpoint(ctx); err != nil {
 		_ = store.Close()
 		return Check{}, err
@@ -224,7 +257,20 @@ func sqliteCheck(ctx context.Context) (Check, error) {
 	if !bytes.Equal(restored.Payload, marker) {
 		return Check{}, fmt.Errorf("restarted store returned different payload")
 	}
-	return Check{Name: "encrypted_sqlite", Status: "passed", Details: map[string]any{"restart_roundtrip": true, "plaintext_marker_absent": true}}, nil
+	restoredVault, err := reopened.GetVault(ctx, vaultCreated.ID)
+	if err != nil {
+		return Check{}, fmt.Errorf("restore materialized Vault state: %w", err)
+	}
+	if restoredVault != vaultUpdated {
+		return Check{}, fmt.Errorf("restarted store returned different Vault state")
+	}
+	return Check{Name: "encrypted_sqlite", Status: "passed", Details: map[string]any{
+		"restart_roundtrip":       true,
+		"plaintext_marker_absent": true,
+		"idempotency_bound":       true,
+		"vault_state_revision":    restoredVault.Revision,
+		"vault_state_restart":     true,
+	}}, nil
 }
 
 func defaultWorkerPath() string {

@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -39,6 +39,20 @@ var migrations = []migration{
 		version: 2,
 		statements: []string{
 			`ALTER TABLE idempotency_keys ADD COLUMN request_hash BLOB`,
+		},
+	},
+	{
+		version: 3,
+		statements: []string{
+			`CREATE TABLE vault_states (
+				vault_id TEXT PRIMARY KEY,
+				revision INTEGER NOT NULL CHECK (revision > 0),
+				status TEXT NOT NULL CHECK (status IN ('active','purged')),
+				retention_days INTEGER NOT NULL CHECK (retention_days BETWEEN 1 AND 3650),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
 		},
 	},
 }
@@ -73,6 +87,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 	queries := []string{
 		`SELECT event_id, vault_id, event_type, schema_version, sensitivity, payload_envelope, occurred_at FROM events LIMIT 0`,
 		`SELECT idempotency_key, event_id, request_hash FROM idempotency_keys LIMIT 0`,
+		`SELECT vault_id, revision, status, retention_days, created_at, updated_at, last_event_id FROM vault_states LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)
