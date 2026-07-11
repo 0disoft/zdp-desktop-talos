@@ -101,6 +101,27 @@ type AnswerDecisionInput struct {
 	IdempotencyKey             string
 }
 
+type SupersedeDecisionInput struct {
+	DecisionID                 string
+	ExpectedQuestionRevision   int
+	ExpectedRepositoryRevision string
+	Question                   string
+	Reason                     string
+	RiskIfUnanswered           string
+	SafeDefault                decision.SafeDefault
+	BlockingScopes             []string
+	Options                    []decision.Option
+	IdempotencyKey             string
+}
+
+type ResolveDecisionConflictInput struct {
+	DecisionID                 string
+	QuestionRevision           int
+	ExpectedRepositoryRevision string
+	SelectedAnswerID           string
+	IdempotencyKey             string
+}
+
 type HardPurgeInput struct {
 	ExpectedRevision int
 	Confirmation     string
@@ -241,6 +262,26 @@ func (s *Session) AnswerDecision(ctx context.Context, input AnswerDecisionInput)
 		return decisionstore.Result{}, ErrInvalidInput
 	}
 	return s.database.AnswerDecision(ctx, decisionstore.AnswerInput{VaultID: s.Record.ID, DecisionID: input.DecisionID, QuestionRevision: input.QuestionRevision, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, SelectedOptionID: input.SelectedOptionID, Text: input.Text, IdempotencyKey: input.IdempotencyKey})
+}
+
+func (s *Session) SupersedeDecision(ctx context.Context, input SupersedeDecisionInput) (decisionstore.Result, error) {
+	if s == nil || s.database == nil {
+		return decisionstore.Result{}, ErrNotOpen
+	}
+	if input.DecisionID == "" || input.ExpectedQuestionRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return decisionstore.Result{}, ErrInvalidInput
+	}
+	return s.database.SupersedeDecision(ctx, decisionstore.SupersedeInput{VaultID: s.Record.ID, DecisionID: input.DecisionID, ExpectedQuestionRevision: input.ExpectedQuestionRevision, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: input.BlockingScopes, Options: input.Options, IdempotencyKey: input.IdempotencyKey})
+}
+
+func (s *Session) ResolveDecisionConflict(ctx context.Context, input ResolveDecisionConflictInput) (decisionstore.Result, error) {
+	if s == nil || s.database == nil {
+		return decisionstore.Result{}, ErrNotOpen
+	}
+	if input.DecisionID == "" || input.QuestionRevision < 1 || input.SelectedAnswerID == "" || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return decisionstore.Result{}, ErrInvalidInput
+	}
+	return s.database.ResolveDecisionConflict(ctx, decisionstore.ResolveInput{VaultID: s.Record.ID, DecisionID: input.DecisionID, QuestionRevision: input.QuestionRevision, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, SelectedAnswerID: input.SelectedAnswerID, IdempotencyKey: input.IdempotencyKey})
 }
 
 type Creator struct {

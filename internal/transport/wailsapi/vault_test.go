@@ -196,6 +196,8 @@ type serviceDatabase struct {
 	reviseInput    taskstore.ReviseInput
 	decisionInput  decisionstore.CreateInput
 	answerInput    decisionstore.AnswerInput
+	supersedeInput decisionstore.SupersedeInput
+	resolveInput   decisionstore.ResolveInput
 	decisionResult decisionstore.Result
 	decisionList   []decisionstore.Result
 	taskCreated    taskstore.Created
@@ -255,6 +257,14 @@ func (d *serviceDatabase) ListDecisions(context.Context, string, string, int) ([
 }
 func (d *serviceDatabase) AnswerDecision(_ context.Context, input decisionstore.AnswerInput) (decisionstore.Result, error) {
 	d.answerInput = input
+	return d.decisionResult, nil
+}
+func (d *serviceDatabase) SupersedeDecision(_ context.Context, input decisionstore.SupersedeInput) (decisionstore.Result, error) {
+	d.supersedeInput = input
+	return d.decisionResult, nil
+}
+func (d *serviceDatabase) ResolveDecisionConflict(_ context.Context, input decisionstore.ResolveInput) (decisionstore.Result, error) {
+	d.resolveInput = input
 	return d.decisionResult, nil
 }
 func (d *serviceDatabase) GetTask(_ context.Context, taskID string) (task.Record, error) {

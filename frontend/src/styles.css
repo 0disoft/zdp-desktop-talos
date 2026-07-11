@@ -439,6 +439,16 @@ h1 {
   font-size: 0.82rem;
 }
 
+.decision-conflicts {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.decision-conflicts button {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .vault-actions {
   flex-wrap: wrap;
   display: flex;

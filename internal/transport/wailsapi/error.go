@@ -74,6 +74,12 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, decisionstore.ErrRepositoryStale):
 		mapped.Code = "DECISION_REPOSITORY_CHANGED"
 		mapped.Message = "저장소 기준점이 달라 이 답변을 적용할 수 없습니다."
+	case errors.Is(err, decisionstore.ErrConflictRequired):
+		mapped.Code = "DECISION_CONFLICT_REQUIRED"
+		mapped.Message = "충돌 상태인 Decision만 답변을 확정할 수 있습니다."
+	case errors.Is(err, decisionstore.ErrAnswerNotFound):
+		mapped.Code = "DECISION_ANSWER_NOT_FOUND"
+		mapped.Message = "현재 질문 revision에 속한 답변을 찾을 수 없습니다."
 	case errors.Is(err, decisionstore.ErrIdempotencyConflict), errors.Is(err, decisionstore.ErrIdempotencyUnverified):
 		mapped.Code = "DECISION_REQUEST_CONFLICT"
 		mapped.Message = "같은 요청 식별자가 다른 Decision 작업에 사용되었습니다."

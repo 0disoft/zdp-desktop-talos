@@ -8,7 +8,7 @@ export type DecisionOption = { id: string; label: string; consequence: string };
 export type DecisionAnswer = { answer_id: string; selected_option_id?: string; text?: string; created_at: string };
 export type DecisionItem = {
   decision_id: string; task_id: string; question_revision: number; category: 'blocking' | 'quality' | 'follow_up'; state: 'open' | 'answered' | 'conflicted'; expected_repository_revision: string;
-  question: string; reason: string; risk_if_unanswered: string; safe_default: { action: string; continuable_scopes: string[] }; blocking_scopes: string[]; options: DecisionOption[]; answer?: DecisionAnswer; created_at: string; updated_at: string;
+  question: string; reason: string; risk_if_unanswered: string; safe_default: { action: string; continuable_scopes: string[] }; blocking_scopes: string[]; options: DecisionOption[]; answer?: DecisionAnswer; answers: DecisionAnswer[]; created_at: string; updated_at: string;
 };
 export type DecisionResult = { decision?: DecisionItem; error?: TalosError };
 export type DecisionListResult = { decisions: DecisionItem[]; error?: TalosError };
@@ -21,6 +21,11 @@ export async function listDecisions(taskID: string): Promise<DecisionListResult>
 export async function answerDecision(decisionID: string, questionRevision: number, selectedOptionID: string, text: string): Promise<DecisionResult> {
   if (!decisionID || !Number.isSafeInteger(questionRevision) || questionRevision < 1 || ((selectedOptionID === '') === (text.trim() === ''))) throw new Error('DECISION_ANSWER_INVALID');
   return parseResult(await Call.ByName(`${service}.Answer`, { decision_id: decisionID, question_revision: questionRevision, selected_option_id: selectedOptionID, text: text.trim(), request_id: correlationID(), correlation_id: correlationID() }));
+}
+
+export async function resolveDecisionConflict(decisionID: string, questionRevision: number, selectedAnswerID: string): Promise<DecisionResult> {
+  if (!decisionID || !selectedAnswerID || !Number.isSafeInteger(questionRevision) || questionRevision < 1) throw new Error('DECISION_RESOLUTION_INVALID');
+  return parseResult(await Call.ByName(`${service}.ResolveConflict`, { decision_id: decisionID, question_revision: questionRevision, selected_answer_id: selectedAnswerID, request_id: correlationID(), correlation_id: correlationID() }));
 }
 
 function parseList(value: unknown): DecisionListResult {
@@ -43,7 +48,9 @@ function parseDecision(value: unknown): DecisionItem {
   if (!isObject(value) || typeof value.decision_id !== 'string' || typeof value.task_id !== 'string' || typeof value.question_revision !== 'number' || !Number.isSafeInteger(value.question_revision) || value.question_revision < 1 || (value.category !== 'blocking' && value.category !== 'quality' && value.category !== 'follow_up') || (value.state !== 'open' && value.state !== 'answered' && value.state !== 'conflicted') || typeof value.expected_repository_revision !== 'string' || !commitPattern.test(value.expected_repository_revision) || typeof value.question !== 'string' || typeof value.reason !== 'string' || typeof value.risk_if_unanswered !== 'string' || !isObject(value.safe_default) || typeof value.safe_default.action !== 'string' || !stringArray(value.safe_default.continuable_scopes, 128) || !stringArray(value.blocking_scopes, 128) || !Array.isArray(value.options) || value.options.length < 2 || value.options.length > 16 || typeof value.created_at !== 'string' || typeof value.updated_at !== 'string' || Number.isNaN(Date.parse(value.created_at)) || Number.isNaN(Date.parse(value.updated_at))) throw new Error('DECISION_RESPONSE_INVALID');
   const options = value.options.map(parseOption);
   const answer = value.answer === undefined ? undefined : parseAnswer(value.answer);
-  return { decision_id: value.decision_id, task_id: value.task_id, question_revision: value.question_revision, category: value.category, state: value.state, expected_repository_revision: value.expected_repository_revision, question: value.question, reason: value.reason, risk_if_unanswered: value.risk_if_unanswered, safe_default: { action: value.safe_default.action, continuable_scopes: value.safe_default.continuable_scopes as string[] }, blocking_scopes: value.blocking_scopes as string[], options, answer, created_at: value.created_at, updated_at: value.updated_at };
+  if (!Array.isArray(value.answers) || value.answers.length > 256) throw new Error('DECISION_RESPONSE_INVALID');
+  const answers = value.answers.map(parseAnswer);
+  return { decision_id: value.decision_id, task_id: value.task_id, question_revision: value.question_revision, category: value.category, state: value.state, expected_repository_revision: value.expected_repository_revision, question: value.question, reason: value.reason, risk_if_unanswered: value.risk_if_unanswered, safe_default: { action: value.safe_default.action, continuable_scopes: value.safe_default.continuable_scopes as string[] }, blocking_scopes: value.blocking_scopes as string[], options, answer, answers, created_at: value.created_at, updated_at: value.updated_at };
 }
 
 function parseOption(value: unknown): DecisionOption { if (!isObject(value) || typeof value.id !== 'string' || typeof value.label !== 'string' || typeof value.consequence !== 'string') throw new Error('DECISION_RESPONSE_INVALID'); return { id: value.id, label: value.label, consequence: value.consequence }; }

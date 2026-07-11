@@ -388,6 +388,12 @@ func (*fakeDatabase) ListDecisions(context.Context, string, string, int) ([]deci
 func (*fakeDatabase) AnswerDecision(context.Context, decisionstore.AnswerInput) (decisionstore.Result, error) {
 	return decisionstore.Result{}, decisionstore.ErrNotFound
 }
+func (*fakeDatabase) SupersedeDecision(context.Context, decisionstore.SupersedeInput) (decisionstore.Result, error) {
+	return decisionstore.Result{}, decisionstore.ErrNotFound
+}
+func (*fakeDatabase) ResolveDecisionConflict(context.Context, decisionstore.ResolveInput) (decisionstore.Result, error) {
+	return decisionstore.Result{}, decisionstore.ErrNotFound
+}
 func (*fakeDatabase) GetTask(context.Context, string) (task.Record, error) {
 	return task.Record{}, taskstore.ErrNotFound
 }

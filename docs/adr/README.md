@@ -25,5 +25,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0016-optimistic-task-contract-revisions.md`: immutable encrypted revisions with one-winner optimistic concurrency
 - `0017-encrypted-decision-answers-and-conflicts.md`: revision-bound encrypted answers that preserve incompatible conflicts
 - `0018-vault-scoped-decision-queue-ui.md`: bounded current-baseline Decision review with renderer-state cleanup
+- `0019-decision-conflict-resolution-and-question-supersession.md`: explicit answer selection and revision-scoped question replacement
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

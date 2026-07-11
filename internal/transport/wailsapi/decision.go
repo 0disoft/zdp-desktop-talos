@@ -38,6 +38,7 @@ type DecisionDTO struct {
 	BlockingScopes             []string               `json:"blocking_scopes"`
 	Options                    []DecisionOptionDTO    `json:"options"`
 	Answer                     *DecisionAnswerDTO     `json:"answer,omitempty"`
+	Answers                    []DecisionAnswerDTO    `json:"answers"`
 	CreatedAt                  string                 `json:"created_at"`
 	UpdatedAt                  string                 `json:"updated_at"`
 }
@@ -67,6 +68,25 @@ type DecisionAnswerRequest struct {
 	QuestionRevision int    `json:"question_revision"`
 	SelectedOptionID string `json:"selected_option_id"`
 	Text             string `json:"text"`
+	RequestID        string `json:"request_id"`
+	CorrelationID    string `json:"correlation_id"`
+}
+type DecisionSupersedeRequest struct {
+	DecisionID               string                 `json:"decision_id"`
+	ExpectedQuestionRevision int                    `json:"expected_question_revision"`
+	Question                 string                 `json:"question"`
+	Reason                   string                 `json:"reason"`
+	RiskIfUnanswered         string                 `json:"risk_if_unanswered"`
+	SafeDefault              DecisionSafeDefaultDTO `json:"safe_default"`
+	BlockingScopes           []string               `json:"blocking_scopes"`
+	Options                  []DecisionOptionDTO    `json:"options"`
+	RequestID                string                 `json:"request_id"`
+	CorrelationID            string                 `json:"correlation_id"`
+}
+type DecisionResolveRequest struct {
+	DecisionID       string `json:"decision_id"`
+	QuestionRevision int    `json:"question_revision"`
+	SelectedAnswerID string `json:"selected_answer_id"`
 	RequestID        string `json:"request_id"`
 	CorrelationID    string `json:"correlation_id"`
 }
@@ -136,6 +156,44 @@ func (s *DecisionService) Answer(request DecisionAnswerRequest) DecisionResult {
 	return DecisionResult{Decision: &dto}
 }
 
+func (s *DecisionService) Supersede(request DecisionSupersedeRequest) DecisionResult {
+	correlationID := normalizeCorrelationID(request.CorrelationID)
+	if s.vault == nil || s.workspace == nil || strings.TrimSpace(request.DecisionID) == "" || request.ExpectedQuestionRevision < 1 || strings.TrimSpace(request.RequestID) == "" {
+		return decisionError(decisionstore.ErrInvalidCommand, correlationID)
+	}
+	snapshot, err := s.workspace.decisionSnapshot()
+	if err != nil {
+		return decisionError(err, correlationID)
+	}
+	options := make([]decision.Option, 0, len(request.Options))
+	for _, option := range request.Options {
+		options = append(options, decision.Option{ID: option.ID, Label: option.Label, Consequence: option.Consequence})
+	}
+	result, err := s.vault.supersedeDecision(vaultbootstrap.SupersedeDecisionInput{DecisionID: strings.TrimSpace(request.DecisionID), ExpectedQuestionRevision: request.ExpectedQuestionRevision, ExpectedRepositoryRevision: snapshot.BaselineCommit, Question: request.Question, Reason: request.Reason, RiskIfUnanswered: request.RiskIfUnanswered, SafeDefault: decision.SafeDefault{Action: request.SafeDefault.Action, ContinuableScopes: request.SafeDefault.ContinuableScopes}, BlockingScopes: request.BlockingScopes, Options: options, IdempotencyKey: "decision-supersede:" + strings.TrimSpace(request.RequestID)})
+	if err != nil {
+		return decisionError(err, correlationID)
+	}
+	dto := decisionDTO(result)
+	return DecisionResult{Decision: &dto}
+}
+
+func (s *DecisionService) ResolveConflict(request DecisionResolveRequest) DecisionResult {
+	correlationID := normalizeCorrelationID(request.CorrelationID)
+	if s.vault == nil || s.workspace == nil || strings.TrimSpace(request.DecisionID) == "" || request.QuestionRevision < 1 || strings.TrimSpace(request.SelectedAnswerID) == "" || strings.TrimSpace(request.RequestID) == "" {
+		return decisionError(decisionstore.ErrInvalidCommand, correlationID)
+	}
+	snapshot, err := s.workspace.decisionSnapshot()
+	if err != nil {
+		return decisionError(err, correlationID)
+	}
+	result, err := s.vault.resolveDecisionConflict(vaultbootstrap.ResolveDecisionConflictInput{DecisionID: strings.TrimSpace(request.DecisionID), QuestionRevision: request.QuestionRevision, ExpectedRepositoryRevision: snapshot.BaselineCommit, SelectedAnswerID: strings.TrimSpace(request.SelectedAnswerID), IdempotencyKey: "decision-resolve:" + strings.TrimSpace(request.RequestID)})
+	if err != nil {
+		return decisionError(err, correlationID)
+	}
+	dto := decisionDTO(result)
+	return DecisionResult{Decision: &dto}
+}
+
 func decisionError(err error, correlationID string) DecisionResult {
 	mapped := MapError(err, correlationID)
 	return DecisionResult{Error: &mapped}
@@ -147,6 +205,10 @@ func decisionDTO(result decisionstore.Result) DecisionDTO {
 		options = append(options, DecisionOptionDTO{ID: option.ID, Label: option.Label, Consequence: option.Consequence})
 	}
 	dto := DecisionDTO{DecisionID: result.Decision.ID, TaskID: result.Decision.TaskID, QuestionRevision: result.Decision.QuestionRevision, Category: string(result.Decision.Category), State: string(result.Decision.State), ExpectedRepositoryRevision: result.Decision.ExpectedRepositoryRevision, Question: result.Question.Question, Reason: result.Question.Reason, RiskIfUnanswered: result.Question.RiskIfUnanswered, SafeDefault: DecisionSafeDefaultDTO{Action: result.Question.SafeDefault.Action, ContinuableScopes: append([]string(nil), result.Question.SafeDefault.ContinuableScopes...)}, BlockingScopes: append([]string(nil), result.Question.BlockingScopes...), Options: options, CreatedAt: result.Decision.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"), UpdatedAt: result.Decision.UpdatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")}
+	dto.Answers = make([]DecisionAnswerDTO, 0, len(result.Answers))
+	for _, answer := range result.Answers {
+		dto.Answers = append(dto.Answers, DecisionAnswerDTO{AnswerID: answer.ID, SelectedOptionID: answer.SelectedOptionID, Text: answer.Text, CreatedAt: answer.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")})
+	}
 	if result.Answer != nil {
 		dto.Answer = &DecisionAnswerDTO{AnswerID: result.Answer.ID, SelectedOptionID: result.Answer.SelectedOptionID, Text: result.Answer.Text, CreatedAt: result.Answer.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")}
 	}
@@ -176,4 +238,20 @@ func (s *VaultService) answerDecision(input vaultbootstrap.AnswerDecisionInput) 
 		return decisionstore.Result{}, vaultbootstrap.ErrNotOpen
 	}
 	return s.session.AnswerDecision(context.Background(), input)
+}
+func (s *VaultService) supersedeDecision(input vaultbootstrap.SupersedeDecisionInput) (decisionstore.Result, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil {
+		return decisionstore.Result{}, vaultbootstrap.ErrNotOpen
+	}
+	return s.session.SupersedeDecision(context.Background(), input)
+}
+func (s *VaultService) resolveDecisionConflict(input vaultbootstrap.ResolveDecisionConflictInput) (decisionstore.Result, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil {
+		return decisionstore.Result{}, vaultbootstrap.ErrNotOpen
+	}
+	return s.session.ResolveDecisionConflict(context.Background(), input)
 }

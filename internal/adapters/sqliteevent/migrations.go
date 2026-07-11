@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 6
+const currentSchemaVersion = 7
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -129,6 +129,25 @@ var migrations = []migration{
 				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
 				UNIQUE(decision_id, answer_hash)
 			) STRICT`,
+		},
+	},
+	{
+		version: 7,
+		statements: []string{
+			`CREATE TABLE decision_answers_v7 (
+				answer_id TEXT PRIMARY KEY,
+				decision_id TEXT NOT NULL REFERENCES decisions(decision_id) ON DELETE RESTRICT,
+				question_revision INTEGER NOT NULL CHECK (question_revision > 0),
+				expected_repository_revision TEXT NOT NULL,
+				answer_hash TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				UNIQUE(decision_id, question_revision, answer_hash)
+			) STRICT`,
+			`INSERT INTO decision_answers_v7(answer_id, decision_id, question_revision, expected_repository_revision, answer_hash, created_at, event_id)
+			 SELECT answer_id, decision_id, question_revision, expected_repository_revision, answer_hash, created_at, event_id FROM decision_answers`,
+			`DROP TABLE decision_answers`,
+			`ALTER TABLE decision_answers_v7 RENAME TO decision_answers`,
 		},
 	},
 }

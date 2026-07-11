@@ -152,6 +152,75 @@ func TestConcurrentDifferentDecisionAnswersProduceConflict(t *testing.T) {
 	}
 }
 
+func TestDecisionConflictResolutionPreservesAnswers(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, filepath.Join(t.TempDir(), "vault.db"))
+	defer store.Close()
+	taskRecord := createDecisionTestTask(t, store)
+	created := createDecisionTestQuestion(t, store, taskRecord)
+	first, err := store.AnswerDecision(context.Background(), decisionstore.AnswerInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, QuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedOptionID: "yes", IdempotencyKey: "answer-yes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.AnswerDecision(context.Background(), decisionstore.AnswerInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, QuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedOptionID: "no", IdempotencyKey: "answer-no"}); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := store.ResolveDecisionConflict(context.Background(), decisionstore.ResolveInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, QuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedAnswerID: first.Answer.ID, IdempotencyKey: "resolve-yes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Decision.State != decision.StateAnswered || resolved.Answer == nil || resolved.Answer.ID != first.Answer.ID || len(resolved.Answers) != 2 {
+		t.Fatalf("resolved=%+v", resolved)
+	}
+	if got := tableCount(t, store, "decision_answers"); got != 2 {
+		t.Fatalf("answers=%d", got)
+	}
+	before := tableCount(t, store, "events")
+	replayed, err := store.ResolveDecisionConflict(context.Background(), decisionstore.ResolveInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, QuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedAnswerID: first.Answer.ID, IdempotencyKey: "resolve-yes"})
+	if err != nil || replayed.Answer == nil || replayed.Answer.ID != first.Answer.ID {
+		t.Fatalf("replayed=%+v err=%v", replayed, err)
+	}
+	if got := tableCount(t, store, "events"); got != before {
+		t.Fatalf("resolution replay appended event: %d != %d", got, before)
+	}
+}
+
+func TestSupersededDecisionUsesRevisionScopedAnswers(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, filepath.Join(t.TempDir(), "vault.db"))
+	defer store.Close()
+	taskRecord := createDecisionTestTask(t, store)
+	created := createDecisionTestQuestion(t, store, taskRecord)
+	v1Input := decisionstore.AnswerInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, QuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedOptionID: "yes", IdempotencyKey: "answer-v1"}
+	if _, err := store.AnswerDecision(context.Background(), v1Input); err != nil {
+		t.Fatal(err)
+	}
+	superseded, err := store.SupersedeDecision(context.Background(), decisionstore.SupersedeInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, ExpectedQuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, Question: "Proceed now?", Reason: "Context changed", RiskIfUnanswered: "Still blocked", SafeDefault: decision.SafeDefault{Action: "wait"}, BlockingScopes: []string{"step.execute"}, Options: []decision.Option{{ID: "yes", Label: "Yes", Consequence: "Proceed"}, {ID: "no", Label: "No", Consequence: "Stop"}}, IdempotencyKey: "supersede-v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if superseded.Decision.QuestionRevision != 2 || superseded.Decision.State != decision.StateOpen || len(superseded.Answers) != 0 {
+		t.Fatalf("superseded=%+v", superseded)
+	}
+	v2, err := store.AnswerDecision(context.Background(), decisionstore.AnswerInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, QuestionRevision: 2, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedOptionID: "yes", IdempotencyKey: "answer-v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v2.Decision.State != decision.StateAnswered || v2.Answer == nil || len(v2.Answers) != 1 {
+		t.Fatalf("v2=%+v", v2)
+	}
+	if got := tableCount(t, store, "decision_answers"); got != 2 {
+		t.Fatalf("revision answers=%d", got)
+	}
+	replayedV1, err := store.AnswerDecision(context.Background(), v1Input)
+	if err != nil || replayedV1.Decision.QuestionRevision != 1 || replayedV1.Question.QuestionRevision != 1 || replayedV1.Answer == nil || replayedV1.Answer.QuestionRevision != 1 {
+		t.Fatalf("replayed v1=%+v err=%v", replayedV1, err)
+	}
+	if _, err = store.AnswerDecision(context.Background(), decisionstore.AnswerInput{VaultID: "vault-alpha", DecisionID: created.Decision.ID, QuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedOptionID: "no", IdempotencyKey: "stale-v1"}); !errors.Is(err, decisionstore.ErrQuestionStale) {
+		t.Fatalf("stale err=%v", err)
+	}
+}
+
 func createDecisionTestTask(t *testing.T, store *Store) task.Record {
 	t.Helper()
 	ctx := context.Background()

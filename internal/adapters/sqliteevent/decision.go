@@ -17,9 +17,11 @@ import (
 )
 
 const (
-	decisionCreatedEventType   = "decision.created"
-	decisionAnsweredEventType  = "decision.answered"
-	decisionEventSchemaVersion = 1
+	decisionCreatedEventType    = "decision.created"
+	decisionAnsweredEventType   = "decision.answered"
+	decisionSupersededEventType = "decision.question.superseded"
+	decisionResolvedEventType   = "decision.conflict.resolved"
+	decisionEventSchemaVersion  = 1
 )
 
 type decisionQuestionPayload struct {
@@ -43,6 +45,16 @@ type decisionAnswerPayload struct {
 	Text                       string         `json:"text,omitempty"`
 	ResultingState             decision.State `json:"resulting_state"`
 	CreatedAt                  string         `json:"created_at"`
+	QuestionEventID            string         `json:"question_event_id,omitempty"`
+}
+
+type decisionResolutionPayload struct {
+	DecisionID                 string `json:"decision_id"`
+	QuestionRevision           int    `json:"question_revision"`
+	ExpectedRepositoryRevision string `json:"expected_repository_revision"`
+	SelectedAnswerID           string `json:"selected_answer_id"`
+	ResolvedAt                 string `json:"resolved_at"`
+	QuestionEventID            string `json:"question_event_id"`
 }
 
 type decisionPointer struct {
@@ -119,18 +131,7 @@ func (s *Store) GetDecision(ctx context.Context, decisionID string) (decisionsto
 	if err != nil {
 		return decisionstore.Result{}, err
 	}
-	if pointer.lastEventID != pointer.questionEventID {
-		answerEvent, err := s.Get(ctx, pointer.lastEventID)
-		if err != nil {
-			return decisionstore.Result{}, err
-		}
-		answer, _, err := answerFromEvent(answerEvent)
-		if err != nil {
-			return decisionstore.Result{}, err
-		}
-		result.Answer = &answer
-	}
-	return result, nil
+	return s.hydrateDecisionAnswers(ctx, s.db, s.Get, result, pointer)
 }
 
 func (s *Store) ListDecisions(ctx context.Context, vaultID, taskID string, limit int) ([]decisionstore.Result, error) {
@@ -163,16 +164,9 @@ func (s *Store) ListDecisions(ctx context.Context, vaultID, taskID string, limit
 		if err != nil {
 			return nil, err
 		}
-		if pointer.lastEventID != pointer.questionEventID {
-			answerEvent, err := s.Get(ctx, pointer.lastEventID)
-			if err != nil {
-				return nil, err
-			}
-			answer, _, err := answerFromEvent(answerEvent)
-			if err != nil {
-				return nil, err
-			}
-			result.Answer = &answer
+		result, err = s.hydrateDecisionAnswers(ctx, s.db, s.Get, result, pointer)
+		if err != nil {
+			return nil, err
 		}
 		results = append(results, result)
 	}
@@ -235,7 +229,7 @@ func (s *Store) AnswerDecision(ctx context.Context, input decisionstore.AnswerIn
 		return decisionstore.Result{}, decisionstore.ErrInvalidCommand
 	}
 	var existingAnswerEventID string
-	if err := tx.QueryRowContext(ctx, `SELECT event_id FROM decision_answers WHERE decision_id = ? AND answer_hash = ?`, input.DecisionID, answerHash).Scan(&existingAnswerEventID); err == nil {
+	if err := tx.QueryRowContext(ctx, `SELECT event_id FROM decision_answers WHERE decision_id = ? AND question_revision = ? AND answer_hash = ?`, input.DecisionID, input.QuestionRevision, answerHash).Scan(&existingAnswerEventID); err == nil {
 		record, err := s.getEventInTx(tx, existingAnswerEventID)
 		if err != nil {
 			return decisionstore.Result{}, err
@@ -246,12 +240,12 @@ func (s *Store) AnswerDecision(ctx context.Context, input decisionstore.AnswerIn
 		}
 		questionResult.Decision.State = decision.State(pointer.state)
 		questionResult.Answer = &answer
-		return questionResult, nil
+		return s.hydrateDecisionAnswers(ctx, tx, func(_ context.Context, eventID string) (event.Record, error) { return s.getEventInTx(tx, eventID) }, questionResult, pointer)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return decisionstore.Result{}, fmt.Errorf("find equivalent answer: %w", err)
 	}
 	var answerCount int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_answers WHERE decision_id = ?`, input.DecisionID).Scan(&answerCount); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_answers WHERE decision_id = ? AND question_revision = ?`, input.DecisionID, input.QuestionRevision).Scan(&answerCount); err != nil {
 		return decisionstore.Result{}, fmt.Errorf("count decision answers: %w", err)
 	}
 	resultingState := decision.StateAnswered
@@ -262,7 +256,7 @@ func (s *Store) AnswerDecision(ctx context.Context, input decisionstore.AnswerIn
 	if err != nil {
 		return decisionstore.Result{}, fmt.Errorf("generate answer id: %w", err)
 	}
-	payload := decisionAnswerPayload{AnswerID: answerID, DecisionID: input.DecisionID, QuestionRevision: input.QuestionRevision, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, SelectedOptionID: input.SelectedOptionID, Text: strings.TrimSpace(input.Text), ResultingState: resultingState, CreatedAt: occurredAt.Format(time.RFC3339Nano)}
+	payload := decisionAnswerPayload{AnswerID: answerID, DecisionID: input.DecisionID, QuestionRevision: input.QuestionRevision, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, SelectedOptionID: input.SelectedOptionID, Text: strings.TrimSpace(input.Text), ResultingState: resultingState, CreatedAt: occurredAt.Format(time.RFC3339Nano), QuestionEventID: pointer.questionEventID}
 	record, err := s.decisionEvent(input.VaultID, decisionAnsweredEventType, payload, occurredAt)
 	if err != nil {
 		return decisionstore.Result{}, err
@@ -290,7 +284,142 @@ func (s *Store) AnswerDecision(ctx context.Context, input decisionstore.AnswerIn
 	questionResult.Decision.UpdatedAt = occurredAt
 	questionResult.Decision.LastEventID = record.ID
 	questionResult.Answer = &answer
+	questionResult.Answers = []decision.Answer{answer}
 	return questionResult, nil
+}
+
+func (s *Store) SupersedeDecision(ctx context.Context, input decisionstore.SupersedeInput) (decisionstore.Result, error) {
+	now := input.OccurredAt
+	if now.IsZero() {
+		now = s.now()
+	}
+	now = now.UTC()
+	nextRevision := input.ExpectedQuestionRevision + 1
+	validation := decision.Question{DecisionID: input.DecisionID, QuestionRevision: nextRevision, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: input.BlockingScopes, Options: input.Options, CreatedAt: now, EventID: "validation-event"}
+	if input.VaultID == "" || input.DecisionID == "" || input.ExpectedQuestionRevision < 1 || input.ExpectedRepositoryRevision == "" || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || validation.Validate(decision.CategoryBlocking) != nil && validation.Validate(decision.CategoryQuality) != nil && validation.Validate(decision.CategoryFollowUp) != nil {
+		return decisionstore.Result{}, decisionstore.ErrInvalidCommand
+	}
+	hash, err := decisionSupersedeHash(input)
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return decisionstore.Result{}, fmt.Errorf("begin supersede transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	existing, found, err := s.resolveIdempotency(ctx, tx, input.IdempotencyKey, hash)
+	if err != nil {
+		return decisionstore.Result{}, mapDecisionIdempotencyError(err)
+	}
+	if found {
+		return s.decisionResultFromEvent(ctx, tx, existing)
+	}
+	pointer, err := scanDecisionPointer(tx.QueryRowContext(ctx, decisionSelect+" WHERE decision_id = ? AND vault_id = ?", input.DecisionID, input.VaultID))
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	if pointer.questionRevision != input.ExpectedQuestionRevision {
+		return decisionstore.Result{}, decisionstore.ErrQuestionStale
+	}
+	if pointer.repositoryRevision != input.ExpectedRepositoryRevision {
+		return decisionstore.Result{}, decisionstore.ErrRepositoryStale
+	}
+	category := decision.Category(pointer.category)
+	validation.EventID = "validation-event"
+	if validation.Validate(category) != nil {
+		return decisionstore.Result{}, decisionstore.ErrInvalidCommand
+	}
+	payload := decisionQuestionPayload{DecisionID: input.DecisionID, QuestionRevision: nextRevision, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: append([]string(nil), input.BlockingScopes...), Options: append([]decision.Option(nil), input.Options...), CreatedAt: now.Format(time.RFC3339Nano)}
+	record, err := s.decisionEvent(input.VaultID, decisionSupersededEventType, payload, now)
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	if err = s.insertEvent(ctx, tx, record); err != nil {
+		return decisionstore.Result{}, err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE decisions SET question_revision = ?, state = ?, updated_at = ?, question_event_id = ?, last_event_id = ? WHERE decision_id = ? AND question_revision = ?`, nextRevision, string(decision.StateOpen), payload.CreatedAt, record.ID, record.ID, input.DecisionID, input.ExpectedQuestionRevision)
+	if err != nil {
+		return decisionstore.Result{}, fmt.Errorf("supersede decision: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return decisionstore.Result{}, decisionstore.ErrQuestionStale
+	}
+	if err = claimIdempotency(ctx, tx, input.IdempotencyKey, record.ID, hash); err != nil {
+		return decisionstore.Result{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return decisionstore.Result{}, fmt.Errorf("commit supersede decision: %w", err)
+	}
+	return decisionResultFromQuestionPayload(pointer.vaultID, pointer.taskID, category, pointer.repositoryRevision, payload, record.ID)
+}
+
+func (s *Store) ResolveDecisionConflict(ctx context.Context, input decisionstore.ResolveInput) (decisionstore.Result, error) {
+	now := input.OccurredAt
+	if now.IsZero() {
+		now = s.now()
+	}
+	now = now.UTC()
+	if input.VaultID == "" || input.DecisionID == "" || input.QuestionRevision < 1 || input.ExpectedRepositoryRevision == "" || input.SelectedAnswerID == "" || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return decisionstore.Result{}, decisionstore.ErrInvalidCommand
+	}
+	hash, err := decisionResolveHash(input)
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return decisionstore.Result{}, fmt.Errorf("begin conflict resolution transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	existing, found, err := s.resolveIdempotency(ctx, tx, input.IdempotencyKey, hash)
+	if err != nil {
+		return decisionstore.Result{}, mapDecisionIdempotencyError(err)
+	}
+	if found {
+		return s.decisionResultFromEvent(ctx, tx, existing)
+	}
+	pointer, err := scanDecisionPointer(tx.QueryRowContext(ctx, decisionSelect+" WHERE decision_id = ? AND vault_id = ?", input.DecisionID, input.VaultID))
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	if pointer.questionRevision != input.QuestionRevision {
+		return decisionstore.Result{}, decisionstore.ErrQuestionStale
+	}
+	if pointer.repositoryRevision != input.ExpectedRepositoryRevision {
+		return decisionstore.Result{}, decisionstore.ErrRepositoryStale
+	}
+	if decision.State(pointer.state) != decision.StateConflicted {
+		return decisionstore.Result{}, decisionstore.ErrConflictRequired
+	}
+	var selectedEventID string
+	if err = tx.QueryRowContext(ctx, `SELECT event_id FROM decision_answers WHERE answer_id = ? AND decision_id = ? AND question_revision = ?`, input.SelectedAnswerID, input.DecisionID, input.QuestionRevision).Scan(&selectedEventID); errors.Is(err, sql.ErrNoRows) {
+		return decisionstore.Result{}, decisionstore.ErrAnswerNotFound
+	} else if err != nil {
+		return decisionstore.Result{}, err
+	}
+	payload := decisionResolutionPayload{DecisionID: input.DecisionID, QuestionRevision: input.QuestionRevision, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, SelectedAnswerID: input.SelectedAnswerID, ResolvedAt: now.Format(time.RFC3339Nano), QuestionEventID: pointer.questionEventID}
+	record, err := s.decisionEvent(input.VaultID, decisionResolvedEventType, payload, now)
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	if err = s.insertEvent(ctx, tx, record); err != nil {
+		return decisionstore.Result{}, err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE decisions SET state = ?, updated_at = ?, last_event_id = ? WHERE decision_id = ? AND question_revision = ? AND state = ?`, string(decision.StateAnswered), payload.ResolvedAt, record.ID, input.DecisionID, input.QuestionRevision, string(decision.StateConflicted))
+	if err != nil {
+		return decisionstore.Result{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return decisionstore.Result{}, decisionstore.ErrConflictRequired
+	}
+	if err = claimIdempotency(ctx, tx, input.IdempotencyKey, record.ID, hash); err != nil {
+		return decisionstore.Result{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return decisionstore.Result{}, fmt.Errorf("commit conflict resolution: %w", err)
+	}
+	return s.GetDecision(ctx, input.DecisionID)
 }
 
 const decisionSelect = `SELECT decision_id, vault_id, task_id, question_revision, category, state, expected_repository_revision, created_at, updated_at, question_event_id, last_event_id FROM decisions`
@@ -323,6 +452,20 @@ func (s *Store) decisionResultFromEvent(ctx context.Context, tx *sql.Tx, record 
 		}
 		result.Decision.State = decision.StateOpen
 		return result, nil
+	case decisionSupersededEventType:
+		var payload decisionQuestionPayload
+		if err := json.Unmarshal(record.Payload, &payload); err != nil {
+			return decisionstore.Result{}, err
+		}
+		pointer, err := scanDecisionPointer(tx.QueryRowContext(ctx, decisionSelect+" WHERE decision_id = ?", payload.DecisionID))
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		result, err := decisionResultFromQuestionPayload(pointer.vaultID, pointer.taskID, decision.Category(pointer.category), pointer.repositoryRevision, payload, record.ID)
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		return result, nil
 	case decisionAnsweredEventType:
 		answer, state, err := answerFromEvent(record)
 		if err != nil {
@@ -332,11 +475,14 @@ func (s *Store) decisionResultFromEvent(ctx context.Context, tx *sql.Tx, record 
 		if err != nil {
 			return decisionstore.Result{}, err
 		}
-		questionEvent, err := s.getEventInTx(tx, pointer.questionEventID)
+		questionEvent, err := s.decisionQuestionEventForRevision(ctx, tx, answer.DecisionID, answer.QuestionRevision, pointer.questionEventID)
 		if err != nil {
 			return decisionstore.Result{}, err
 		}
-		result, err := decisionResultFromPointer(questionEvent, pointer)
+		historicalPointer := pointer
+		historicalPointer.questionRevision = answer.QuestionRevision
+		historicalPointer.questionEventID = questionEvent.ID
+		result, err := decisionResultFromPointer(questionEvent, historicalPointer)
 		if err != nil {
 			return decisionstore.Result{}, err
 		}
@@ -344,14 +490,43 @@ func (s *Store) decisionResultFromEvent(ctx context.Context, tx *sql.Tx, record 
 		result.Decision.UpdatedAt = answer.CreatedAt
 		result.Decision.LastEventID = record.ID
 		result.Answer = &answer
+		result.Answers = []decision.Answer{answer}
 		return result, nil
+	case decisionResolvedEventType:
+		var payload decisionResolutionPayload
+		if err := json.Unmarshal(record.Payload, &payload); err != nil {
+			return decisionstore.Result{}, err
+		}
+		pointer, err := scanDecisionPointer(tx.QueryRowContext(ctx, decisionSelect+" WHERE decision_id = ?", payload.DecisionID))
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		questionEvent, err := s.decisionQuestionEventForRevision(ctx, tx, payload.DecisionID, payload.QuestionRevision, payload.QuestionEventID)
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		historicalPointer := pointer
+		historicalPointer.questionRevision = payload.QuestionRevision
+		historicalPointer.questionEventID = questionEvent.ID
+		historicalPointer.lastEventID = record.ID
+		result, err := decisionResultFromPointer(questionEvent, historicalPointer)
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		result.Decision.State = decision.StateAnswered
+		resolvedAt, err := time.Parse(time.RFC3339Nano, payload.ResolvedAt)
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		result.Decision.UpdatedAt, result.Decision.LastEventID = resolvedAt, record.ID
+		return s.hydrateDecisionAnswers(ctx, tx, func(_ context.Context, eventID string) (event.Record, error) { return s.getEventInTx(tx, eventID) }, result, historicalPointer)
 	default:
 		return decisionstore.Result{}, decisionstore.ErrIdempotencyConflict
 	}
 }
 
 func decisionResultFromPointer(record event.Record, pointer decisionPointer) (decisionstore.Result, error) {
-	if record.Type != decisionCreatedEventType || record.ID != pointer.questionEventID {
+	if (record.Type != decisionCreatedEventType && record.Type != decisionSupersededEventType) || record.ID != pointer.questionEventID {
 		return decisionstore.Result{}, errors.New("decision question pointer is invalid")
 	}
 	var payload decisionQuestionPayload
@@ -451,6 +626,118 @@ func decisionAnswerCommandHash(input decisionstore.AnswerInput) ([]byte, error) 
 	input.OccurredAt = input.OccurredAt.UTC()
 	input.Text = strings.TrimSpace(input.Text)
 	return requestHash(input)
+}
+func decisionSupersedeHash(input decisionstore.SupersedeInput) ([]byte, error) {
+	input.OccurredAt = input.OccurredAt.UTC()
+	return requestHash(input)
+}
+func decisionResolveHash(input decisionstore.ResolveInput) ([]byte, error) {
+	input.OccurredAt = input.OccurredAt.UTC()
+	return requestHash(input)
+}
+
+type decisionAnswerQueryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func (s *Store) hydrateDecisionAnswers(ctx context.Context, q decisionAnswerQueryer, load func(context.Context, string) (event.Record, error), result decisionstore.Result, pointer decisionPointer) (decisionstore.Result, error) {
+	rows, err := q.QueryContext(ctx, `SELECT answer_id, event_id FROM decision_answers WHERE decision_id = ? AND question_revision = ? ORDER BY created_at, answer_id`, pointer.id, pointer.questionRevision)
+	if err != nil {
+		return decisionstore.Result{}, fmt.Errorf("list decision answers: %w", err)
+	}
+	type answerRef struct{ id, eventID string }
+	refs := make([]answerRef, 0)
+	for rows.Next() {
+		var ref answerRef
+		if err := rows.Scan(&ref.id, &ref.eventID); err != nil {
+			_ = rows.Close()
+			return decisionstore.Result{}, err
+		}
+		refs = append(refs, ref)
+	}
+	if err := rows.Close(); err != nil {
+		return decisionstore.Result{}, err
+	}
+	if err := rows.Err(); err != nil {
+		return decisionstore.Result{}, err
+	}
+	result.Answers = make([]decision.Answer, 0, len(refs))
+	selectedID := ""
+	if pointer.lastEventID != pointer.questionEventID {
+		last, err := load(ctx, pointer.lastEventID)
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		switch last.Type {
+		case decisionAnsweredEventType:
+			a, _, err := answerFromEvent(last)
+			if err != nil {
+				return decisionstore.Result{}, err
+			}
+			selectedID = a.ID
+		case decisionResolvedEventType:
+			var p decisionResolutionPayload
+			if err := json.Unmarshal(last.Payload, &p); err != nil {
+				return decisionstore.Result{}, err
+			}
+			selectedID = p.SelectedAnswerID
+		}
+	}
+	for _, ref := range refs {
+		record, err := load(ctx, ref.eventID)
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		answer, _, err := answerFromEvent(record)
+		if err != nil {
+			return decisionstore.Result{}, err
+		}
+		result.Answers = append(result.Answers, answer)
+		if answer.ID == selectedID {
+			copy := answer
+			result.Answer = &copy
+		}
+	}
+	return result, nil
+}
+
+func (s *Store) decisionQuestionEventForRevision(ctx context.Context, tx *sql.Tx, decisionID string, revision int, preferredEventID string) (event.Record, error) {
+	if preferredEventID != "" {
+		record, err := s.getEventInTx(tx, preferredEventID)
+		if err == nil {
+			var payload decisionQuestionPayload
+			if (record.Type == decisionCreatedEventType || record.Type == decisionSupersededEventType) && json.Unmarshal(record.Payload, &payload) == nil && payload.DecisionID == decisionID && payload.QuestionRevision == revision {
+				return record, nil
+			}
+		}
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT event_id FROM events WHERE event_type IN (?, ?) ORDER BY occurred_at, event_id`, decisionCreatedEventType, decisionSupersededEventType)
+	if err != nil {
+		return event.Record{}, err
+	}
+	ids := make([]string, 0)
+	for rows.Next() {
+		var eventID string
+		if err := rows.Scan(&eventID); err != nil {
+			_ = rows.Close()
+			return event.Record{}, err
+		}
+		ids = append(ids, eventID)
+	}
+	if err := rows.Close(); err != nil {
+		return event.Record{}, err
+	}
+	for _, eventID := range ids {
+		record, err := s.getEventInTx(tx, eventID)
+		if err != nil {
+			return event.Record{}, err
+		}
+		var payload decisionQuestionPayload
+		if json.Unmarshal(record.Payload, &payload) == nil && payload.DecisionID == decisionID && payload.QuestionRevision == revision {
+			return record, nil
+		}
+	}
+	return event.Record{}, decisionstore.ErrIdempotencyUnverified
 }
 func mapDecisionIdempotencyError(err error) error {
 	switch {

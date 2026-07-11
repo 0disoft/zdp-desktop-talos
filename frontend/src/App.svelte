@@ -14,7 +14,7 @@
   } from './lib/api/vault';
   import { closeWorkspace, inspectRepository, type WorkspaceStatus } from './lib/api/workspace';
   import { createTaskContract, reviseTaskContract, type TaskStatus } from './lib/api/task';
-  import { answerDecision, listDecisions, type DecisionItem } from './lib/api/decision';
+  import { answerDecision, listDecisions, resolveDecisionConflict, type DecisionItem } from './lib/api/decision';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -224,6 +224,17 @@
     } finally { loading = false; }
   }
 
+  async function handleDecisionResolution(item: DecisionItem, answerID: string) {
+    loading = true; latestError = null;
+    try {
+      const result = await resolveDecisionConflict(item.decision_id, item.question_revision, answerID);
+      if (result.error) latestError = result.error;
+      else if (result.decision) decisions = decisions.map((current) => current.decision_id === result.decision?.decision_id ? result.decision : current);
+    } catch {
+      latestError = localError('DECISION_RESOLUTION_FAILED', '충돌 답변을 확정하지 못했습니다.');
+    } finally { loading = false; }
+  }
+
   function clearPrivateTaskState() {
     task = null; decisions = []; decisionDrafts = {}; editingTask = false;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
@@ -406,6 +417,15 @@
               </div>
               <label class="decision-text"><span>직접 답변</span><textarea bind:value={decisionDrafts[item.decision_id]} rows="2" maxlength="4096" disabled={loading}></textarea></label>
               <button type="button" class="secondary" onclick={() => handleDecisionAnswer(item)} disabled={loading || !(decisionDrafts[item.decision_id] ?? '').trim()}>답변 저장</button>
+            {:else if item.state === 'conflicted'}
+              <div class="decision-conflicts">
+                <p>서로 다른 답변이 들어왔습니다. 유지할 답변을 선택하세요.</p>
+                {#each item.answers as answer (answer.answer_id)}
+                  <button type="button" class="secondary" onclick={() => handleDecisionResolution(item, answer.answer_id)} disabled={loading}>
+                    {answer.selected_option_id ?? answer.text}
+                  </button>
+                {/each}
+              </div>
             {:else if item.answer}
               <p class="decision-answer">최근 답변: {item.answer.selected_option_id ?? item.answer.text}</p>
             {/if}
