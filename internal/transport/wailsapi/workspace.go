@@ -10,6 +10,12 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 )
 
+var (
+	errWorkspaceNotOpen = errors.New("workspace is not open")
+	errWorkspaceDirty   = errors.New("workspace has uncommitted changes")
+	errWorkspaceChanged = errors.New("workspace baseline changed")
+)
+
 type WorkspaceStatus struct {
 	State          string `json:"state"`
 	Root           string `json:"root,omitempty"`
@@ -72,6 +78,27 @@ func (s *WorkspaceService) Close() WorkspaceResult {
 	s.snapshot = nil
 	status := workspaceStatus(nil)
 	return WorkspaceResult{Workspace: &status}
+}
+
+func (s *WorkspaceService) contractSnapshot() (workspace.RepositorySnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.snapshot == nil {
+		return workspace.RepositorySnapshot{}, errWorkspaceNotOpen
+	}
+	current, err := s.inspector.Inspect(context.Background(), s.snapshot.Root)
+	if err != nil {
+		return workspace.RepositorySnapshot{}, err
+	}
+	previous := *s.snapshot
+	s.snapshot = &current
+	if current.Root != previous.Root || current.BaselineCommit != previous.BaselineCommit {
+		return workspace.RepositorySnapshot{}, errWorkspaceChanged
+	}
+	if current.Dirty {
+		return workspace.RepositorySnapshot{}, errWorkspaceDirty
+	}
+	return current, nil
 }
 
 func workspaceStatus(snapshot *workspace.RepositorySnapshot) WorkspaceStatus {

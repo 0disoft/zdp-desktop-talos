@@ -13,6 +13,7 @@
     type VaultStatus,
   } from './lib/api/vault';
   import { closeWorkspace, inspectRepository, type WorkspaceStatus } from './lib/api/workspace';
+  import { createTaskContract, type TaskStatus } from './lib/api/task';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -25,6 +26,11 @@
   let purgeConfirmation = $state('');
   let workspace = $state<WorkspaceStatus>({ state: 'closed' });
   let workspacePath = $state('');
+  let task = $state<TaskStatus | null>(null);
+  let taskGoal = $state('');
+  let taskPaths = $state('');
+  let taskCriteria = $state('');
+  let taskRisk = $state<'low' | 'medium' | 'high'>('medium');
 
   onMount(async () => {
     try {
@@ -152,6 +158,35 @@
     }
   }
 
+  async function handleTaskContract() {
+    if (vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty) return;
+    loading = true;
+    latestError = null;
+    try {
+      const result = await createTaskContract({
+        goal: taskGoal.trim(),
+        allowed_paths: lines(taskPaths),
+        forbidden_actions: ['git.push', 'git.commit', 'network.egress', 'dependency.install'],
+        acceptance_criteria: lines(taskCriteria),
+        risk: taskRisk,
+      });
+      if (result.error) {
+        latestError = result.error;
+        if (result.error.code === 'WORKSPACE_DIRTY' || result.error.code === 'WORKSPACE_BASELINE_CHANGED') {
+          workspace = { state: 'closed' };
+        }
+      } else if (result.task) task = result.task;
+    } catch {
+      latestError = localError('TASK_REQUEST_FAILED', 'Task Contract를 저장하지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
+  function lines(value: string): string[] {
+    return [...new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))];
+  }
+
   function localError(code: string, message: string): TalosError {
     return { code, message, retryable: false, correlation_id: '' };
   }
@@ -277,6 +312,29 @@
           <button type="button" class="secondary" onclick={handleWorkspace} disabled={loading}>Workspace 닫기</button>
         {/if}
       </div>
+    </article>
+
+    <article class="status-card task-card">
+      <div class="status-heading">
+        <span class:unlocked={task !== null} class="status-dot waiting" aria-hidden="true"></span>
+        <h2>Task Contract</h2>
+      </div>
+      <strong>{task ? `확정 · revision ${task.revision}` : '작성 대기'}</strong>
+      <p>{task ? `${task.risk} risk · ${task.baseline_commit.slice(0, 12)}` : '목표와 수정 범위, 완료 조건을 먼저 고정합니다.'}</p>
+      {#if task}
+        <div class="task-summary"><code>{task.task_id}</code></div>
+      {:else}
+        <div class="task-actions">
+          <label><span>목표</span><textarea bind:value={taskGoal} rows="3" maxlength="4096" disabled={loading} placeholder="이번 작업에서 끝낼 한 가지 목표"></textarea></label>
+          <label><span>수정 가능 경로 · 한 줄에 하나</span><textarea bind:value={taskPaths} rows="3" disabled={loading} placeholder="internal/domain/**"></textarea></label>
+          <label><span>완료 조건 · 한 줄에 하나</span><textarea bind:value={taskCriteria} rows="3" disabled={loading} placeholder="관련 테스트가 통과한다"></textarea></label>
+          <label class="task-risk"><span>위험도</span><select bind:value={taskRisk} disabled={loading}><option value="low">낮음</option><option value="medium">보통</option><option value="high">높음</option></select></label>
+          <button type="button" onclick={handleTaskContract} disabled={loading || vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty || !taskGoal.trim() || lines(taskPaths).length === 0 || lines(taskCriteria).length === 0}>계약 확정</button>
+          {#if vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty}
+            <small>{vault.state !== 'unlocked' ? 'Vault를 먼저 열어 주세요.' : workspace.state !== 'open' ? 'Workspace를 먼저 열어 주세요.' : '커밋되지 않은 변경을 먼저 정리해 주세요.'}</small>
+          {/if}
+        </div>
+      {/if}
     </article>
 
     <article class="status-card">

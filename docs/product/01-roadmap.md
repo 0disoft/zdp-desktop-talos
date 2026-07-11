@@ -7,7 +7,7 @@
 |---|---|---|
 | 0. Architecture spine (active) | repository layout, ADRs, Wails/package spike, worker IPC, encrypted event round trip | storage/IPC/DPAPI and packaging-contract tests pass; provisioned-host signed installer and native upgrade evidence remain |
 | 1. Vault and ledger (complete) | key abstraction, event append, encrypted blobs, materialized state | protected discovery, single-instance writes, create/list/open/lock/retention, recoverable encrypted blobs, and restart-safe hard purge are implemented |
-| 2. Workspace and contract (active) | Git inspection, baseline snapshot, Task and contract revisions | read-only inspection and atomic encrypted Task plus first contract persistence are implemented; desktop contract confirmation remains |
+| 2. Workspace and contract (active) | Git inspection, baseline snapshot, Task and contract revisions | read-only inspection, atomic encrypted persistence, and clean current-baseline desktop confirmation are implemented; revision 2+ editing remains |
 | 3. Decision Queue | scoped blocking, answer revision, conflict handling | unrelated steps continue while a decision is open |
 | 4. Worker and Git | task worktree, argv process execution, capabilities, cancellation | primary worktree remains untouched |
 | 5. Model runtime | provider port, egress receipt, structured plan and tool intents | one provider completes a bounded fake-repo scenario |

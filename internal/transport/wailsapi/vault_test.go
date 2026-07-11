@@ -188,9 +188,12 @@ func (*serviceDatabaseFactory) Remove(context.Context, string) error { return ni
 func (*serviceDatabaseFactory) Purge(context.Context, string) error  { return nil }
 
 type serviceDatabase struct {
-	closed   bool
-	closeErr error
-	record   vault.Record
+	closed      bool
+	closeErr    error
+	record      vault.Record
+	taskInput   taskstore.CreateInput
+	taskCreated taskstore.Created
+	taskErr     error
 }
 
 func (d *serviceDatabase) CreateVault(_ context.Context, input vaultstore.CreateInput) (vault.Record, error) {
@@ -220,8 +223,9 @@ func (*serviceDatabase) GetArtifact(context.Context, string) (artifact.Record, [
 	return artifact.Record{}, nil, artifactstore.ErrNotFound
 }
 func (*serviceDatabase) ReconcileArtifacts(context.Context) error { return nil }
-func (*serviceDatabase) CreateTaskContract(context.Context, taskstore.CreateInput) (taskstore.Created, error) {
-	return taskstore.Created{}, taskstore.ErrNotFound
+func (d *serviceDatabase) CreateTaskContract(_ context.Context, input taskstore.CreateInput) (taskstore.Created, error) {
+	d.taskInput = input
+	return d.taskCreated, d.taskErr
 }
 func (*serviceDatabase) GetTask(context.Context, string) (task.Record, error) {
 	return task.Record{}, taskstore.ErrNotFound

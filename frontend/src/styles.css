@@ -251,6 +251,71 @@ h1 {
   opacity: 0.5;
 }
 
+.task-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.task-actions label {
+  display: grid;
+  gap: 7px;
+  color: #8792a4;
+  font-size: 0.78rem;
+}
+
+.task-actions textarea,
+.task-actions select,
+.task-actions button {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+}
+
+.task-actions textarea {
+  resize: vertical;
+  min-height: 72px;
+  padding: 10px 12px;
+  color: #f4f7fb;
+  background: #111620;
+  font: inherit;
+}
+
+.task-actions select {
+  min-height: 42px;
+  padding: 0 12px;
+  color: #f4f7fb;
+  background: #111620;
+}
+
+.task-actions button {
+  min-height: 42px;
+  padding: 0 16px;
+  color: #08100d;
+  font-weight: 750;
+  background: #6fe7ba;
+  cursor: pointer;
+}
+
+.task-actions small {
+  color: #d3a77f;
+  line-height: 1.5;
+}
+
+.task-actions button:disabled,
+.task-actions textarea:disabled,
+.task-actions select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.task-summary code {
+  display: block;
+  margin-top: 18px;
+  overflow-wrap: anywhere;
+  color: #aeb8c8;
+  font-size: 0.76rem;
+}
+
 .vault-actions {
   flex-wrap: wrap;
   display: flex;

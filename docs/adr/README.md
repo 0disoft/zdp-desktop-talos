@@ -21,5 +21,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0012-restart-safe-vault-hard-purge.md`: protected purge journal, cryptographic erasure ordering, and restart reconciliation
 - `0013-read-only-git-workspace-inspection.md`: canonical read-only system Git inspection and bounded repository snapshots
 - `0014-atomic-encrypted-task-contracts.md`: atomic Task and first contract persistence with encrypted contract bodies
+- `0015-current-snapshot-task-confirmation.md`: clean current-baseline reinspection before desktop contract confirmation
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

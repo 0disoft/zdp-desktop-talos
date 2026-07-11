@@ -10,10 +10,12 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -47,6 +49,17 @@ type StoreArtifactInput struct {
 	Sensitivity   event.Sensitivity
 	ContentType   string
 	Payload       []byte
+}
+
+type CreateTaskContractInput struct {
+	WorkspaceRoot      string
+	BaselineCommit     string
+	Goal               string
+	AllowedPaths       []string
+	ForbiddenActions   []string
+	AcceptanceCriteria []string
+	Risk               task.Risk
+	IdempotencyKey     string
 }
 
 type HardPurgeInput struct {
@@ -118,6 +131,21 @@ func (s *Session) LoadArtifact(ctx context.Context, artifactID string) (artifact
 		return artifact.Record{}, nil, artifactstore.ErrNotFound
 	}
 	return record, payload, nil
+}
+
+func (s *Session) CreateTaskContract(ctx context.Context, input CreateTaskContractInput) (taskstore.Created, error) {
+	if s == nil || s.database == nil {
+		return taskstore.Created{}, ErrNotOpen
+	}
+	if input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return taskstore.Created{}, ErrInvalidInput
+	}
+	return s.database.CreateTaskContract(ctx, taskstore.CreateInput{
+		VaultID: s.Record.ID, WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: input.BaselineCommit,
+		Goal: input.Goal, AllowedPaths: input.AllowedPaths, ForbiddenActions: input.ForbiddenActions,
+		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk, OccurredAt: time.Now().UTC(),
+		IdempotencyKey: input.IdempotencyKey,
+	})
 }
 
 type Creator struct {

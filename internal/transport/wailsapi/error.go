@@ -8,6 +8,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
@@ -45,6 +46,18 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, vaultbootstrap.ErrPurgeIncomplete):
 		mapped.Code = "VAULT_PURGE_INCOMPLETE"
 		mapped.Message = "Vault 키 파기 또는 로컬 데이터 정리가 완료되지 않았습니다. 다음 시작 때 안전하게 다시 시도합니다."
+	case errors.Is(err, vaultbootstrap.ErrNotOpen):
+		mapped.Code = "VAULT_NOT_OPEN"
+		mapped.Message = "Task Contract를 저장하려면 Vault를 먼저 열어 주세요."
+	case errors.Is(err, taskstore.ErrInvalidCommand):
+		mapped.Code = "TASK_CONTRACT_INVALID"
+		mapped.Message = "Task Contract의 목표, 범위, 완료 조건을 확인해 주세요."
+	case errors.Is(err, taskstore.ErrIdempotencyConflict), errors.Is(err, taskstore.ErrIdempotencyUnverified):
+		mapped.Code = "TASK_REQUEST_CONFLICT"
+		mapped.Message = "같은 요청 식별자가 다른 Task Contract에 사용되었습니다."
+	case errors.Is(err, taskstore.ErrNotFound):
+		mapped.Code = "TASK_NOT_FOUND"
+		mapped.Message = "요청한 Task를 찾을 수 없습니다."
 	case errors.Is(err, vaultbootstrap.ErrInvalidInput), errors.Is(err, vaultstore.ErrInvalidCommand):
 		mapped.Code = "VAULT_INPUT_INVALID"
 		mapped.Message = "Vault 설정값을 확인해 주세요."
@@ -72,6 +85,15 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, repository.ErrInvalidPath):
 		mapped.Code = "WORKSPACE_PATH_INVALID"
 		mapped.Message = "저장소 폴더 경로를 확인해 주세요."
+	case errors.Is(err, errWorkspaceNotOpen):
+		mapped.Code = "WORKSPACE_NOT_OPEN"
+		mapped.Message = "Task Contract를 만들 저장소를 먼저 열어 주세요."
+	case errors.Is(err, errWorkspaceDirty):
+		mapped.Code = "WORKSPACE_DIRTY"
+		mapped.Message = "커밋되지 않은 변경이 없는 저장소에서 Task Contract를 만들어 주세요."
+	case errors.Is(err, errWorkspaceChanged):
+		mapped.Code = "WORKSPACE_BASELINE_CHANGED"
+		mapped.Message = "저장소 기준 커밋이 바뀌었습니다. 상태를 다시 확인해 주세요."
 	case errors.Is(err, repository.ErrGitUnavailable):
 		mapped.Code = "GIT_UNAVAILABLE"
 		mapped.Message = "이 기기에서 시스템 Git을 사용할 수 없습니다."
