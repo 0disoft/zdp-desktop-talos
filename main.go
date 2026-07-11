@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"embed"
+	"errors"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,15 +19,37 @@ var assets embed.FS
 func main() {
 	localDataRoot, rootErr := os.UserCacheDir()
 	var vaultService *wailsapi.VaultService
+	var singleInstance *application.SingleInstanceOptions
 	if rootErr != nil {
 		vaultService = wailsapi.NewVaultService(nil, rootErr)
 	} else {
-		creator, err := bootstrap.NewVaultCreator(filepath.Join(localDataRoot, "0disoft", "Talos Agent"))
-		vaultService = wailsapi.NewVaultService(creator, err)
+		root := filepath.Join(localDataRoot, "0disoft", "Talos Agent")
+		creator, creatorErr := bootstrap.NewVaultCreator(root)
+		instanceKey, instanceErr := bootstrap.LoadOrCreateInstanceKey(context.Background(), root)
+		if instanceErr == nil {
+			singleInstance = &application.SingleInstanceOptions{
+				UniqueID:      "com.0disoft.talos-agent",
+				EncryptionKey: instanceKey,
+				ExitCode:      0,
+			}
+		} else {
+			creator = nil
+		}
+		vaultService = wailsapi.NewVaultService(creator, errors.Join(creatorErr, instanceErr))
+	}
+	var window *application.WebviewWindow
+	if singleInstance != nil {
+		singleInstance.OnSecondInstanceLaunch = func(application.SecondInstanceData) {
+			if window != nil {
+				window.Restore()
+				window.Focus()
+			}
+		}
 	}
 	app := application.New(application.Options{
-		Name:        "zdp-desktop-talos",
-		Description: "기억 기반 로컬 코딩 에이전트",
+		Name:           "zdp-desktop-talos",
+		Description:    "기억 기반 로컬 코딩 에이전트",
+		SingleInstance: singleInstance,
 		Services: []application.Service{
 			application.NewService(&wailsapi.HealthService{}),
 			application.NewService(vaultService),
@@ -38,7 +62,7 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	window = app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Talos Agent",
 		Width:     1180,
 		Height:    760,

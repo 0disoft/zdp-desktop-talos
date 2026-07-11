@@ -22,7 +22,7 @@ Vault database and key-record filenames are intentionally derived hashes. After 
 
 Talos can now restart, discover protected local Vaults, and reopen one without asking the user to retain an identifier. Catalog corruption, missing keys, missing databases, and stored-identity mismatch fail closed with separate safe error categories.
 
-The catalog read-modify-write lock is process-local. Until the desktop shell enforces a single application instance or the catalog gains a cross-process lock, concurrent Talos processes are not a supported write topology.
+The catalog read-modify-write lock is process-local. ADR 0010 makes one encrypted-IPC desktop instance the supported writer; CLI and future helper mutation remain forbidden until they gain an explicit ownership protocol.
 
 ## Evidence
 

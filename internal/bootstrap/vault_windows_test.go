@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
@@ -68,5 +69,74 @@ func TestVaultCreatorRebuildDiscoversAndReopensProtectedVault(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInstanceKeyPersistsThroughDPAPIWithoutPlaintext(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	ctx := context.Background()
+	first, err := LoadOrCreateInstanceKey(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := LoadOrCreateInstanceKey(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || first == [instanceKeySize]byte{} {
+		t.Fatal("instance key was not stable and nonzero")
+	}
+	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(contents, first[:]) {
+			t.Fatalf("instance key leaked in plaintext file %s", filepath.Base(path))
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstanceKeyConcurrentFirstLaunchConverges(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	const callers = 8
+	keys := make(chan [instanceKeySize]byte, callers)
+	errorsFound := make(chan error, callers)
+	var group sync.WaitGroup
+	for range callers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			key, err := LoadOrCreateInstanceKey(context.Background(), root)
+			if err != nil {
+				errorsFound <- err
+				return
+			}
+			keys <- key
+		}()
+	}
+	group.Wait()
+	close(keys)
+	close(errorsFound)
+	for err := range errorsFound {
+		t.Fatal(err)
+	}
+	var expected [instanceKeySize]byte
+	for key := range keys {
+		if expected == [instanceKeySize]byte{} {
+			expected = key
+			continue
+		}
+		if key != expected {
+			t.Fatal("concurrent first launch produced different instance keys")
+		}
 	}
 }
