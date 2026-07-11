@@ -13,7 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/workerexec"
 )
 
-const WorkerVersion = "0.1.24"
+const WorkerVersion = "0.1.25"
 
 type StartRunPayload struct {
 	RunID        string                 `json:"run_id"`

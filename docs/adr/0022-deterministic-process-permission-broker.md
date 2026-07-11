@@ -29,4 +29,4 @@ The model can propose a process intent but cannot authorize it. The worker recei
 
 This remains policy isolation rather than an OS security sandbox. A same-user process may still access resources the operating system permits unless a later platform sandbox contains it.
 
-The next persistence slice must store grants, runs, and attempts and atomically consume `allow_once` with attempt creation before IPC dispatch. Until that exists, callers must not claim one-time grants are crash-safe.
+SQLite schema v8 stores grants, runs, and attempts, atomically consumes `allow_once` with attempt creation, rejects deny grants at the storage boundary, and reconciles interrupted pending attempts to `unknown` after restart. User-review UI and main-process dispatch assembly still remain; callers must not claim end-to-end execution authorization until those surfaces use the journal transaction.

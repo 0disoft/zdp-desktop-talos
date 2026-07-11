@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 7
+const currentSchemaVersion = 8
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -150,6 +150,53 @@ var migrations = []migration{
 			`ALTER TABLE decision_answers_v7 RENAME TO decision_answers`,
 		},
 	},
+	{
+		version: 8,
+		statements: []string{
+			`CREATE TABLE permission_grants (
+				grant_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				outcome TEXT NOT NULL CHECK (outcome IN ('deny','allow_once','allow_task','allow_workspace')),
+				state TEXT NOT NULL CHECK (state IN ('active','consumed','revoked')),
+				capability_hash TEXT NOT NULL,
+				task_id TEXT REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				workspace_hash TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				expires_at TEXT,
+				created_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE INDEX permission_grants_scope_idx ON permission_grants(vault_id, workspace_hash, state, task_id, created_at, grant_id)`,
+			`CREATE TABLE runs (
+				run_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				workspace_hash TEXT NOT NULL,
+				state TEXT NOT NULL CHECK (state IN ('active','completed','failed','canceled','unknown')),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				created_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE UNIQUE INDEX runs_one_active_workspace_idx ON runs(vault_id, workspace_hash) WHERE state = 'active'`,
+			`CREATE TABLE attempts (
+				attempt_id TEXT PRIMARY KEY,
+				run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE RESTRICT,
+				call_id TEXT NOT NULL UNIQUE,
+				capability_hash TEXT NOT NULL,
+				grant_id TEXT REFERENCES permission_grants(grant_id) ON DELETE RESTRICT,
+				state TEXT NOT NULL CHECK (state IN ('dispatch_pending','succeeded','failed','canceled','unknown')),
+				exit_code INTEGER,
+				safe_error_code TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				prepared_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE INDEX attempts_run_state_idx ON attempts(run_id, state, created_at, attempt_id)`,
+			`CREATE UNIQUE INDEX attempts_one_pending_run_idx ON attempts(run_id) WHERE state = 'dispatch_pending'`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -188,6 +235,9 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT task_id, revision, baseline_commit, created_at, event_id FROM task_contract_revisions LIMIT 0`,
 		`SELECT decision_id, vault_id, task_id, question_revision, category, state, expected_repository_revision, created_at, updated_at, question_event_id, last_event_id FROM decisions LIMIT 0`,
 		`SELECT answer_id, decision_id, question_revision, expected_repository_revision, answer_hash, created_at, event_id FROM decision_answers LIMIT 0`,
+		`SELECT grant_id, vault_id, outcome, state, capability_hash, task_id, workspace_hash, created_at, expires_at, created_event_id, last_event_id FROM permission_grants LIMIT 0`,
+		`SELECT run_id, vault_id, task_id, workspace_hash, state, created_at, updated_at, created_event_id, last_event_id FROM runs LIMIT 0`,
+		`SELECT attempt_id, run_id, call_id, capability_hash, grant_id, state, exit_code, safe_error_code, created_at, updated_at, prepared_event_id, last_event_id FROM attempts LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)
