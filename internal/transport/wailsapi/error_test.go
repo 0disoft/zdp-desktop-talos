@@ -23,3 +23,12 @@ func TestMapErrorDoesNotExposeInternalErrorText(t *testing.T) {
 		t.Fatalf("unexpected correlation id %q", mapped.CorrelationID)
 	}
 }
+
+func TestMapErrorDoesNotReflectUnboundedCorrelationID(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{strings.Repeat("a", 129), "request\nforged", "요청"} {
+		if mapped := MapError(errors.New("failed"), value); mapped.CorrelationID != "" {
+			t.Fatalf("unsafe correlation ID was reflected: %q", mapped.CorrelationID)
+		}
+	}
+}

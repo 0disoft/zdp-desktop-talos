@@ -75,6 +75,32 @@ func (f *Factory) Create(ctx context.Context, vaultID, keyID string, key []byte)
 	return &database{Store: store, sealer: sealer}, nil
 }
 
+func (f *Factory) Open(ctx context.Context, vaultID, keyID string, key []byte) (vaultdb.Database, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	path, err := f.path(vaultID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, vaultdb.ErrNotFound
+		}
+		return nil, fmt.Errorf("inspect Vault database: %w", err)
+	}
+	sealer, err := envelope.NewSealer(keyID, key)
+	if err != nil {
+		return nil, err
+	}
+	store, err := sqliteevent.Open(path, sealer)
+	if err != nil {
+		sealer.Destroy()
+		return nil, err
+	}
+	return &database{Store: store, sealer: sealer}, nil
+}
+
 func (f *Factory) Remove(ctx context.Context, vaultID string) error {
 	if err := ctx.Err(); err != nil {
 		return err

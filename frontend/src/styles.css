@@ -191,11 +191,21 @@ h1 {
 }
 
 .vault-actions {
+	flex-wrap: wrap;
   display: flex;
   align-items: end;
   gap: 10px;
   margin-top: auto;
   padding-top: 22px;
+}
+
+.vault-actions .vault-picker {
+  flex: 1 1 180px;
+}
+
+.vault-actions .secondary {
+  color: #d7deea;
+  background: transparent;
 }
 
 .vault-actions label {

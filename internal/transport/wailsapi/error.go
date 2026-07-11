@@ -6,6 +6,8 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
@@ -24,7 +26,7 @@ func MapError(err error, correlationID string) TalosError {
 		Code:          "INTERNAL_ERROR",
 		Message:       "요청을 완료하지 못했습니다.",
 		Retryable:     false,
-		CorrelationID: correlationID,
+		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
 	case errors.Is(err, event.ErrSecretPayload):
@@ -45,9 +47,34 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, vaultstore.ErrAlreadyExists):
 		mapped.Code = "VAULT_ALREADY_EXISTS"
 		mapped.Message = "같은 Vault가 이미 존재합니다."
+	case errors.Is(err, vaultcatalog.ErrCorrupt):
+		mapped.Code = "VAULT_CATALOG_INVALID"
+		mapped.Message = "보호된 Vault 목록을 검증할 수 없습니다."
+	case errors.Is(err, vaultbootstrap.ErrNotCataloged), errors.Is(err, vaultcatalog.ErrNotFound):
+		mapped.Code = "VAULT_NOT_FOUND"
+		mapped.Message = "요청한 Vault를 찾을 수 없습니다."
+	case errors.Is(err, keyvault.ErrNotFound), errors.Is(err, keyvault.ErrCorrupt), errors.Is(err, keyvault.ErrUnseal):
+		mapped.Code = "VAULT_OPEN_FAILED"
+		mapped.Message = "Vault 키 또는 로컬 데이터를 열 수 없습니다."
+	case errors.Is(err, vaultstore.ErrNotFound):
+		mapped.Code = "VAULT_OPEN_FAILED"
+		mapped.Message = "Vault 로컬 상태를 열 수 없습니다."
 	case errors.Is(err, workeripc.ErrVersionMismatch):
 		mapped.Code = "WORKER_PROTOCOL_VERSION_MISMATCH"
 		mapped.Message = "Worker와 앱의 프로토콜 버전이 다릅니다."
 	}
 	return mapped
+}
+
+func normalizeCorrelationID(value string) string {
+	if len(value) == 0 || len(value) > 128 {
+		return ""
+	}
+	for _, char := range value {
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-' || char == '_' || char == '.' || char == ':' {
+			continue
+		}
+		return ""
+	}
+	return value
 }

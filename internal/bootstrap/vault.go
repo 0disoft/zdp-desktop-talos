@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapicatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapikeyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/localvaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
@@ -21,7 +22,11 @@ func NewVaultCreator(localDataRoot string) (*vaultbootstrap.Creator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize Vault database storage: %w", err)
 	}
-	creator, err := vaultbootstrap.NewCreator(keys, databases)
+	catalog, err := dpapicatalog.New(keys)
+	if err != nil {
+		return nil, fmt.Errorf("initialize protected Vault catalog: %w", err)
+	}
+	creator, err := vaultbootstrap.NewCreator(keys, databases, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("initialize Vault creator: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 )
@@ -16,7 +17,7 @@ func TestVaultServiceCreatesThenLocksSession(t *testing.T) {
 	t.Parallel()
 	keys := &serviceKeyStore{}
 	database := &serviceDatabase{}
-	creator, err := vaultbootstrap.NewCreator(keys, &serviceDatabaseFactory{database: database})
+	creator, err := vaultbootstrap.NewCreator(keys, &serviceDatabaseFactory{database: database}, &serviceCatalog{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,6 +37,32 @@ func TestVaultServiceCreatesThenLocksSession(t *testing.T) {
 	}
 }
 
+func TestVaultServiceListsAndReopensCreatedVault(t *testing.T) {
+	t.Parallel()
+	keys := &serviceKeyStore{}
+	database := &serviceDatabase{}
+	factory := &serviceDatabaseFactory{database: database}
+	catalog := &serviceCatalog{}
+	creator, _ := vaultbootstrap.NewCreator(keys, factory, catalog)
+	service := NewVaultService(creator, nil)
+	created := service.Create(90, "create")
+	if created.Error != nil || created.Vault == nil {
+		t.Fatalf("create = %+v", created)
+	}
+	vaultID := created.Vault.VaultID
+	if result := service.Lock("lock"); result.Error != nil {
+		t.Fatalf("lock = %+v", result)
+	}
+	listed := service.List("list")
+	if listed.Error != nil || len(listed.Vaults) != 1 || listed.Vaults[0].VaultID != vaultID {
+		t.Fatalf("list = %+v", listed)
+	}
+	reopened := service.Open(vaultID, "open")
+	if reopened.Error != nil || reopened.Vault == nil || reopened.Vault.State != "unlocked" || reopened.Vault.RetentionDays != 90 {
+		t.Fatalf("open = %+v", reopened)
+	}
+}
+
 func TestVaultServiceFailsClosedWhenStorageIsUnavailable(t *testing.T) {
 	t.Parallel()
 	service := NewVaultService(nil, errors.New("C:\\Users\\private\\keys"))
@@ -51,7 +78,7 @@ func TestVaultServiceFailsClosedWhenStorageIsUnavailable(t *testing.T) {
 func TestVaultServiceDoesNotReportOpenAfterCloseFailure(t *testing.T) {
 	t.Parallel()
 	database := &serviceDatabase{closeErr: errors.New("flush failed")}
-	creator, _ := vaultbootstrap.NewCreator(&serviceKeyStore{}, &serviceDatabaseFactory{database: database})
+	creator, _ := vaultbootstrap.NewCreator(&serviceKeyStore{}, &serviceDatabaseFactory{database: database}, &serviceCatalog{})
 	service := NewVaultService(creator, nil)
 	if result := service.Create(30, "create"); result.Error != nil {
 		t.Fatalf("create result = %+v", result)
@@ -73,18 +100,38 @@ func TestMapErrorPrioritizesIncompleteCleanup(t *testing.T) {
 	}
 }
 
-type serviceKeyStore struct{}
+type serviceKeyStore struct {
+	value   []byte
+	present bool
+}
 
-func (*serviceKeyStore) Put(context.Context, keyvault.Reference, []byte) error { return nil }
-func (*serviceKeyStore) Get(context.Context, keyvault.Reference) ([]byte, error) {
-	return nil, keyvault.ErrNotFound
+func (s *serviceKeyStore) Put(_ context.Context, _ keyvault.Reference, value []byte) error {
+	s.value = append([]byte(nil), value...)
+	s.present = true
+	return nil
+}
+func (s *serviceKeyStore) Get(context.Context, keyvault.Reference) ([]byte, error) {
+	if !s.present {
+		return nil, keyvault.ErrNotFound
+	}
+	return append([]byte(nil), s.value...), nil
 }
 func (*serviceKeyStore) Rotate(context.Context, keyvault.Reference, []byte) error { return nil }
-func (*serviceKeyStore) Delete(context.Context, keyvault.Reference) error         { return nil }
+func (s *serviceKeyStore) Delete(context.Context, keyvault.Reference) error {
+	s.present = false
+	s.value = nil
+	return nil
+}
 
 type serviceDatabaseFactory struct{ database vaultdb.Database }
 
 func (f *serviceDatabaseFactory) Create(context.Context, string, string, []byte) (vaultdb.Database, error) {
+	return f.database, nil
+}
+func (f *serviceDatabaseFactory) Open(context.Context, string, string, []byte) (vaultdb.Database, error) {
+	if database, ok := f.database.(*serviceDatabase); ok {
+		database.closed = false
+	}
 	return f.database, nil
 }
 func (*serviceDatabaseFactory) Remove(context.Context, string) error { return nil }
@@ -92,18 +139,29 @@ func (*serviceDatabaseFactory) Remove(context.Context, string) error { return ni
 type serviceDatabase struct {
 	closed   bool
 	closeErr error
+	record   vault.Record
 }
 
-func (*serviceDatabase) CreateVault(_ context.Context, input vaultstore.CreateInput) (vault.Record, error) {
-	return vault.Record{
+func (d *serviceDatabase) CreateVault(_ context.Context, input vaultstore.CreateInput) (vault.Record, error) {
+	d.record = vault.Record{
 		ID: input.VaultID, Revision: 1, Status: vault.StatusActive, RetentionDays: input.RetentionDays,
 		CreatedAt: input.OccurredAt, UpdatedAt: input.OccurredAt, LastEventID: "event-1",
-	}, nil
+	}
+	return d.record, nil
 }
-func (*serviceDatabase) GetVault(context.Context, string) (vault.Record, error) {
-	return vault.Record{}, nil
+func (d *serviceDatabase) GetVault(context.Context, string) (vault.Record, error) {
+	return d.record, nil
 }
 func (*serviceDatabase) UpdateVaultRetention(context.Context, vaultstore.UpdateRetentionInput) (vault.Record, error) {
 	return vault.Record{}, nil
 }
 func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
+
+type serviceCatalog struct{ entries []vaultcatalog.Entry }
+
+func (c *serviceCatalog) List(context.Context) ([]vaultcatalog.Entry, error) { return c.entries, nil }
+func (c *serviceCatalog) Add(_ context.Context, entry vaultcatalog.Entry) error {
+	c.entries = append(c.entries, entry)
+	return nil
+}
+func (*serviceCatalog) Remove(context.Context, vaultcatalog.Entry) error { return nil }

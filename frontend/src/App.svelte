@@ -3,8 +3,11 @@
   import {
     createVault,
     getVaultStatus,
+    listVaults,
     lockVault,
+    openVault,
     type TalosError,
+    type VaultSummary,
     type VaultStatus,
   } from './lib/api/vault';
 
@@ -12,10 +15,20 @@
   let retentionDays = $state(30);
   let loading = $state(true);
   let latestError = $state<TalosError | null>(null);
+  let vaults = $state<VaultSummary[]>([]);
+  let selectedVaultID = $state('');
+  let creatingNew = $state(false);
 
   onMount(async () => {
     try {
-      vault = await getVaultStatus();
+      const [status, catalog] = await Promise.all([getVaultStatus(), listVaults()]);
+      vault = status;
+      if (catalog.error) {
+        latestError = catalog.error;
+      } else {
+        vaults = catalog.vaults;
+        selectedVaultID = catalog.vaults.at(-1)?.vault_id ?? '';
+      }
     } catch {
       latestError = localError('VAULT_STATUS_UNAVAILABLE', 'Vault 상태를 불러오지 못했습니다.');
     } finally {
@@ -23,7 +36,7 @@
     }
   });
 
-  async function handleVaultAction() {
+  async function handleCreateOrLock() {
     loading = true;
     latestError = null;
     try {
@@ -32,9 +45,34 @@
         latestError = result.error;
       } else if (result.vault) {
         vault = result.vault;
+        if (vault.state === 'unlocked') {
+          const catalog = await listVaults();
+          if (catalog.error) {
+            latestError = catalog.error;
+          } else {
+            vaults = catalog.vaults;
+            selectedVaultID = vault.vault_id ?? selectedVaultID;
+            creatingNew = false;
+          }
+        }
       }
     } catch {
       latestError = localError('VAULT_REQUEST_FAILED', 'Vault 요청을 완료하지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function handleOpen() {
+    if (!selectedVaultID) return;
+    loading = true;
+    latestError = null;
+    try {
+      const result = await openVault(selectedVaultID);
+      if (result.error) latestError = result.error;
+      else if (result.vault) vault = result.vault;
+    } catch {
+      latestError = localError('VAULT_REQUEST_FAILED', 'Vault를 열지 못했습니다.');
     } finally {
       loading = false;
     }
@@ -84,7 +122,18 @@
             : '안전한 키 저장소를 확인하고 있습니다.'}
       </p>
       <div class="vault-actions">
-        {#if vault.state === 'locked'}
+        {#if vault.state === 'locked' && vaults.length > 0 && !creatingNew}
+          <label class="vault-picker">
+            <span>기존 Vault</span>
+            <select bind:value={selectedVaultID} disabled={loading}>
+              {#each vaults as item}
+                <option value={item.vault_id}>{new Date(item.created_at).toLocaleDateString('ko-KR')} 생성</option>
+              {/each}
+            </select>
+          </label>
+          <button type="button" onclick={handleOpen} disabled={loading || !selectedVaultID}>Vault 열기</button>
+          <button type="button" class="secondary" onclick={() => (creatingNew = true)} disabled={loading}>새로 만들기</button>
+        {:else if vault.state === 'locked'}
           <label>
             <span>보존 기간</span>
             <select bind:value={retentionDays} disabled={loading}>
@@ -93,10 +142,13 @@
               <option value={365}>365일</option>
             </select>
           </label>
+          <button type="button" onclick={handleCreateOrLock} disabled={loading || !vault.persistent_key_store}>새 Vault 만들기</button>
+          {#if vaults.length > 0}
+            <button type="button" class="secondary" onclick={() => (creatingNew = false)} disabled={loading}>취소</button>
+          {/if}
+        {:else}
+          <button type="button" onclick={handleCreateOrLock} disabled={loading}>Vault 잠그기</button>
         {/if}
-        <button type="button" onclick={handleVaultAction} disabled={loading || (!vault.persistent_key_store && vault.state === 'locked')}>
-          {vault.state === 'unlocked' ? 'Vault 잠그기' : '새 Vault 만들기'}
-        </button>
       </div>
     </article>
 

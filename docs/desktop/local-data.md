@@ -13,6 +13,8 @@ The schema-version-3 Vault read model stores retention and lifecycle metadata wi
 
 On Windows, the application bootstrap keeps protected key records and per-Vault databases under separate children of `%LocalAppData%/0disoft/Talos Agent`. Creation is a compensated workflow: a database or initial-state failure removes any partial database and the newly protected key. Locking closes the database and clears the envelope sealer's in-memory key copy.
 
+The Vault discovery catalog is a versioned DPAPI-protected record, and catalog/key filenames are hashes rather than raw Vault IDs. Vault IDs still exist as SQLite event and state metadata; payload encryption does not claim to hide database structure or all metadata from a process that can read the local database file.
+
 ## Encryption and Keys
 
 The OS key store protects a Vault key-encryption key. Each stored event payload receives a random 256-bit data key and AES-256-GCM nonce; that data key is separately wrapped by the key-encryption key with authenticated context binding the Vault, object, schema, and sensitivity. Worker processes do not receive the Vault root key. Platforms without a supported secure key store fail with an explicit unsupported error; plaintext key-file fallback is forbidden.

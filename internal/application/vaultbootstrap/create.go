@@ -11,6 +11,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 )
@@ -23,6 +24,7 @@ const (
 var (
 	ErrInvalidInput       = errors.New("invalid Vault creation input")
 	ErrCompensationFailed = errors.New("Vault creation failed and cleanup was incomplete")
+	ErrNotCataloged       = errors.New("Vault is not present in the protected catalog")
 )
 
 type CreateInput struct {
@@ -46,17 +48,19 @@ func (s *Session) Close() error {
 type Creator struct {
 	keys      keyvault.Store
 	databases vaultdb.Factory
+	catalog   vaultcatalog.Catalog
 	random    io.Reader
 	now       func() time.Time
 }
 
-func NewCreator(keys keyvault.Store, databases vaultdb.Factory) (*Creator, error) {
-	if keys == nil || databases == nil {
+func NewCreator(keys keyvault.Store, databases vaultdb.Factory, catalog vaultcatalog.Catalog) (*Creator, error) {
+	if keys == nil || databases == nil || catalog == nil {
 		return nil, ErrInvalidInput
 	}
 	return &Creator{
 		keys:      keys,
 		databases: databases,
+		catalog:   catalog,
 		random:    rand.Reader,
 		now:       func() time.Time { return time.Now().UTC() },
 	}, nil
@@ -84,7 +88,7 @@ func (c *Creator) Create(ctx context.Context, input CreateInput) (*Session, erro
 
 	database, err := c.databases.Create(ctx, vaultID, VaultKeyID, key)
 	if err != nil {
-		return nil, c.compensate(ctx, fmt.Errorf("create Vault database: %w", err), vaultID, keyRef, nil)
+		return nil, c.compensate(ctx, fmt.Errorf("create Vault database: %w", err), vaultcatalog.Entry{}, keyRef, nil)
 	}
 	record, err := database.CreateVault(ctx, vaultstore.CreateInput{
 		VaultID:        vaultID,
@@ -93,20 +97,73 @@ func (c *Creator) Create(ctx context.Context, input CreateInput) (*Session, erro
 		IdempotencyKey: "vault-bootstrap:" + vaultID,
 	})
 	if err != nil {
-		return nil, c.compensate(ctx, fmt.Errorf("initialize Vault state: %w", err), vaultID, keyRef, database)
+		return nil, c.compensate(ctx, fmt.Errorf("initialize Vault state: %w", err), vaultcatalog.Entry{}, keyRef, database)
+	}
+	entry := vaultcatalog.Entry{VaultID: vaultID, CreatedAt: record.CreatedAt}
+	if err := c.catalog.Add(ctx, entry); err != nil {
+		return nil, c.compensate(ctx, fmt.Errorf("register Vault in catalog: %w", err), entry, keyRef, database)
 	}
 	return &Session{Record: record, database: database}, nil
 }
 
-func (c *Creator) compensate(ctx context.Context, cause error, vaultID string, keyRef keyvault.Reference, database vaultdb.Database) error {
+func (c *Creator) List(ctx context.Context) ([]vaultcatalog.Entry, error) {
+	return c.catalog.List(ctx)
+}
+
+func (c *Creator) Open(ctx context.Context, vaultID string) (*Session, error) {
+	if !id.IsUUIDv7(vaultID) {
+		return nil, ErrNotCataloged
+	}
+	entries, err := c.catalog.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read protected Vault catalog: %w", err)
+	}
+	found := false
+	for _, entry := range entries {
+		if entry.VaultID == vaultID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, ErrNotCataloged
+	}
+	keyRef := keyvault.Reference{VaultID: vaultID, KeyID: VaultKeyID}
+	key, err := c.keys.Get(ctx, keyRef)
+	if err != nil {
+		return nil, fmt.Errorf("load Vault key: %w", err)
+	}
+	defer clear(key)
+	database, err := c.databases.Open(ctx, vaultID, VaultKeyID, key)
+	if err != nil {
+		return nil, fmt.Errorf("open Vault database: %w", err)
+	}
+	record, err := database.GetVault(ctx, vaultID)
+	if err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("load Vault state: %w", err)
+	}
+	if record.ID != vaultID || record.Status != vault.StatusActive {
+		_ = database.Close()
+		return nil, fmt.Errorf("%w: stored Vault identity or state is invalid", ErrNotCataloged)
+	}
+	return &Session{Record: record, database: database}, nil
+}
+
+func (c *Creator) compensate(ctx context.Context, cause error, entry vaultcatalog.Entry, keyRef keyvault.Reference, database vaultdb.Database) error {
 	cleanupCtx := context.WithoutCancel(ctx)
 	var cleanupErrors []error
+	if !entry.CreatedAt.IsZero() {
+		if err := c.catalog.Remove(cleanupCtx, entry); err != nil && !errors.Is(err, vaultcatalog.ErrNotFound) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("remove partial Vault catalog entry: %w", err))
+		}
+	}
 	if database != nil {
 		if err := database.Close(); err != nil {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf("close partial Vault database: %w", err))
 		}
 	}
-	if err := c.databases.Remove(cleanupCtx, vaultID); err != nil && !errors.Is(err, vaultdb.ErrNotFound) {
+	if err := c.databases.Remove(cleanupCtx, keyRef.VaultID); err != nil && !errors.Is(err, vaultdb.ErrNotFound) {
 		cleanupErrors = append(cleanupErrors, fmt.Errorf("remove partial Vault database: %w", err))
 	}
 	if err := c.keys.Delete(cleanupCtx, keyRef); err != nil && !errors.Is(err, keyvault.ErrNotFound) {

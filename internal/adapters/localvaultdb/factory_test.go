@@ -31,6 +31,13 @@ func TestFactoryCreatesOpaqueExclusiveDatabaseAndRemovesSidecars(t *testing.T) {
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
+	reopened, err := factory.Open(context.Background(), "vault-alpha", "vault-kek-v1", key)
+	if err != nil {
+		t.Fatalf("reopen failed: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path+"-wal", []byte("fixture"), 0o600); err != nil {
 		t.Fatal(err)
 	}
