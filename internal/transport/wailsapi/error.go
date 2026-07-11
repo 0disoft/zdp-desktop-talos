@@ -7,6 +7,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
@@ -68,6 +69,24 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, vaultstore.ErrNotFound):
 		mapped.Code = "VAULT_OPEN_FAILED"
 		mapped.Message = "Vault 로컬 상태를 열 수 없습니다."
+	case errors.Is(err, repository.ErrInvalidPath):
+		mapped.Code = "WORKSPACE_PATH_INVALID"
+		mapped.Message = "저장소 폴더 경로를 확인해 주세요."
+	case errors.Is(err, repository.ErrGitUnavailable):
+		mapped.Code = "GIT_UNAVAILABLE"
+		mapped.Message = "이 기기에서 시스템 Git을 사용할 수 없습니다."
+	case errors.Is(err, repository.ErrNotRepository):
+		mapped.Code = "WORKSPACE_NOT_GIT_REPOSITORY"
+		mapped.Message = "지원되는 Git worktree를 찾을 수 없습니다."
+	case errors.Is(err, repository.ErrNoBaselineCommit):
+		mapped.Code = "WORKSPACE_BASELINE_MISSING"
+		mapped.Message = "첫 커밋이 없는 저장소는 아직 작업 기준점으로 사용할 수 없습니다."
+	case errors.Is(err, repository.ErrOutputLimit):
+		mapped.Code = "WORKSPACE_CHANGE_LIMIT_EXCEEDED"
+		mapped.Message = "변경 파일이 너무 많아 안전하게 저장소 상태를 검사하지 못했습니다."
+	case errors.Is(err, repository.ErrInspectionFailed):
+		mapped.Code = "WORKSPACE_INSPECTION_FAILED"
+		mapped.Message = "Git 저장소 상태를 안전하게 검사하지 못했습니다."
 	case errors.Is(err, workeripc.ErrVersionMismatch):
 		mapped.Code = "WORKER_PROTOCOL_VERSION_MISMATCH"
 		mapped.Message = "Worker와 앱의 프로토콜 버전이 다릅니다."

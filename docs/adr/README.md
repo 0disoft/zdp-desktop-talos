@@ -19,5 +19,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0010-protected-single-instance.md`: per-user encrypted instance IPC and one desktop writer for Vault state
 - `0011-recoverable-encrypted-artifact-staging.md`: crash-recoverable encrypted artifact files and schema version 4 metadata
 - `0012-restart-safe-vault-hard-purge.md`: protected purge journal, cryptographic erasure ordering, and restart reconciliation
+- `0013-read-only-git-workspace-inspection.md`: canonical read-only system Git inspection and bounded repository snapshots
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

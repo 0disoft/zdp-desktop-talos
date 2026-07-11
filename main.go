@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
 	"github.com/0disoft/zdp-desktop-talos/internal/bootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/transport/wailsapi"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -19,6 +20,8 @@ var assets embed.FS
 func main() {
 	localDataRoot, rootErr := os.UserCacheDir()
 	var vaultService *wailsapi.VaultService
+	inspector, inspectorErr := gitcli.New()
+	workspaceService := wailsapi.NewWorkspaceService(inspector, inspectorErr)
 	var singleInstance *application.SingleInstanceOptions
 	if rootErr != nil {
 		vaultService = wailsapi.NewVaultService(nil, rootErr)
@@ -53,6 +56,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(&wailsapi.HealthService{}),
 			application.NewService(vaultService),
+			application.NewService(workspaceService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

@@ -190,6 +190,67 @@ h1 {
   flex-direction: column;
 }
 
+.workspace-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 22px;
+}
+
+.workspace-actions label {
+  display: grid;
+  flex: 1 1 260px;
+  gap: 7px;
+  color: #8792a4;
+  font-size: 0.78rem;
+}
+
+.workspace-actions input,
+.workspace-actions button {
+  min-height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+}
+
+.workspace-actions input {
+  min-width: 0;
+  padding: 0 12px;
+  color: #f4f7fb;
+  background: #111620;
+}
+
+.workspace-actions button {
+  padding: 0 16px;
+  color: #08100d;
+  font-weight: 750;
+  background: #6fe7ba;
+  cursor: pointer;
+}
+
+.workspace-actions button.secondary {
+  color: #d7deea;
+  background: transparent;
+}
+
+.workspace-actions code {
+  overflow-wrap: anywhere;
+  color: #aeb8c8;
+  font-size: 0.76rem;
+}
+
+.workspace-actions button:disabled,
+.workspace-actions input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .vault-actions {
   flex-wrap: wrap;
   display: flex;

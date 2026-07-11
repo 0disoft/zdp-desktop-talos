@@ -25,6 +25,7 @@
 
 - one repository has at most one active Run;
 - one Task Contract revision never changes its baseline;
+- repository snapshots use a canonical worktree root, an exact commit baseline, bounded porcelain-v2 changes, and a capture time;
 - stale Decision revisions cannot resolve the current question;
 - duplicate commands and events produce at most one side effect;
 - evidence becomes stale when the repository revision or diff hash changes;

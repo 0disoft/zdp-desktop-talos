@@ -12,6 +12,7 @@
     type VaultSummary,
     type VaultStatus,
   } from './lib/api/vault';
+  import { closeWorkspace, inspectRepository, type WorkspaceStatus } from './lib/api/workspace';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -22,6 +23,8 @@
   let creatingNew = $state(false);
   let purgeOpen = $state(false);
   let purgeConfirmation = $state('');
+  let workspace = $state<WorkspaceStatus>({ state: 'closed' });
+  let workspacePath = $state('');
 
   onMount(async () => {
     try {
@@ -132,6 +135,23 @@
     }
   }
 
+  async function handleWorkspace() {
+    loading = true;
+    latestError = null;
+    try {
+      const result = workspace.state === 'open' ? await closeWorkspace() : await inspectRepository(workspacePath.trim());
+      if (result.error) latestError = result.error;
+      else if (result.workspace) {
+        workspace = result.workspace;
+        if (workspace.state === 'open') workspacePath = workspace.root ?? workspacePath;
+      }
+    } catch {
+      latestError = localError('WORKSPACE_REQUEST_FAILED', 'Git 저장소 상태를 확인하지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
   function localError(code: string, message: string): TalosError {
     return { code, message, retryable: false, correlation_id: '' };
   }
@@ -230,6 +250,31 @@
               <button type="button" class="secondary" onclick={() => { purgeOpen = false; purgeConfirmation = ''; }} disabled={loading}>취소</button>
             </div>
           {/if}
+        {/if}
+      </div>
+    </article>
+
+    <article class="status-card workspace-card">
+      <div class="status-heading">
+        <span class:unlocked={workspace.state === 'open'} class="status-dot locked" aria-hidden="true"></span>
+        <h2>Workspace</h2>
+      </div>
+      <strong>{workspace.state === 'open' ? (workspace.detached ? 'Detached HEAD' : workspace.head_ref) : '닫힘'}</strong>
+      <p>
+        {workspace.state === 'open'
+          ? `${workspace.dirty ? `변경 ${workspace.change_count}개` : '변경 없음'} · ${workspace.baseline_commit?.slice(0, 12)}`
+          : '로컬 Git 저장소를 작업 기준점으로 검사합니다.'}
+      </p>
+      <div class="workspace-actions">
+        {#if workspace.state === 'closed'}
+          <label>
+            <span>저장소 폴더</span>
+            <input bind:value={workspacePath} autocomplete="off" spellcheck="false" disabled={loading} placeholder="C:\workspace\repository" />
+          </label>
+          <button type="button" onclick={handleWorkspace} disabled={loading || !workspacePath.trim()}>저장소 검사</button>
+        {:else}
+          <code>{workspace.root}</code>
+          <button type="button" class="secondary" onclick={handleWorkspace} disabled={loading}>Workspace 닫기</button>
         {/if}
       </div>
     </article>
