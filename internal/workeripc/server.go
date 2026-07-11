@@ -7,7 +7,7 @@ import (
 	"io"
 )
 
-const WorkerVersion = "0.1.15"
+const WorkerVersion = "0.1.16"
 
 func Serve(reader io.Reader, writer io.Writer) error {
 	decoder := NewDecoder(reader, MaxFrameSize)

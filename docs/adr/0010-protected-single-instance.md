@@ -13,7 +13,7 @@ Wails provides a cross-platform single-instance lock, but its second-instance no
 ## Decision
 
 - Run one Talos desktop instance per operating-system user profile through Wails `SingleInstanceOptions` with the stable ID `com.0disoft.talos-agent`.
-- Generate one random 256-bit instance IPC key and store it as a current-user DPAPI record under the Talos system namespace. Concurrent first-launch creation resolves `already exists` by loading the winning protected key.
+- Generate one random 256-bit instance IPC key and store it as a current-user DPAPI record under the Talos system namespace. Concurrent first-launch creation resolves `already exists` by loading the winning protected key with context-aware bounded backoff for transient Windows sharing violations.
 - Configure single-instance IPC only after the protected key is successfully loaded. If instance-key setup fails, disable Vault storage rather than permit catalog writes without the process lock.
 - Encrypt Wails second-instance notifications with the protected instance key. The first process ignores arguments, working directory, and additional data; it only restores and focuses the existing window.
 - Never log or persist second-instance notification content.
@@ -27,6 +27,6 @@ CLI commands and future helper processes must not mutate the Vault catalog direc
 ## Evidence
 
 - protected instance-key create/reload and plaintext-marker test;
-- concurrent key creation fallback in the bootstrap implementation;
+- concurrent key creation fallback and eight-caller first-launch convergence in the bootstrap implementation;
 - desktop compilation against the pinned Wails single-instance API;
 - Vault storage fail-closed assembly when the instance key is unavailable.
