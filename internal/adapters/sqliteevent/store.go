@@ -1,9 +1,12 @@
 package sqliteevent
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,8 +20,10 @@ import (
 )
 
 var (
-	ErrNotFound           = errors.New("event not found")
-	ErrInvalidAppendInput = errors.New("invalid append input")
+	ErrNotFound                = errors.New("event not found")
+	ErrInvalidAppendInput      = errors.New("invalid append input")
+	ErrIdempotencyConflict     = errors.New("idempotency key was already used for a different request")
+	ErrIdempotencyUnverifiable = errors.New("legacy idempotency result cannot be verified against the request")
 )
 
 type Store struct {
@@ -49,35 +54,26 @@ func Open(path string, sealer *envelope.Sealer) (*Store, error) {
 }
 
 func (s *Store) initialize(ctx context.Context) error {
-	statements := []string{
+	pragmas := []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=FULL",
 		"PRAGMA foreign_keys=ON",
-		`CREATE TABLE IF NOT EXISTS events (
-			event_id TEXT PRIMARY KEY,
-			vault_id TEXT NOT NULL,
-			event_type TEXT NOT NULL,
-			schema_version INTEGER NOT NULL CHECK (schema_version > 0),
-			sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public','private','sensitive','secret')),
-			payload_envelope BLOB NOT NULL,
-			occurred_at TEXT NOT NULL
-		) STRICT`,
-		`CREATE TABLE IF NOT EXISTS idempotency_keys (
-			idempotency_key TEXT PRIMARY KEY,
-			event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
-		) STRICT`,
 	}
-	for _, statement := range statements {
+	for _, statement := range pragmas {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("initialize sqlite event store: %w", err)
 		}
 	}
-	return nil
+	return applyMigrations(ctx, s.db)
 }
 
 func (s *Store) Append(ctx context.Context, input eventstore.AppendInput) (event.Record, error) {
-	if input.VaultID == "" || input.Type == "" || input.SchemaVersion < 1 || input.IdempotencyKey == "" {
-		return event.Record{}, ErrInvalidAppendInput
+	if err := validateAppendInput(input); err != nil {
+		return event.Record{}, err
+	}
+	requestHash, err := appendRequestHash(input)
+	if err != nil {
+		return event.Record{}, fmt.Errorf("hash append request: %w", err)
 	}
 	if input.OccurredAt.IsZero() {
 		input.OccurredAt = s.now()
@@ -89,8 +85,14 @@ func (s *Store) Append(ctx context.Context, input eventstore.AppendInput) (event
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	existing, err := s.getByIdempotency(ctx, tx, input.IdempotencyKey)
+	existing, existingHash, err := s.getByIdempotency(ctx, tx, input.IdempotencyKey)
 	if err == nil {
+		if len(existingHash) == 0 {
+			return event.Record{}, ErrIdempotencyUnverifiable
+		}
+		if !bytes.Equal(existingHash, requestHash) {
+			return event.Record{}, ErrIdempotencyConflict
+		}
 		return existing, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
@@ -126,8 +128,8 @@ func (s *Store) Append(ctx context.Context, input eventstore.AppendInput) (event
 		return event.Record{}, fmt.Errorf("insert event: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO idempotency_keys(idempotency_key, event_id) VALUES(?, ?)",
-		input.IdempotencyKey, record.ID,
+		"INSERT INTO idempotency_keys(idempotency_key, event_id, request_hash) VALUES(?, ?, ?)",
+		input.IdempotencyKey, record.ID, requestHash,
 	); err != nil {
 		return event.Record{}, fmt.Errorf("claim idempotency key: %w", err)
 	}
@@ -143,10 +145,12 @@ func (s *Store) Get(ctx context.Context, eventID string) (event.Record, error) {
 	return s.scanRecord(row)
 }
 
-func (s *Store) getByIdempotency(ctx context.Context, tx *sql.Tx, key string) (event.Record, error) {
-	row := tx.QueryRowContext(ctx, `SELECT e.event_id, e.vault_id, e.event_type, e.schema_version, e.sensitivity, e.payload_envelope, e.occurred_at
+func (s *Store) getByIdempotency(ctx context.Context, tx *sql.Tx, key string) (event.Record, []byte, error) {
+	row := tx.QueryRowContext(ctx, `SELECT e.event_id, e.vault_id, e.event_type, e.schema_version, e.sensitivity, e.payload_envelope, e.occurred_at, i.request_hash
 		FROM idempotency_keys i JOIN events e ON e.event_id = i.event_id WHERE i.idempotency_key = ?`, key)
-	return s.scanRecord(row)
+	var requestHash []byte
+	record, err := s.scanRecordWithTail(row, &requestHash)
+	return record, requestHash, err
 }
 
 type scanner interface {
@@ -154,13 +158,19 @@ type scanner interface {
 }
 
 func (s *Store) scanRecord(row scanner) (event.Record, error) {
+	return s.scanRecordWithTail(row)
+}
+
+func (s *Store) scanRecordWithTail(row scanner, tail ...any) (event.Record, error) {
 	var (
 		record      event.Record
 		sensitivity string
 		encrypted   []byte
 		occurredAt  string
 	)
-	if err := row.Scan(&record.ID, &record.VaultID, &record.Type, &record.SchemaVersion, &sensitivity, &encrypted, &occurredAt); err != nil {
+	destinations := []any{&record.ID, &record.VaultID, &record.Type, &record.SchemaVersion, &sensitivity, &encrypted, &occurredAt}
+	destinations = append(destinations, tail...)
+	if err := row.Scan(destinations...); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return event.Record{}, ErrNotFound
 		}
@@ -181,6 +191,53 @@ func (s *Store) scanRecord(row scanner) (event.Record, error) {
 		return event.Record{}, fmt.Errorf("validate stored event: %w", err)
 	}
 	return record, nil
+}
+
+func validateAppendInput(input eventstore.AppendInput) error {
+	if input.VaultID == "" || input.Type == "" || input.SchemaVersion < 1 || input.IdempotencyKey == "" {
+		return ErrInvalidAppendInput
+	}
+	occurredAt := input.OccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = time.Unix(1, 0).UTC()
+	}
+	record := event.Record{
+		ID:            "validation-event",
+		VaultID:       input.VaultID,
+		Type:          input.Type,
+		SchemaVersion: input.SchemaVersion,
+		Sensitivity:   input.Sensitivity,
+		Payload:       input.Payload,
+		OccurredAt:    occurredAt,
+	}
+	return record.Validate()
+}
+
+func appendRequestHash(input eventstore.AppendInput) ([]byte, error) {
+	occurredAt := ""
+	if !input.OccurredAt.IsZero() {
+		occurredAt = input.OccurredAt.UTC().Format(time.RFC3339Nano)
+	}
+	encoded, err := json.Marshal(struct {
+		VaultID       string            `json:"vault_id"`
+		Type          string            `json:"type"`
+		SchemaVersion int               `json:"schema_version"`
+		Sensitivity   event.Sensitivity `json:"sensitivity"`
+		Payload       []byte            `json:"payload"`
+		OccurredAt    string            `json:"occurred_at"`
+	}{
+		VaultID:       input.VaultID,
+		Type:          input.Type,
+		SchemaVersion: input.SchemaVersion,
+		Sensitivity:   input.Sensitivity,
+		Payload:       input.Payload,
+		OccurredAt:    occurredAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(encoded)
+	return sum[:], nil
 }
 
 func (s *Store) Checkpoint(ctx context.Context) error {

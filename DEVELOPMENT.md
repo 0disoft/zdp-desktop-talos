@@ -5,7 +5,7 @@
 
 ## Current Phase
 
-The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, encrypted events survive a SQLite restart, Windows current-user DPAPI protects Vault key-encryption keys, and the Windows NSIS/signing source contract is tested. A provisioned signing-host run and native clean-install/N-1-upgrade evidence remain explicit release blockers.
+The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, encrypted events survive a SQLite restart, ledger schemas migrate forward with request-bound idempotency, Windows current-user DPAPI protects Vault key-encryption keys, and the Windows NSIS/signing source contract is tested. A provisioned signing-host run and native clean-install/N-1-upgrade evidence remain explicit release blockers.
 
 ## Current Layout
 

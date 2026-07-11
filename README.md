@@ -15,7 +15,7 @@ Talos owns the installed desktop application, local Vault, task execution, Decis
 - Wails `v3.0.0-alpha.2.117` desktop shell, isolated at the root and transport boundary
 - Svelte `5.56.4`, Vite `8.1.4`, and TypeScript `6.0.3` renderer
 - Go desktop process, versioned worker process, and `talosctl doctor`
-- SQLite event store with transactional idempotency and encrypted payloads
+- versioned SQLite event store with request-bound transactional idempotency and encrypted payloads
 - AES-256-GCM envelope encryption with a random data key per payload
 - Windows current-user DPAPI storage for Vault key-encryption keys
 - a 4 MiB-bounded, length-prefixed JSON worker protocol over stdio
