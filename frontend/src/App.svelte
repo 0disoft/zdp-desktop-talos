@@ -1,3 +1,50 @@
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import {
+    createVault,
+    getVaultStatus,
+    lockVault,
+    type TalosError,
+    type VaultStatus,
+  } from './lib/api/vault';
+
+  let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
+  let retentionDays = $state(30);
+  let loading = $state(true);
+  let latestError = $state<TalosError | null>(null);
+
+  onMount(async () => {
+    try {
+      vault = await getVaultStatus();
+    } catch {
+      latestError = localError('VAULT_STATUS_UNAVAILABLE', 'Vault 상태를 불러오지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  });
+
+  async function handleVaultAction() {
+    loading = true;
+    latestError = null;
+    try {
+      const result = vault.state === 'unlocked' ? await lockVault() : await createVault(retentionDays);
+      if (result.error) {
+        latestError = result.error;
+      } else if (result.vault) {
+        vault = result.vault;
+      }
+    } catch {
+      latestError = localError('VAULT_REQUEST_FAILED', 'Vault 요청을 완료하지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
+  function localError(code: string, message: string): TalosError {
+    return { code, message, retryable: false, correlation_id: '' };
+  }
+</script>
+
 <svelte:head>
   <meta
     name="description"
@@ -11,7 +58,7 @@
       <span class="brand-mark" aria-hidden="true">T</span>
       <span>Talos Agent</span>
     </div>
-    <span class="phase">Architecture Spine</span>
+    <span class="phase">Private Alpha</span>
   </header>
 
   <section class="hero" aria-labelledby="hero-title">
@@ -23,13 +70,34 @@
   </section>
 
   <section class="status-grid" aria-label="Talos 상태">
-    <article class="status-card">
+    <article class="status-card vault-card">
       <div class="status-heading">
-        <span class="status-dot locked" aria-hidden="true"></span>
+        <span class:unlocked={vault.state === 'unlocked'} class="status-dot locked" aria-hidden="true"></span>
         <h2>Vault</h2>
       </div>
-      <strong>잠김</strong>
-      <p>Vault를 만들면 기기 전용 키와 암호화된 로컬 저장소가 함께 준비됩니다.</p>
+      <strong>{loading ? '확인 중' : vault.state === 'unlocked' ? '열림' : '잠김'}</strong>
+      <p>
+        {vault.state === 'unlocked'
+          ? `보존 기간 ${vault.retention_days}일 · revision ${vault.revision}`
+          : vault.persistent_key_store
+            ? '기기 전용 키 저장소를 사용할 수 있습니다.'
+            : '안전한 키 저장소를 확인하고 있습니다.'}
+      </p>
+      <div class="vault-actions">
+        {#if vault.state === 'locked'}
+          <label>
+            <span>보존 기간</span>
+            <select bind:value={retentionDays} disabled={loading}>
+              <option value={30}>30일</option>
+              <option value={90}>90일</option>
+              <option value={365}>365일</option>
+            </select>
+          </label>
+        {/if}
+        <button type="button" onclick={handleVaultAction} disabled={loading || (!vault.persistent_key_store && vault.state === 'locked')}>
+          {vault.state === 'unlocked' ? 'Vault 잠그기' : '새 Vault 만들기'}
+        </button>
+      </div>
     </article>
 
     <article class="status-card">
@@ -38,16 +106,16 @@
         <h2>Worker</h2>
       </div>
       <strong>대기</strong>
-      <p>프로토콜 버전 1의 handshake와 안전한 종료 경로가 준비되어 있습니다.</p>
+      <p>작업 실행은 Task Contract와 권한 검사가 준비된 뒤 시작됩니다.</p>
     </article>
 
-    <article class="status-card">
+    <article class="status-card" aria-live="polite">
       <div class="status-heading">
-        <span class="status-dot clear" aria-hidden="true"></span>
+        <span class:error={latestError !== null} class="status-dot clear" aria-hidden="true"></span>
         <h2>최근 오류</h2>
       </div>
-      <strong>없음</strong>
-      <p>오류 상세 대신 안전한 코드와 상관관계 ID만 화면에 표시합니다.</p>
+      <strong>{latestError ? latestError.code : '없음'}</strong>
+      <p>{latestError ? latestError.message : '로컬 보안 경계가 정상적으로 유지되고 있습니다.'}</p>
     </article>
   </section>
 
