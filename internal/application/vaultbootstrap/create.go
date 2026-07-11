@@ -8,8 +8,11 @@ import (
 	"io"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
@@ -36,6 +39,13 @@ type UpdateRetentionInput struct {
 	ExpectedRevision int
 	RetentionDays    int
 	IdempotencyKey   string
+}
+
+type StoreArtifactInput struct {
+	SchemaVersion int
+	Sensitivity   event.Sensitivity
+	ContentType   string
+	Payload       []byte
 }
 
 type Session struct {
@@ -77,6 +87,31 @@ func (s *Session) UpdateRetention(ctx context.Context, input UpdateRetentionInpu
 	}
 	s.Record = record
 	return record, nil
+}
+
+func (s *Session) StoreArtifact(ctx context.Context, input StoreArtifactInput) (artifact.Record, error) {
+	if s == nil || s.database == nil {
+		return artifact.Record{}, ErrNotOpen
+	}
+	return s.database.PutArtifact(ctx, artifactstore.PutInput{
+		VaultID: s.Record.ID, SchemaVersion: input.SchemaVersion, Sensitivity: input.Sensitivity,
+		ContentType: input.ContentType, Payload: input.Payload,
+	})
+}
+
+func (s *Session) LoadArtifact(ctx context.Context, artifactID string) (artifact.Record, []byte, error) {
+	if s == nil || s.database == nil {
+		return artifact.Record{}, nil, ErrNotOpen
+	}
+	record, payload, err := s.database.GetArtifact(ctx, artifactID)
+	if err != nil {
+		return artifact.Record{}, nil, err
+	}
+	if record.VaultID != s.Record.ID {
+		clear(payload)
+		return artifact.Record{}, nil, artifactstore.ErrNotFound
+	}
+	return record, payload, nil
 }
 
 type Creator struct {

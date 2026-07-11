@@ -15,6 +15,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapikeyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/eventstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -230,6 +231,15 @@ func sqliteCheck(ctx context.Context) (Check, error) {
 		_ = store.Close()
 		return Check{}, fmt.Errorf("update materialized Vault state: %w", err)
 	}
+	artifactMarker := []byte("talos-doctor-artifact-private-marker")
+	storedArtifact, err := store.PutArtifact(ctx, artifactstore.PutInput{
+		VaultID: "doctor-vault", SchemaVersion: 1, Sensitivity: event.SensitivitySensitive,
+		ContentType: "text/plain; charset=utf-8", Payload: artifactMarker,
+	})
+	if err != nil {
+		_ = store.Close()
+		return Check{}, fmt.Errorf("store encrypted artifact: %w", err)
+	}
 	if err := store.Checkpoint(ctx); err != nil {
 		_ = store.Close()
 		return Check{}, err
@@ -243,6 +253,20 @@ func sqliteCheck(ctx context.Context) (Check, error) {
 	}
 	if bytes.Contains(databaseBytes, marker) {
 		return Check{}, fmt.Errorf("plaintext marker found in SQLite database")
+	}
+	artifactFiles, err := os.ReadDir(databasePath + ".blobs")
+	if err != nil {
+		return Check{}, fmt.Errorf("inspect encrypted artifact files: %w", err)
+	}
+	if len(artifactFiles) != 1 {
+		return Check{}, fmt.Errorf("inspect encrypted artifact files: count=%d", len(artifactFiles))
+	}
+	artifactCiphertext, err := os.ReadFile(filepath.Join(databasePath+".blobs", artifactFiles[0].Name()))
+	if err != nil {
+		return Check{}, err
+	}
+	if bytes.Contains(artifactCiphertext, artifactMarker) {
+		return Check{}, fmt.Errorf("plaintext marker found in artifact ciphertext")
 	}
 
 	reopened, err := sqliteevent.Open(databasePath, sealer)
@@ -264,12 +288,22 @@ func sqliteCheck(ctx context.Context) (Check, error) {
 	if restoredVault != vaultUpdated {
 		return Check{}, fmt.Errorf("restarted store returned different Vault state")
 	}
+	restoredArtifact, restoredArtifactPayload, err := reopened.GetArtifact(ctx, storedArtifact.ID)
+	if err != nil {
+		return Check{}, fmt.Errorf("restore encrypted artifact: %w", err)
+	}
+	defer clear(restoredArtifactPayload)
+	if restoredArtifact != storedArtifact || !bytes.Equal(restoredArtifactPayload, artifactMarker) {
+		return Check{}, fmt.Errorf("restarted store returned different artifact")
+	}
 	return Check{Name: "encrypted_sqlite", Status: "passed", Details: map[string]any{
-		"restart_roundtrip":       true,
-		"plaintext_marker_absent": true,
-		"idempotency_bound":       true,
-		"vault_state_revision":    restoredVault.Revision,
-		"vault_state_restart":     true,
+		"restart_roundtrip":         true,
+		"plaintext_marker_absent":   true,
+		"idempotency_bound":         true,
+		"vault_state_revision":      restoredVault.Revision,
+		"vault_state_restart":       true,
+		"artifact_restart":          true,
+		"artifact_plaintext_absent": true,
 	}}, nil
 }
 

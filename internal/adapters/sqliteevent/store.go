@@ -27,10 +27,11 @@ var (
 )
 
 type Store struct {
-	db     *sql.DB
-	sealer *envelope.Sealer
-	now    func() time.Time
-	random io.Reader
+	db       *sql.DB
+	sealer   *envelope.Sealer
+	blobRoot string
+	now      func() time.Time
+	random   io.Reader
 }
 
 func Open(path string, sealer *envelope.Sealer) (*Store, error) {
@@ -45,7 +46,7 @@ func Open(path string, sealer *envelope.Sealer) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 
-	store := &Store{db: db, sealer: sealer, now: func() time.Time { return time.Now().UTC() }, random: rand.Reader}
+	store := &Store{db: db, sealer: sealer, blobRoot: path + ".blobs", now: func() time.Time { return time.Now().UTC() }, random: rand.Reader}
 	if err := store.initialize(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -64,7 +65,13 @@ func (s *Store) initialize(ctx context.Context) error {
 			return fmt.Errorf("initialize sqlite event store: %w", err)
 		}
 	}
-	return applyMigrations(ctx, s.db)
+	if err := applyMigrations(ctx, s.db); err != nil {
+		return err
+	}
+	if err := ensureOwnedDirectory(s.blobRoot); err != nil {
+		return err
+	}
+	return s.ReconcileArtifacts(ctx)
 }
 
 func (s *Store) Append(ctx context.Context, input eventstore.AppendInput) (event.Record, error) {

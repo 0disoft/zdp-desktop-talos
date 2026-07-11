@@ -78,6 +78,7 @@ func (s *Sealer) Seal(plaintext []byte, metadata AAD) ([]byte, error) {
 	if _, err := io.ReadFull(s.random, dek); err != nil {
 		return nil, fmt.Errorf("generate data key: %w", err)
 	}
+	defer clear(dek)
 
 	payloadAEAD, err := newAEAD(dek)
 	if err != nil {
@@ -139,6 +140,7 @@ func (s *Sealer) Open(encoded []byte, metadata AAD) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: unwrap data key", ErrInvalidEnvelope)
 	}
+	defer clear(dek)
 
 	payloadAEAD, err := newAEAD(dek)
 	if err != nil {

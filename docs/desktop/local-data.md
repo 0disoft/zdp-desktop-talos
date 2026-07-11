@@ -7,6 +7,8 @@
 
 Each Vault uses one local SQLite database for events, materialized state, idempotency records, and artifact metadata. Large prompts, diffs, logs, and reports live as content-addressed encrypted blobs. Search indexes, embedding caches, and model summaries are disposable local derivatives.
 
+Artifact ciphertext is stored under the opaque per-Vault database path in a sibling `.blobs` directory. Files are staged, flushed, recorded, promoted, and marked ready in separate recoverable steps because filesystem rename cannot join a SQLite transaction. Startup reconciliation never treats an incomplete stage as a ready artifact, and reads verify ciphertext and plaintext hashes. Individual payloads are currently bounded to 64 MiB.
+
 Event and state updates share one database transaction. WAL files, checkpoints, backups, and crash recovery are part of the durability contract, not implementation trivia.
 
 The schema-version-3 Vault read model stores retention and lifecycle metadata with optimistic revisions and a reference to its last event. It does not store whether a Vault is unlocked. Unlock authority is process-local and must be re-established from the OS key store after every restart.

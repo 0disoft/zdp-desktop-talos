@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 )
 
 func TestVaultCreatorRebuildDiscoversAndReopensProtectedVault(t *testing.T) {
@@ -27,6 +28,14 @@ func TestVaultCreatorRebuildDiscoversAndReopensProtectedVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	vaultID := created.Record.ID
+	artifactMarker := []byte("windows-bootstrap-artifact-private-marker")
+	storedArtifact, err := created.StoreArtifact(ctx, vaultbootstrap.StoreArtifactInput{
+		SchemaVersion: 1, Sensitivity: event.SensitivitySensitive,
+		ContentType: "text/plain; charset=utf-8", Payload: artifactMarker,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := created.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +58,14 @@ func TestVaultCreatorRebuildDiscoversAndReopensProtectedVault(t *testing.T) {
 	if reopened.Record.ID != vaultID || reopened.Record.RetentionDays != 90 {
 		t.Fatalf("reopened = %+v", reopened.Record)
 	}
+	loadedArtifact, payload, err := reopened.LoadArtifact(ctx, storedArtifact.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loadedArtifact != storedArtifact || !bytes.Equal(payload, artifactMarker) {
+		t.Fatalf("loaded artifact=%+v payload=%q", loadedArtifact, payload)
+	}
+	clear(payload)
 	if err := reopened.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +82,13 @@ func TestVaultCreatorRebuildDiscoversAndReopensProtectedVault(t *testing.T) {
 			if bytes.Contains(contents, []byte(vaultID)) || bytes.Contains([]byte(filepath.Base(path)), []byte(vaultID)) {
 				t.Fatalf("Vault ID leaked in protected catalog or key record %s", filepath.Base(path))
 			}
+		}
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(contents, artifactMarker) {
+			t.Fatalf("artifact plaintext leaked in %s", filepath.Base(path))
 		}
 		return nil
 	}); err != nil {

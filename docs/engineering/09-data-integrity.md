@@ -6,6 +6,8 @@
 
 Appending an event, advancing stream/device heads, recording idempotency, and updating materialized state occur in one SQLite transaction. Large payload blobs are committed through a recoverable staging protocol so a database row never silently points to absent or unverified ciphertext.
 
+Implemented artifact storage writes exclusive same-directory staging files, records `staged` metadata in schema version 4, promotes ciphertext by rename, and then marks metadata `ready`. Vault startup reconciles interrupted promotions, removes abandoned staged rows and narrowly identified orphan stage files, and fails closed when a ready artifact's ciphertext or plaintext integrity metadata does not match.
+
 Implemented Vault metadata uses a `STRICT` materialized table. Vault creation and retention changes append an encrypted event, update the revisioned state row, and claim idempotency atomically. Stale revisions and changed-intent key reuse fail without partial writes. Session lock state is deliberately not persisted: a restarted process must reacquire key authority from the supported OS key store.
 
 SQLite schema changes use monotonic `PRAGMA user_version` migrations. Each migration commits atomically, newer application-incompatible schemas are rejected, and the adapter validates required columns after migration instead of trusting the version integer alone. Migrations are forward-only; backup and roll-forward policy are separate release gates for destructive changes.

@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 3
+const currentSchemaVersion = 4
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -55,6 +55,26 @@ var migrations = []migration{
 			) STRICT`,
 		},
 	},
+	{
+		version: 4,
+		statements: []string{
+			`CREATE TABLE artifacts (
+				artifact_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL,
+				schema_version INTEGER NOT NULL CHECK (schema_version > 0),
+				sensitivity TEXT NOT NULL CHECK (sensitivity IN ('public','private','sensitive')),
+				content_type TEXT NOT NULL,
+				size_bytes INTEGER NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 67108864),
+				content_hash TEXT NOT NULL,
+				ciphertext_hash TEXT NOT NULL,
+				storage_name TEXT NOT NULL,
+				staging_name TEXT NOT NULL,
+				state TEXT NOT NULL CHECK (state IN ('staged','ready')),
+				created_at TEXT NOT NULL
+			) STRICT`,
+			`CREATE INDEX artifacts_state_idx ON artifacts(state, created_at)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -88,6 +108,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT event_id, vault_id, event_type, schema_version, sensitivity, payload_envelope, occurred_at FROM events LIMIT 0`,
 		`SELECT idempotency_key, event_id, request_hash FROM idempotency_keys LIMIT 0`,
 		`SELECT vault_id, revision, status, retention_days, created_at, updated_at, last_event_id FROM vault_states LIMIT 0`,
+		`SELECT artifact_id, vault_id, schema_version, sensitivity, content_type, size_bytes, content_hash, ciphertext_hash, storage_name, staging_name, state, created_at FROM artifacts LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

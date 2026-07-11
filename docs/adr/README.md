@@ -17,5 +17,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0008-vault-bootstrap-lifecycle.md`: DPAPI and per-Vault database creation, compensation, and in-memory lock cleanup
 - `0009-protected-vault-catalog.md`: DPAPI-protected discovery, exact registration compensation, and reopen validation
 - `0010-protected-single-instance.md`: per-user encrypted instance IPC and one desktop writer for Vault state
+- `0011-recoverable-encrypted-artifact-staging.md`: crash-recoverable encrypted artifact files and schema version 4 metadata
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

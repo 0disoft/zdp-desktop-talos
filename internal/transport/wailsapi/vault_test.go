@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
@@ -181,7 +183,14 @@ func (d *serviceDatabase) UpdateVaultRetention(_ context.Context, input vaultsto
 	d.record.LastEventID = "event-retention"
 	return d.record, nil
 }
-func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
+func (*serviceDatabase) PutArtifact(context.Context, artifactstore.PutInput) (artifact.Record, error) {
+	return artifact.Record{}, artifactstore.ErrNotFound
+}
+func (*serviceDatabase) GetArtifact(context.Context, string) (artifact.Record, []byte, error) {
+	return artifact.Record{}, nil, artifactstore.ErrNotFound
+}
+func (*serviceDatabase) ReconcileArtifacts(context.Context) error { return nil }
+func (d *serviceDatabase) Close() error                           { d.closed = true; return d.closeErr }
 
 type serviceCatalog struct{ entries []vaultcatalog.Entry }
 

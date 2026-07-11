@@ -109,9 +109,20 @@ func (f *Factory) Remove(ctx context.Context, vaultID string) error {
 	if err != nil {
 		return err
 	}
+	artifactRoot := path + ".blobs"
+	entries, err := os.ReadDir(artifactRoot)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect Vault artifact directory: %w", err)
+	}
+	if len(entries) != 0 {
+		return errors.New("refusing to remove Vault database with retained artifacts")
+	}
 	removed, err := removeDatabaseFiles(path)
 	if err != nil {
 		return err
+	}
+	if err := os.Remove(artifactRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove empty Vault artifact directory: %w", err)
 	}
 	if !removed {
 		return vaultdb.ErrNotFound
