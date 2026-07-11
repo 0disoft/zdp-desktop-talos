@@ -47,6 +47,12 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, vaultstore.ErrAlreadyExists):
 		mapped.Code = "VAULT_ALREADY_EXISTS"
 		mapped.Message = "같은 Vault가 이미 존재합니다."
+	case errors.Is(err, vaultstore.ErrRevisionConflict):
+		mapped.Code = "VAULT_REVISION_CONFLICT"
+		mapped.Message = "Vault가 다른 요청에서 변경되었습니다. 최신 상태를 다시 확인해 주세요."
+	case errors.Is(err, vaultstore.ErrIdempotencyConflict), errors.Is(err, vaultstore.ErrIdempotencyUnverified):
+		mapped.Code = "VAULT_REQUEST_CONFLICT"
+		mapped.Message = "같은 요청 식별자가 다른 변경에 사용되었습니다."
 	case errors.Is(err, vaultcatalog.ErrCorrupt):
 		mapped.Code = "VAULT_CATALOG_INVALID"
 		mapped.Message = "보호된 Vault 목록을 검증할 수 없습니다."

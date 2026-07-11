@@ -25,10 +25,17 @@ var (
 	ErrInvalidInput       = errors.New("invalid Vault creation input")
 	ErrCompensationFailed = errors.New("Vault creation failed and cleanup was incomplete")
 	ErrNotCataloged       = errors.New("Vault is not present in the protected catalog")
+	ErrNotOpen            = errors.New("Vault session is not open")
 )
 
 type CreateInput struct {
 	RetentionDays int
+}
+
+type UpdateRetentionInput struct {
+	ExpectedRevision int
+	RetentionDays    int
+	IdempotencyKey   string
 }
 
 type Session struct {
@@ -43,6 +50,33 @@ func (s *Session) Close() error {
 	err := s.database.Close()
 	s.database = nil
 	return err
+}
+
+func (s *Session) UpdateRetention(ctx context.Context, input UpdateRetentionInput) (vault.Record, error) {
+	if s == nil || s.database == nil {
+		return vault.Record{}, ErrNotOpen
+	}
+	if input.ExpectedRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return vault.Record{}, ErrInvalidInput
+	}
+	if err := vault.ValidateRetentionDays(input.RetentionDays); err != nil {
+		return vault.Record{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	if input.ExpectedRevision != s.Record.Revision {
+		return vault.Record{}, vaultstore.ErrRevisionConflict
+	}
+	record, err := s.database.UpdateVaultRetention(ctx, vaultstore.UpdateRetentionInput{
+		VaultID:          s.Record.ID,
+		ExpectedRevision: input.ExpectedRevision,
+		RetentionDays:    input.RetentionDays,
+		OccurredAt:       time.Now().UTC(),
+		IdempotencyKey:   input.IdempotencyKey,
+	})
+	if err != nil {
+		return vault.Record{}, err
+	}
+	s.Record = record
+	return record, nil
 }
 
 type Creator struct {

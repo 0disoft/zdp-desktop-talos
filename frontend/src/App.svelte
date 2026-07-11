@@ -6,6 +6,7 @@
     listVaults,
     lockVault,
     openVault,
+    updateVaultRetention,
     type TalosError,
     type VaultSummary,
     type VaultStatus,
@@ -23,6 +24,7 @@
     try {
       const [status, catalog] = await Promise.all([getVaultStatus(), listVaults()]);
       vault = status;
+      if (status.state === 'unlocked') retentionDays = status.retention_days ?? retentionDays;
       if (catalog.error) {
         latestError = catalog.error;
       } else {
@@ -45,6 +47,7 @@
         latestError = result.error;
       } else if (result.vault) {
         vault = result.vault;
+        if (vault.state === 'unlocked') retentionDays = vault.retention_days ?? retentionDays;
         if (vault.state === 'unlocked') {
           const catalog = await listVaults();
           if (catalog.error) {
@@ -70,9 +73,27 @@
     try {
       const result = await openVault(selectedVaultID);
       if (result.error) latestError = result.error;
-      else if (result.vault) vault = result.vault;
+      else if (result.vault) {
+        vault = result.vault;
+        retentionDays = result.vault.retention_days ?? retentionDays;
+      }
     } catch {
       latestError = localError('VAULT_REQUEST_FAILED', 'Vault를 열지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function handleRetentionUpdate() {
+    if (vault.state !== 'unlocked' || !vault.revision) return;
+    loading = true;
+    latestError = null;
+    try {
+      const result = await updateVaultRetention(retentionDays, vault.revision);
+      if (result.error) latestError = result.error;
+      else if (result.vault) vault = result.vault;
+    } catch {
+      latestError = localError('VAULT_REQUEST_FAILED', '보존 기간을 변경하지 못했습니다.');
     } finally {
       loading = false;
     }
@@ -147,6 +168,20 @@
             <button type="button" class="secondary" onclick={() => (creatingNew = false)} disabled={loading}>취소</button>
           {/if}
         {:else}
+          <label>
+            <span>보존 기간</span>
+            <select bind:value={retentionDays} disabled={loading}>
+              <option value={30}>30일</option>
+              <option value={90}>90일</option>
+              <option value={365}>365일</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            class="secondary"
+            onclick={handleRetentionUpdate}
+            disabled={loading || retentionDays === vault.retention_days}>보존 기간 저장</button
+          >
           <button type="button" onclick={handleCreateOrLock} disabled={loading}>Vault 잠그기</button>
         {/if}
       </div>

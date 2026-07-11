@@ -110,6 +110,31 @@ func (s *VaultService) Open(vaultID, correlationID string) VaultResult {
 	return VaultResult{Vault: &status}
 }
 
+func (s *VaultService) UpdateRetention(retentionDays, expectedRevision int, requestID, correlationID string) VaultResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil {
+		mapped := TalosError{Code: "VAULT_NOT_OPEN", Message: "보존 기간을 바꾸려면 Vault를 먼저 열어 주세요.", CorrelationID: normalizeCorrelationID(correlationID)}
+		return VaultResult{Error: &mapped}
+	}
+	requestID = normalizeCorrelationID(requestID)
+	if requestID == "" {
+		mapped := TalosError{Code: "VAULT_INPUT_INVALID", Message: "Vault 설정값을 확인해 주세요.", CorrelationID: normalizeCorrelationID(correlationID)}
+		return VaultResult{Error: &mapped}
+	}
+	_, err := s.session.UpdateRetention(context.Background(), vaultbootstrap.UpdateRetentionInput{
+		ExpectedRevision: expectedRevision,
+		RetentionDays:    retentionDays,
+		IdempotencyKey:   "vault-retention:" + requestID,
+	})
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		return VaultResult{Error: &mapped}
+	}
+	status := s.statusLocked()
+	return VaultResult{Vault: &status}
+}
+
 func (s *VaultService) Lock(correlationID string) VaultResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()

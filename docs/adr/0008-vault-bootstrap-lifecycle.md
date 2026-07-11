@@ -23,13 +23,13 @@ Creating a production Vault crosses two durable stores: a DPAPI-protected key re
 
 The first production Vault can now be created and locked without a plaintext key fallback or partial-success response. Exact cleanup is best-effort because filesystem deletion itself can fail; `VAULT_CLEANUP_INCOMPLETE` tells the caller that manual recovery is required without exposing the affected path.
 
-The frontend now validates Wails responses and supports initial creation and locking. Opening an existing Vault, listing Vaults, retention changes after creation, hard purge, and recovery packages remain separate Phase 1 slices.
+The frontend validates Wails responses and supports creation, protected discovery, opening, locking, and revision-checked retention changes. Hard purge and recovery packages remain separate Phase 1 slices.
 
 ## Evidence
 
 - application tests cover successful creation, DB-create failure, state-init failure, and failed compensation;
 - adapter tests cover exclusive creation and main/WAL/SHM removal;
 - transport tests cover create, duplicate-open rejection, lock, and unavailable storage;
-- the Svelte control surface covers status, retention selection, creation, locking, bounded errors, and malformed-response failure;
+- the Svelte control surface covers status, retention selection and updates, creation, discovery, opening, locking, bounded errors, and malformed-response failure;
 - envelope tests prove a destroyed sealer cannot decrypt earlier ciphertext;
 - standard test, frontend diagnostic, build, doctor, and scaffold checks.

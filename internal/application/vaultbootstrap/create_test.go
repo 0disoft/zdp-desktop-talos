@@ -155,6 +155,30 @@ func TestOpenRejectsUnknownAndMismatchedVault(t *testing.T) {
 	}
 }
 
+func TestSessionUpdatesRetentionWithRevisionAndIdempotency(t *testing.T) {
+	t.Parallel()
+	database := &fakeDatabase{stored: vault.Record{
+		ID: "00000000-0000-7000-8000-000000000001", Revision: 2, Status: vault.StatusActive,
+		RetentionDays: 30, CreatedAt: time.Unix(1_800_000_000, 0).UTC(), UpdatedAt: time.Unix(1_800_000_000, 0).UTC(), LastEventID: "event-2",
+	}}
+	session := &Session{Record: database.stored, database: database}
+	record, err := session.UpdateRetention(context.Background(), UpdateRetentionInput{
+		ExpectedRevision: 2, RetentionDays: 90, IdempotencyKey: "retention-request-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Revision != 3 || record.RetentionDays != 90 || session.Record != record {
+		t.Fatalf("record=%+v session=%+v", record, session.Record)
+	}
+	if database.updateInput.ExpectedRevision != 2 || database.updateInput.IdempotencyKey != "retention-request-1" {
+		t.Fatalf("input=%+v", database.updateInput)
+	}
+	if _, err := session.UpdateRetention(context.Background(), UpdateRetentionInput{ExpectedRevision: 2, RetentionDays: 365, IdempotencyKey: "stale"}); !errors.Is(err, vaultstore.ErrRevisionConflict) {
+		t.Fatalf("stale revision error=%v", err)
+	}
+}
+
 type fakeKeyStore struct {
 	present   bool
 	deleted   bool
@@ -213,10 +237,11 @@ func (f *fakeDatabaseFactory) Remove(context.Context, string) error {
 }
 
 type fakeDatabase struct {
-	input     vaultstore.CreateInput
-	createErr error
-	closed    bool
-	stored    vault.Record
+	input       vaultstore.CreateInput
+	createErr   error
+	closed      bool
+	stored      vault.Record
+	updateInput vaultstore.UpdateRetentionInput
 }
 
 func (d *fakeDatabase) CreateVault(_ context.Context, input vaultstore.CreateInput) (vault.Record, error) {
@@ -229,8 +254,13 @@ func (d *fakeDatabase) CreateVault(_ context.Context, input vaultstore.CreateInp
 func (d *fakeDatabase) GetVault(context.Context, string) (vault.Record, error) {
 	return d.stored, nil
 }
-func (d *fakeDatabase) UpdateVaultRetention(context.Context, vaultstore.UpdateRetentionInput) (vault.Record, error) {
-	return vault.Record{}, nil
+func (d *fakeDatabase) UpdateVaultRetention(_ context.Context, input vaultstore.UpdateRetentionInput) (vault.Record, error) {
+	d.updateInput = input
+	d.stored.Revision++
+	d.stored.RetentionDays = input.RetentionDays
+	d.stored.UpdatedAt = input.OccurredAt
+	d.stored.LastEventID = "event-updated"
+	return d.stored, nil
 }
 func (d *fakeDatabase) Close() error { d.closed = true; return nil }
 

@@ -1,7 +1,7 @@
 {
   "tool": "ssealed",
   "version": "0.6.11",
-  "generatedAt": "2026-07-11T08:58:28.589Z",
+  "generatedAt": "2026-07-11T09:03:51.062Z",
   "scope": "general",
   "profile": "desktop-app",
   "addons": [
@@ -936,13 +936,13 @@
     },
     {
       "path": "docs/product/01-roadmap.md",
-      "checksum": "sha256:fc4028d66563695080ddcabf977a3773178eb9becb90b15b4594e6344eb9d43c",
+      "checksum": "sha256:a57f89c6f3b14b88a3ce993dd84848990a34f077034d1aa7b2421be84f2d1c05",
       "kind": "document",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:950d7a44619b2ff2626421126a59af4ac1b98f258f252a78d9ead96b568640e4",
-      "acceptedChecksum": "sha256:fc4028d66563695080ddcabf977a3773178eb9becb90b15b4594e6344eb9d43c",
+      "acceptedChecksum": "sha256:a57f89c6f3b14b88a3ce993dd84848990a34f077034d1aa7b2421be84f2d1c05",
       "generatedChecksum": "sha256:950d7a44619b2ff2626421126a59af4ac1b98f258f252a78d9ead96b568640e4"
     },
     {
@@ -1002,13 +1002,13 @@
     },
     {
       "path": "Taskfile.yml",
-      "checksum": "sha256:800b3d8af773c227d639c3336d7d21c86c864e1ae75597881ec91bcd5c650d26",
+      "checksum": "sha256:68cc3a5542cdc6026a82c57a75889923e3e264f298575932fec057e40165c4fe",
       "kind": "runner",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608",
-      "acceptedChecksum": "sha256:800b3d8af773c227d639c3336d7d21c86c864e1ae75597881ec91bcd5c650d26",
+      "acceptedChecksum": "sha256:68cc3a5542cdc6026a82c57a75889923e3e264f298575932fec057e40165c4fe",
       "generatedChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608"
     },
     {

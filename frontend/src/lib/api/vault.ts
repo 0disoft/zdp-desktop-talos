@@ -56,6 +56,13 @@ export async function lockVault(): Promise<VaultResult> {
   return parseResult(await Call.ByName(`${service}.Lock`, correlationID()));
 }
 
+export async function updateVaultRetention(retentionDays: number, expectedRevision: number): Promise<VaultResult> {
+  const requestID = correlationID();
+  return parseResult(
+    await Call.ByName(`${service}.UpdateRetention`, retentionDays, expectedRevision, requestID, correlationID()),
+  );
+}
+
 function parseResult(value: unknown): VaultResult {
   if (!isObject(value)) {
     throw new Error('VAULT_RESPONSE_INVALID');

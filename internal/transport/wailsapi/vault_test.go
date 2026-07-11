@@ -63,6 +63,25 @@ func TestVaultServiceListsAndReopensCreatedVault(t *testing.T) {
 	}
 }
 
+func TestVaultServiceUpdatesRetentionAndRejectsStaleRevision(t *testing.T) {
+	t.Parallel()
+	database := &serviceDatabase{}
+	creator, _ := vaultbootstrap.NewCreator(&serviceKeyStore{}, &serviceDatabaseFactory{database: database}, &serviceCatalog{})
+	service := NewVaultService(creator, nil)
+	created := service.Create(30, "create")
+	updated := service.UpdateRetention(90, created.Vault.Revision, "request-1", "update")
+	if updated.Error != nil || updated.Vault == nil || updated.Vault.Revision != 2 || updated.Vault.RetentionDays != 90 {
+		t.Fatalf("updated=%+v", updated)
+	}
+	stale := service.UpdateRetention(365, 1, "request-2", "stale")
+	if stale.Error == nil || stale.Error.Code != "VAULT_REVISION_CONFLICT" {
+		t.Fatalf("stale=%+v", stale)
+	}
+	if status := service.Status(); status.Revision != 2 || status.RetentionDays != 90 {
+		t.Fatalf("status=%+v", status)
+	}
+}
+
 func TestVaultServiceFailsClosedWhenStorageIsUnavailable(t *testing.T) {
 	t.Parallel()
 	service := NewVaultService(nil, errors.New("C:\\Users\\private\\keys"))
@@ -152,8 +171,15 @@ func (d *serviceDatabase) CreateVault(_ context.Context, input vaultstore.Create
 func (d *serviceDatabase) GetVault(context.Context, string) (vault.Record, error) {
 	return d.record, nil
 }
-func (*serviceDatabase) UpdateVaultRetention(context.Context, vaultstore.UpdateRetentionInput) (vault.Record, error) {
-	return vault.Record{}, nil
+func (d *serviceDatabase) UpdateVaultRetention(_ context.Context, input vaultstore.UpdateRetentionInput) (vault.Record, error) {
+	if input.ExpectedRevision != d.record.Revision {
+		return vault.Record{}, vaultstore.ErrRevisionConflict
+	}
+	d.record.Revision++
+	d.record.RetentionDays = input.RetentionDays
+	d.record.UpdatedAt = input.OccurredAt
+	d.record.LastEventID = "event-retention"
+	return d.record, nil
 }
 func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
 
