@@ -1,7 +1,7 @@
 {
   "tool": "ssealed",
   "version": "0.6.11",
-  "generatedAt": "2026-07-11T13:10:47.329Z",
+  "generatedAt": "2026-07-11T13:20:29.358Z",
   "scope": "general",
   "profile": "desktop-app",
   "addons": [
@@ -518,13 +518,13 @@
     },
     {
       "path": "docs/adr/README.md",
-      "checksum": "sha256:4a70cc46a13afb583c03abdbe00eba3a98adda4fc848bc3906d4a0f01cbf6c23",
+      "checksum": "sha256:9518bd64ac0a0d8c4b0d12bf97d8da265e5c6e22ef9294050e07158daef26edd",
       "kind": "document",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:57be3aaeda2ef7dc55f76bc760d7a3576cb24e41ecf861dadf27f5c9d07fd00c",
-      "acceptedChecksum": "sha256:4a70cc46a13afb583c03abdbe00eba3a98adda4fc848bc3906d4a0f01cbf6c23",
+      "acceptedChecksum": "sha256:9518bd64ac0a0d8c4b0d12bf97d8da265e5c6e22ef9294050e07158daef26edd",
       "generatedChecksum": "sha256:57be3aaeda2ef7dc55f76bc760d7a3576cb24e41ecf861dadf27f5c9d07fd00c"
     },
     {
@@ -936,13 +936,13 @@
     },
     {
       "path": "docs/product/01-roadmap.md",
-      "checksum": "sha256:c936c1dfa239063fcbbe2f5f6c08bd6d1a9e6d3e22bc80fd5da36719db2221bd",
+      "checksum": "sha256:38dcc63275adb3e516bd521406234fcdb4f0e0b6f1615934f3a6f3676edf0b16",
       "kind": "document",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:950d7a44619b2ff2626421126a59af4ac1b98f258f252a78d9ead96b568640e4",
-      "acceptedChecksum": "sha256:c936c1dfa239063fcbbe2f5f6c08bd6d1a9e6d3e22bc80fd5da36719db2221bd",
+      "acceptedChecksum": "sha256:38dcc63275adb3e516bd521406234fcdb4f0e0b6f1615934f3a6f3676edf0b16",
       "generatedChecksum": "sha256:950d7a44619b2ff2626421126a59af4ac1b98f258f252a78d9ead96b568640e4"
     },
     {
@@ -1002,13 +1002,13 @@
     },
     {
       "path": "Taskfile.yml",
-      "checksum": "sha256:46336238d4a624469bdd18b4736a1114c2f0933c9dfa53a9479df2a6f703603a",
+      "checksum": "sha256:8d1c097d8a9d02746f2e094270adb21f8a304b5fc32a35058649d61452dcea03",
       "kind": "runner",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608",
-      "acceptedChecksum": "sha256:46336238d4a624469bdd18b4736a1114c2f0933c9dfa53a9479df2a6f703603a",
+      "acceptedChecksum": "sha256:8d1c097d8a9d02746f2e094270adb21f8a304b5fc32a35058649d61452dcea03",
       "generatedChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608"
     },
     {
