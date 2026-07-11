@@ -7,9 +7,11 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -237,6 +239,15 @@ func (d *serviceDatabase) CreateTaskContract(_ context.Context, input taskstore.
 func (d *serviceDatabase) ReviseTaskContract(_ context.Context, input taskstore.ReviseInput) (taskstore.Created, error) {
 	d.reviseInput = input
 	return d.taskCreated, d.taskErr
+}
+func (*serviceDatabase) CreateDecision(context.Context, decisionstore.CreateInput) (decisionstore.Result, error) {
+	return decisionstore.Result{}, decisionstore.ErrNotFound
+}
+func (*serviceDatabase) GetDecision(context.Context, string) (decisionstore.Result, error) {
+	return decisionstore.Result{Decision: decision.Record{}}, decisionstore.ErrNotFound
+}
+func (*serviceDatabase) AnswerDecision(context.Context, decisionstore.AnswerInput) (decisionstore.Result, error) {
+	return decisionstore.Result{}, decisionstore.ErrNotFound
 }
 func (d *serviceDatabase) GetTask(_ context.Context, taskID string) (task.Record, error) {
 	if d.taskCreated.Task.ID == taskID {

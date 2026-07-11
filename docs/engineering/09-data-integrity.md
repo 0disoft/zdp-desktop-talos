@@ -14,6 +14,8 @@ Task creation, immutable contract revision 1, its encrypted event, and idempoten
 
 Later Task Contract revisions append immutable encrypted events and advance the Task head only when `expected_revision` still matches. Historical idempotency replay is reconstructed from its own revision event, not from the current Task head, and generated occurrence time is excluded from caller-intent hashes.
 
+Decision answers must match both the question revision and repository revision. Equivalent answers converge without a new event; incompatible answers remain separate immutable events and transition the Decision to `conflicted` instead of using last-write-wins.
+
 SQLite schema changes use monotonic `PRAGMA user_version` migrations. Each migration commits atomically, newer application-incompatible schemas are rejected, and the adapter validates required columns after migration instead of trusting the version integer alone. Migrations are forward-only; backup and roll-forward policy are separate release gates for destructive changes.
 
 ## Integrity Metadata

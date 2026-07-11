@@ -29,6 +29,7 @@
 - Task creation and its first encrypted contract revision commit atomically; materialized contract pointers never duplicate private contract bodies;
 - repository snapshots use a canonical worktree root, an exact commit baseline, bounded porcelain-v2 changes, and a capture time;
 - stale Decision revisions cannot resolve the current question;
+- Decision questions and answers remain encrypted; equivalent answers converge and incompatible answers move the Decision to `conflicted` without overwriting evidence;
 - duplicate commands and events produce at most one side effect;
 - evidence becomes stale when the repository revision or diff hash changes;
 - approved memory requires evidence and an applicability scope;

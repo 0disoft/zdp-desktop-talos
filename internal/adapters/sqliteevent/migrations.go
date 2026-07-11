@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 5
+const currentSchemaVersion = 6
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -102,6 +102,35 @@ var migrations = []migration{
 			`CREATE INDEX tasks_vault_created_idx ON tasks(vault_id, created_at, task_id)`,
 		},
 	},
+	{
+		version: 6,
+		statements: []string{
+			`CREATE TABLE decisions (
+				decision_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				question_revision INTEGER NOT NULL CHECK (question_revision > 0),
+				category TEXT NOT NULL CHECK (category IN ('blocking','quality','follow_up')),
+				state TEXT NOT NULL CHECK (state IN ('open','answered','conflicted')),
+				expected_repository_revision TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				question_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE INDEX decisions_task_state_idx ON decisions(task_id, state, created_at, decision_id)`,
+			`CREATE TABLE decision_answers (
+				answer_id TEXT PRIMARY KEY,
+				decision_id TEXT NOT NULL REFERENCES decisions(decision_id) ON DELETE RESTRICT,
+				question_revision INTEGER NOT NULL CHECK (question_revision > 0),
+				expected_repository_revision TEXT NOT NULL,
+				answer_hash TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				UNIQUE(decision_id, answer_hash)
+			) STRICT`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -138,6 +167,8 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT artifact_id, vault_id, schema_version, sensitivity, content_type, size_bytes, content_hash, ciphertext_hash, storage_name, staging_name, state, created_at FROM artifacts LIMIT 0`,
 		`SELECT task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id FROM tasks LIMIT 0`,
 		`SELECT task_id, revision, baseline_commit, created_at, event_id FROM task_contract_revisions LIMIT 0`,
+		`SELECT decision_id, vault_id, task_id, question_revision, category, state, expected_repository_revision, created_at, updated_at, question_event_id, last_event_id FROM decisions LIMIT 0`,
+		`SELECT answer_id, decision_id, question_revision, expected_repository_revision, answer_hash, created_at, event_id FROM decision_answers LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

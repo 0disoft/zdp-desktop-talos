@@ -15,6 +15,8 @@ The schema-version-3 Vault read model stores retention and lifecycle metadata wi
 
 Schema version 5 adds Task metadata and immutable contract-revision pointers. The actual workspace path, contract goals, scopes, forbidden actions, and acceptance criteria remain only in encrypted event payloads; plaintext tables retain a workspace-path hash, baseline, and provenance needed for bounded lifecycle queries and integrity constraints.
 
+Schema version 6 adds Decision state and answer pointers. Question text, rationale, safe defaults, scopes, options, and answer values remain encrypted; plaintext rows retain revisions, repository baselines, answer hashes, state, and provenance required for stale-answer and conflict enforcement.
+
 On Windows, the application bootstrap keeps protected key records and per-Vault databases under separate children of `%LocalAppData%/0disoft/Talos Agent`. Creation is a compensated workflow: a database or initial-state failure removes any partial database and the newly protected key. Locking closes the database and clears the envelope sealer's in-memory key copy.
 
 The Vault discovery catalog is a versioned DPAPI-protected record, and catalog/key filenames are hashes rather than raw Vault IDs. Vault IDs still exist as SQLite event and state metadata; payload encryption does not claim to hide database structure or all metadata from a process that can read the local database file.

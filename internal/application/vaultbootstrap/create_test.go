@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -373,6 +375,15 @@ func (*fakeDatabase) CreateTaskContract(context.Context, taskstore.CreateInput) 
 }
 func (*fakeDatabase) ReviseTaskContract(context.Context, taskstore.ReviseInput) (taskstore.Created, error) {
 	return taskstore.Created{}, taskstore.ErrNotFound
+}
+func (*fakeDatabase) CreateDecision(context.Context, decisionstore.CreateInput) (decisionstore.Result, error) {
+	return decisionstore.Result{}, decisionstore.ErrNotFound
+}
+func (*fakeDatabase) GetDecision(context.Context, string) (decisionstore.Result, error) {
+	return decisionstore.Result{Decision: decision.Record{}}, decisionstore.ErrNotFound
+}
+func (*fakeDatabase) AnswerDecision(context.Context, decisionstore.AnswerInput) (decisionstore.Result, error) {
+	return decisionstore.Result{}, decisionstore.ErrNotFound
 }
 func (*fakeDatabase) GetTask(context.Context, string) (task.Record, error) {
 	return task.Record{}, taskstore.ErrNotFound
