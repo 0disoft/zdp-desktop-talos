@@ -29,7 +29,7 @@
         <h2>Vault</h2>
       </div>
       <strong>잠김</strong>
-      <p>영구 키 저장소 연결 전에는 로컬 데이터를 만들지 않습니다.</p>
+      <p>Vault를 만들면 기기 전용 키와 암호화된 로컬 저장소가 함께 준비됩니다.</p>
     </article>
 
     <article class="status-card">

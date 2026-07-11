@@ -14,5 +14,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0005-windows-packaging-and-signing.md`: per-user NSIS packaging, current-user certificate signing, receipts, and Vault retention
 - `0006-ledger-migrations-and-idempotency.md`: forward SQLite schema versions, request fingerprints, and fail-closed legacy replay
 - `0007-atomic-vault-state.md`: transactional revisioned Vault metadata without persisted unlock authority
+- `0008-vault-bootstrap-lifecycle.md`: DPAPI and per-Vault database creation, compensation, and in-memory lock cleanup
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

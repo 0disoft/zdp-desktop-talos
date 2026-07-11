@@ -65,3 +65,21 @@ func TestWrongAADAndWrongKeyFailClosed(t *testing.T) {
 		t.Fatalf("expected wrong-key error, got %v", err)
 	}
 }
+
+func TestDestroyMakesSealerUnableToDecryptPreviousPayload(t *testing.T) {
+	t.Parallel()
+	key := bytes.Repeat([]byte{7}, keySize)
+	sealer, err := NewSealer("key-1", key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := AAD{VaultID: "vault-1", ObjectID: "event-1", SchemaVersion: 1, Sensitivity: "private"}
+	ciphertext, err := sealer.Seal([]byte("private"), metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealer.Destroy()
+	if _, err := sealer.Open(ciphertext, metadata); !errors.Is(err, ErrInvalidEnvelope) {
+		t.Fatalf("destroyed sealer decrypted payload: %v", err)
+	}
+}

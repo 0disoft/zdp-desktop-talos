@@ -44,6 +44,13 @@ type Sealer struct {
 	random io.Reader
 }
 
+func (s *Sealer) Destroy() {
+	if s == nil {
+		return
+	}
+	clear(s.kek[:])
+}
+
 func NewSealer(keyID string, key []byte) (*Sealer, error) {
 	return NewSealerWithRandom(keyID, key, rand.Reader)
 }

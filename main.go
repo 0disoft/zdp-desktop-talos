@@ -3,7 +3,10 @@ package main
 import (
 	"embed"
 	"log"
+	"os"
+	"path/filepath"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/bootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/transport/wailsapi"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -12,12 +15,20 @@ import (
 var assets embed.FS
 
 func main() {
+	localDataRoot, rootErr := os.UserCacheDir()
+	var vaultService *wailsapi.VaultService
+	if rootErr != nil {
+		vaultService = wailsapi.NewVaultService(nil, rootErr)
+	} else {
+		creator, err := bootstrap.NewVaultCreator(filepath.Join(localDataRoot, "0disoft", "Talos Agent"))
+		vaultService = wailsapi.NewVaultService(creator, err)
+	}
 	app := application.New(application.Options{
 		Name:        "zdp-desktop-talos",
 		Description: "기억 기반 로컬 코딩 에이전트",
 		Services: []application.Service{
 			application.NewService(&wailsapi.HealthService{}),
-			application.NewService(&wailsapi.VaultService{}),
+			application.NewService(vaultService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
