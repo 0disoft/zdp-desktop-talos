@@ -23,4 +23,5 @@ type Factory interface {
 	Create(context.Context, string, string, []byte) (Database, error)
 	Open(context.Context, string, string, []byte) (Database, error)
 	Remove(context.Context, string) error
+	Purge(context.Context, string) error
 }

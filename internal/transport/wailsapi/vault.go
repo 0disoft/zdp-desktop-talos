@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 )
 
 type VaultStatus struct {
@@ -127,6 +128,34 @@ func (s *VaultService) UpdateRetention(retentionDays, expectedRevision int, requ
 		RetentionDays:    retentionDays,
 		IdempotencyKey:   "vault-retention:" + requestID,
 	})
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		return VaultResult{Error: &mapped}
+	}
+	status := s.statusLocked()
+	return VaultResult{Vault: &status}
+}
+
+func (s *VaultService) HardPurge(expectedRevision int, confirmation, correlationID string) VaultResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil {
+		mapped := TalosError{Code: "VAULT_NOT_OPEN", Message: "완전 삭제할 Vault를 먼저 열어 주세요.", CorrelationID: normalizeCorrelationID(correlationID)}
+		return VaultResult{Error: &mapped}
+	}
+	if expectedRevision != s.session.Record.Revision {
+		mapped := MapError(vaultstore.ErrRevisionConflict, correlationID)
+		return VaultResult{Error: &mapped}
+	}
+	if confirmation != s.session.Record.ID {
+		mapped := MapError(vaultbootstrap.ErrInvalidInput, correlationID)
+		return VaultResult{Error: &mapped}
+	}
+	err := s.creator.HardPurge(context.Background(), s.session, vaultbootstrap.HardPurgeInput{
+		ExpectedRevision: expectedRevision,
+		Confirmation:     confirmation,
+	})
+	s.session = nil
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		return VaultResult{Error: &mapped}

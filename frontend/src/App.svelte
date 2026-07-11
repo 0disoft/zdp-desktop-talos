@@ -3,6 +3,7 @@
   import {
     createVault,
     getVaultStatus,
+    hardPurgeVault,
     listVaults,
     lockVault,
     openVault,
@@ -19,6 +20,8 @@
   let vaults = $state<VaultSummary[]>([]);
   let selectedVaultID = $state('');
   let creatingNew = $state(false);
+  let purgeOpen = $state(false);
+  let purgeConfirmation = $state('');
 
   onMount(async () => {
     try {
@@ -94,6 +97,36 @@
       else if (result.vault) vault = result.vault;
     } catch {
       latestError = localError('VAULT_REQUEST_FAILED', '보존 기간을 변경하지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function handleHardPurge() {
+    if (vault.state !== 'unlocked' || !vault.revision || purgeConfirmation !== vault.vault_id) return;
+    loading = true;
+    latestError = null;
+    try {
+      const result = await hardPurgeVault(vault.revision, purgeConfirmation);
+      if (result.error) {
+        latestError = result.error;
+        if (result.error.code === 'VAULT_PURGE_INCOMPLETE') {
+          vault = { state: 'locked', persistent_key_store: vault.persistent_key_store };
+        }
+      } else if (result.vault) {
+        vault = result.vault;
+      }
+      const catalog = await listVaults();
+      if (catalog.error) latestError ??= catalog.error;
+      else {
+        vaults = catalog.vaults;
+        selectedVaultID = catalog.vaults.at(-1)?.vault_id ?? '';
+      }
+      purgeOpen = false;
+      purgeConfirmation = '';
+    } catch {
+      latestError = localError('VAULT_PURGE_STATUS_UNKNOWN', '완전 삭제 상태를 확인하지 못했습니다. 앱을 다시 시작해 주세요.');
+      vault = { state: 'locked', persistent_key_store: vault.persistent_key_store };
     } finally {
       loading = false;
     }
@@ -183,6 +216,20 @@
             disabled={loading || retentionDays === vault.retention_days}>보존 기간 저장</button
           >
           <button type="button" onclick={handleCreateOrLock} disabled={loading}>Vault 잠그기</button>
+          {#if !purgeOpen}
+            <button type="button" class="danger" onclick={() => (purgeOpen = true)} disabled={loading}>Vault 완전 삭제</button>
+          {:else}
+            <div class="purge-confirmation">
+              <p>이 작업은 이 기기의 암호키와 Vault 데이터를 되돌릴 수 없게 제거합니다.</p>
+              <code>{vault.vault_id}</code>
+              <label>
+                <span>확인하려면 Vault ID 입력</span>
+                <input bind:value={purgeConfirmation} autocomplete="off" spellcheck="false" disabled={loading} />
+              </label>
+              <button type="button" class="danger" onclick={handleHardPurge} disabled={loading || purgeConfirmation !== vault.vault_id}>완전 삭제 실행</button>
+              <button type="button" class="secondary" onclick={() => { purgeOpen = false; purgeConfirmation = ''; }} disabled={loading}>취소</button>
+            </div>
+          {/if}
         {/if}
       </div>
     </article>

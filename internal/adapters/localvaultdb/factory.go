@@ -3,12 +3,15 @@ package localvaultdb
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
+	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 )
@@ -128,6 +131,50 @@ func (f *Factory) Remove(ctx context.Context, vaultID string) error {
 		return vaultdb.ErrNotFound
 	}
 	return nil
+}
+
+func (f *Factory) Purge(ctx context.Context, vaultID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	path, err := f.path(vaultID)
+	if err != nil {
+		return err
+	}
+	artifactRoot := path + ".blobs"
+	entries, err := os.ReadDir(artifactRoot)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect Vault artifacts for purge: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !validPurgeArtifactName(entry.Name()) {
+			return fmt.Errorf("refusing to purge unexpected Vault artifact entry %q", entry.Name())
+		}
+	}
+	for _, entry := range entries {
+		if err := os.Remove(filepath.Join(artifactRoot, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("purge Vault artifact: %w", err)
+		}
+	}
+	if err := os.Remove(artifactRoot); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove purged Vault artifact directory: %w", err)
+	}
+	if _, err := removeDatabaseFiles(path); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validPurgeArtifactName(name string) bool {
+	if strings.HasSuffix(name, ".blob") {
+		hash := strings.TrimSuffix(name, ".blob")
+		decoded, err := hex.DecodeString(hash)
+		return err == nil && len(decoded) == sha256.Size && hex.EncodeToString(decoded) == hash
+	}
+	if strings.HasSuffix(name, ".stage") {
+		return id.IsUUIDv7(strings.TrimSuffix(name, ".stage"))
+	}
+	return false
 }
 
 func (f *Factory) path(vaultID string) (string, error) {

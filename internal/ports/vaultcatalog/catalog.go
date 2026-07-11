@@ -12,13 +12,23 @@ var (
 	ErrCorrupt  = errors.New("Vault catalog is corrupt")
 )
 
+type State string
+
+const (
+	StateActive       State = "active"
+	StatePurgePending State = "purge_pending"
+)
+
 type Entry struct {
 	VaultID   string
 	CreatedAt time.Time
+	State     State
 }
 
 type Catalog interface {
 	List(context.Context) ([]Entry, error)
+	PendingPurges(context.Context) ([]Entry, error)
 	Add(context.Context, Entry) error
+	MarkPurgePending(context.Context, Entry) error
 	Remove(context.Context, Entry) error
 }

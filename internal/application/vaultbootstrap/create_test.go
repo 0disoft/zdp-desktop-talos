@@ -181,6 +181,95 @@ func TestSessionUpdatesRetentionWithRevisionAndIdempotency(t *testing.T) {
 	}
 }
 
+func TestHardPurgeRequiresExactConfirmationAndCompletesAllStores(t *testing.T) {
+	t.Parallel()
+	createdAt := time.Unix(1_800_000_000, 0).UTC()
+	vaultID := "00000000-0000-7000-8000-000000000001"
+	keys := &fakeKeyStore{present: true, value: bytes.Repeat([]byte{4}, vaultKeyBytes)}
+	database := &fakeDatabase{stored: vault.Record{ID: vaultID, Revision: 3, Status: vault.StatusActive, RetentionDays: 30, CreatedAt: createdAt, UpdatedAt: createdAt, LastEventID: "event-3"}}
+	databases := &fakeDatabaseFactory{database: database}
+	catalog := &fakeCatalog{entries: []vaultcatalog.Entry{{VaultID: vaultID, CreatedAt: createdAt, State: vaultcatalog.StateActive}}}
+	creator, _ := NewCreator(keys, databases, catalog)
+	session := &Session{Record: database.stored, database: database}
+
+	if err := creator.HardPurge(context.Background(), session, HardPurgeInput{ExpectedRevision: 2, Confirmation: vaultID}); !errors.Is(err, vaultstore.ErrRevisionConflict) {
+		t.Fatalf("stale purge error=%v", err)
+	}
+	if err := creator.HardPurge(context.Background(), session, HardPurgeInput{ExpectedRevision: 3, Confirmation: "wrong"}); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("confirmation error=%v", err)
+	}
+	if database.closed || keys.deleted || databases.purged {
+		t.Fatal("invalid purge changed durable state")
+	}
+	if err := creator.HardPurge(context.Background(), session, HardPurgeInput{ExpectedRevision: 3, Confirmation: vaultID}); err != nil {
+		t.Fatal(err)
+	}
+	if !database.closed || !keys.deleted || !databases.purged || len(catalog.entries) != 0 {
+		t.Fatalf("database=%+v keys=%+v factory=%+v catalog=%+v", database, keys, databases, catalog)
+	}
+}
+
+func TestHardPurgeResumesAfterKeyDeletionFailure(t *testing.T) {
+	t.Parallel()
+	createdAt := time.Unix(1_800_000_000, 0).UTC()
+	vaultID := "00000000-0000-7000-8000-000000000001"
+	keys := &fakeKeyStore{present: true, value: bytes.Repeat([]byte{5}, vaultKeyBytes), deleteErr: errors.New("key locked")}
+	database := &fakeDatabase{stored: vault.Record{ID: vaultID, Revision: 1, Status: vault.StatusActive, RetentionDays: 30, CreatedAt: createdAt, UpdatedAt: createdAt, LastEventID: "event-1"}}
+	databases := &fakeDatabaseFactory{database: database}
+	catalog := &fakeCatalog{entries: []vaultcatalog.Entry{{VaultID: vaultID, CreatedAt: createdAt, State: vaultcatalog.StateActive}}}
+	creator, _ := NewCreator(keys, databases, catalog)
+	session := &Session{Record: database.stored, database: database}
+
+	err := creator.HardPurge(context.Background(), session, HardPurgeInput{ExpectedRevision: 1, Confirmation: vaultID})
+	if !errors.Is(err, ErrPurgeIncomplete) || catalog.entries[0].State != vaultcatalog.StatePurgePending || databases.purged {
+		t.Fatalf("first purge err=%v catalog=%+v factory=%+v", err, catalog, databases)
+	}
+	keys.deleteErr = nil
+	if err := creator.ReconcilePurges(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !keys.deleted || !databases.purged || len(catalog.entries) != 0 {
+		t.Fatalf("resume keys=%+v factory=%+v catalog=%+v", keys, databases, catalog)
+	}
+}
+
+func TestHardPurgeResumesAfterCiphertextOrJournalCleanupFailure(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		name         string
+		purgeErr     error
+		catalogErr   error
+		clearFailure func(*fakeDatabaseFactory, *fakeCatalog)
+	}{
+		{name: "ciphertext", purgeErr: errors.New("file locked"), clearFailure: func(factory *fakeDatabaseFactory, _ *fakeCatalog) { factory.purgeErr = nil }},
+		{name: "journal", catalogErr: errors.New("catalog locked"), clearFailure: func(_ *fakeDatabaseFactory, catalog *fakeCatalog) { catalog.removeErr = nil }},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			createdAt := time.Unix(1_800_000_000, 0).UTC()
+			vaultID := "00000000-0000-7000-8000-000000000001"
+			keys := &fakeKeyStore{present: true, value: bytes.Repeat([]byte{6}, vaultKeyBytes)}
+			database := &fakeDatabase{stored: vault.Record{ID: vaultID, Revision: 1, Status: vault.StatusActive, RetentionDays: 30, CreatedAt: createdAt, UpdatedAt: createdAt, LastEventID: "event-1"}}
+			databases := &fakeDatabaseFactory{database: database, purgeErr: testCase.purgeErr}
+			catalog := &fakeCatalog{entries: []vaultcatalog.Entry{{VaultID: vaultID, CreatedAt: createdAt, State: vaultcatalog.StateActive}}, removeErr: testCase.catalogErr}
+			creator, _ := NewCreator(keys, databases, catalog)
+			session := &Session{Record: database.stored, database: database}
+			err := creator.HardPurge(context.Background(), session, HardPurgeInput{ExpectedRevision: 1, Confirmation: vaultID})
+			if !errors.Is(err, ErrPurgeIncomplete) || keys.present || len(catalog.entries) != 1 {
+				t.Fatalf("first purge err=%v keys=%+v catalog=%+v", err, keys, catalog)
+			}
+			testCase.clearFailure(databases, catalog)
+			if err := creator.ReconcilePurges(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if len(catalog.entries) != 0 {
+				t.Fatalf("catalog after recovery=%+v", catalog.entries)
+			}
+		})
+	}
+}
+
 type fakeKeyStore struct {
 	present   bool
 	deleted   bool
@@ -221,6 +310,8 @@ type fakeDatabaseFactory struct {
 	created     bool
 	opened      bool
 	removed     bool
+	purged      bool
+	purgeErr    error
 	keySnapshot []byte
 }
 
@@ -236,6 +327,10 @@ func (f *fakeDatabaseFactory) Open(context.Context, string, string, []byte) (vau
 func (f *fakeDatabaseFactory) Remove(context.Context, string) error {
 	f.removed = true
 	return f.removeErr
+}
+func (f *fakeDatabaseFactory) Purge(context.Context, string) error {
+	f.purged = true
+	return f.purgeErr
 }
 
 type fakeDatabase struct {
@@ -274,13 +369,23 @@ func (*fakeDatabase) ReconcileArtifacts(context.Context) error { return nil }
 func (d *fakeDatabase) Close() error                           { d.closed = true; return nil }
 
 type fakeCatalog struct {
-	entries []vaultcatalog.Entry
-	addErr  error
-	removed vaultcatalog.Entry
+	entries   []vaultcatalog.Entry
+	addErr    error
+	removed   vaultcatalog.Entry
+	removeErr error
 }
 
 func (c *fakeCatalog) List(context.Context) ([]vaultcatalog.Entry, error) {
 	return append([]vaultcatalog.Entry(nil), c.entries...), nil
+}
+func (c *fakeCatalog) PendingPurges(context.Context) ([]vaultcatalog.Entry, error) {
+	var pending []vaultcatalog.Entry
+	for _, entry := range c.entries {
+		if entry.State == vaultcatalog.StatePurgePending {
+			pending = append(pending, entry)
+		}
+	}
+	return pending, nil
 }
 func (c *fakeCatalog) Add(_ context.Context, entry vaultcatalog.Entry) error {
 	if c.addErr != nil {
@@ -289,7 +394,26 @@ func (c *fakeCatalog) Add(_ context.Context, entry vaultcatalog.Entry) error {
 	c.entries = append(c.entries, entry)
 	return nil
 }
+func (c *fakeCatalog) MarkPurgePending(_ context.Context, target vaultcatalog.Entry) error {
+	for index := range c.entries {
+		if c.entries[index].VaultID == target.VaultID {
+			c.entries[index].State = vaultcatalog.StatePurgePending
+			return nil
+		}
+	}
+	return vaultcatalog.ErrNotFound
+}
 func (c *fakeCatalog) Remove(_ context.Context, entry vaultcatalog.Entry) error {
 	c.removed = entry
+	if c.removeErr != nil {
+		return c.removeErr
+	}
+	filtered := c.entries[:0]
+	for _, current := range c.entries {
+		if current.VaultID != entry.VaultID || !current.CreatedAt.Equal(entry.CreatedAt) {
+			filtered = append(filtered, current)
+		}
+	}
+	c.entries = filtered
 	return nil
 }

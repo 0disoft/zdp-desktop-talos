@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -29,6 +30,9 @@ func NewVaultCreator(localDataRoot string) (*vaultbootstrap.Creator, error) {
 	creator, err := vaultbootstrap.NewCreator(keys, databases, catalog)
 	if err != nil {
 		return nil, fmt.Errorf("initialize Vault creator: %w", err)
+	}
+	if err := creator.ReconcilePurges(context.Background()); err != nil {
+		return nil, fmt.Errorf("reconcile pending Vault purges: %w", err)
 	}
 	return creator, nil
 }

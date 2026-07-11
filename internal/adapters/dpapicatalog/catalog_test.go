@@ -19,6 +19,10 @@ func TestCatalogRoundTripOrderingAndExactRemoval(t *testing.T) {
 	}
 	newer := vaultcatalog.Entry{VaultID: "00000000-0000-7000-8000-000000000002", CreatedAt: time.Unix(200, 0).UTC()}
 	older := vaultcatalog.Entry{VaultID: "00000000-0000-7000-8000-000000000001", CreatedAt: time.Unix(100, 0).UTC()}
+	newerActive := newer
+	newerActive.State = vaultcatalog.StateActive
+	olderActive := older
+	olderActive.State = vaultcatalog.StateActive
 	if err := catalog.Add(context.Background(), newer); err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +33,7 @@ func TestCatalogRoundTripOrderingAndExactRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 || entries[0] != older || entries[1] != newer {
+	if len(entries) != 2 || entries[0] != olderActive || entries[1] != newerActive {
 		t.Fatalf("entries = %+v", entries)
 	}
 	wrongRevision := older
@@ -41,8 +45,33 @@ func TestCatalogRoundTripOrderingAndExactRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, err = catalog.List(context.Background())
-	if err != nil || len(entries) != 1 || entries[0] != newer {
+	if err != nil || len(entries) != 1 || entries[0] != newerActive {
 		t.Fatalf("entries after removal = %+v, err=%v", entries, err)
+	}
+}
+
+func TestCatalogMigratesV1AndSeparatesPendingPurges(t *testing.T) {
+	t.Parallel()
+	keys := &memoryKeyStore{values: map[keyvault.Reference][]byte{
+		catalogReference: []byte(`{"version":1,"entries":[{"vault_id":"00000000-0000-7000-8000-000000000001","created_at":"1970-01-01T00:01:40Z"}]}`),
+	}}
+	catalog, _ := New(keys)
+	entries, err := catalog.List(context.Background())
+	if err != nil || len(entries) != 1 || entries[0].State != vaultcatalog.StateActive {
+		t.Fatalf("v1 entries=%+v err=%v", entries, err)
+	}
+	if err := catalog.MarkPurgePending(context.Background(), entries[0]); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := catalog.List(context.Background()); err != nil || len(active) != 0 {
+		t.Fatalf("active=%+v err=%v", active, err)
+	}
+	pending, err := catalog.PendingPurges(context.Background())
+	if err != nil || len(pending) != 1 || pending[0].State != vaultcatalog.StatePurgePending {
+		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+	if err := catalog.MarkPurgePending(context.Background(), pending[0]); err != nil {
+		t.Fatalf("idempotent pending transition: %v", err)
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 )
 
-func TestVaultCreatorRebuildDiscoversAndReopensProtectedVault(t *testing.T) {
+func TestVaultCreatorRebuildReopensAndHardPurgesProtectedVault(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	ctx := context.Background()
@@ -66,8 +66,19 @@ func TestVaultCreatorRebuildDiscoversAndReopensProtectedVault(t *testing.T) {
 		t.Fatalf("loaded artifact=%+v payload=%q", loadedArtifact, payload)
 	}
 	clear(payload)
-	if err := reopened.Close(); err != nil {
+	if err := restarted.HardPurge(ctx, reopened, vaultbootstrap.HardPurgeInput{
+		ExpectedRevision: reopened.Record.Revision,
+		Confirmation:     vaultID,
+	}); err != nil {
 		t.Fatal(err)
+	}
+	afterPurge, err := NewVaultCreator(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err = afterPurge.List(ctx)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("entries after purge = %+v, err=%v", entries, err)
 	}
 
 	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {

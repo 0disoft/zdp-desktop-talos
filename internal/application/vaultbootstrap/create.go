@@ -29,6 +29,7 @@ var (
 	ErrCompensationFailed = errors.New("Vault creation failed and cleanup was incomplete")
 	ErrNotCataloged       = errors.New("Vault is not present in the protected catalog")
 	ErrNotOpen            = errors.New("Vault session is not open")
+	ErrPurgeIncomplete    = errors.New("Vault hard purge is pending recovery")
 )
 
 type CreateInput struct {
@@ -46,6 +47,11 @@ type StoreArtifactInput struct {
 	Sensitivity   event.Sensitivity
 	ContentType   string
 	Payload       []byte
+}
+
+type HardPurgeInput struct {
+	ExpectedRevision int
+	Confirmation     string
 }
 
 type Session struct {
@@ -168,7 +174,7 @@ func (c *Creator) Create(ctx context.Context, input CreateInput) (*Session, erro
 	if err != nil {
 		return nil, c.compensate(ctx, fmt.Errorf("initialize Vault state: %w", err), vaultcatalog.Entry{}, keyRef, database)
 	}
-	entry := vaultcatalog.Entry{VaultID: vaultID, CreatedAt: record.CreatedAt}
+	entry := vaultcatalog.Entry{VaultID: vaultID, CreatedAt: record.CreatedAt, State: vaultcatalog.StateActive}
 	if err := c.catalog.Add(ctx, entry); err != nil {
 		return nil, c.compensate(ctx, fmt.Errorf("register Vault in catalog: %w", err), entry, keyRef, database)
 	}
@@ -217,6 +223,61 @@ func (c *Creator) Open(ctx context.Context, vaultID string) (*Session, error) {
 		return nil, fmt.Errorf("%w: stored Vault identity or state is invalid", ErrNotCataloged)
 	}
 	return &Session{Record: record, database: database}, nil
+}
+
+func (c *Creator) HardPurge(ctx context.Context, session *Session, input HardPurgeInput) error {
+	if session == nil || session.database == nil {
+		return ErrNotOpen
+	}
+	if input.ExpectedRevision != session.Record.Revision {
+		return vaultstore.ErrRevisionConflict
+	}
+	if input.Confirmation != session.Record.ID {
+		return ErrInvalidInput
+	}
+	entry := vaultcatalog.Entry{VaultID: session.Record.ID, CreatedAt: session.Record.CreatedAt, State: vaultcatalog.StateActive}
+	if err := session.Close(); err != nil {
+		return fmt.Errorf("close Vault before hard purge: %w", err)
+	}
+	if err := c.catalog.MarkPurgePending(ctx, entry); err != nil {
+		return fmt.Errorf("record hard purge intent: %w", err)
+	}
+	entry.State = vaultcatalog.StatePurgePending
+	if err := c.finishPurge(context.WithoutCancel(ctx), entry); err != nil {
+		return errors.Join(ErrPurgeIncomplete, err)
+	}
+	return nil
+}
+
+func (c *Creator) ReconcilePurges(ctx context.Context) error {
+	entries, err := c.catalog.PendingPurges(ctx)
+	if err != nil {
+		return fmt.Errorf("read pending Vault purges: %w", err)
+	}
+	var purgeErrors []error
+	for _, entry := range entries {
+		if err := c.finishPurge(context.WithoutCancel(ctx), entry); err != nil {
+			purgeErrors = append(purgeErrors, fmt.Errorf("resume purge for Vault %s: %w", entry.VaultID, err))
+		}
+	}
+	if len(purgeErrors) > 0 {
+		return errors.Join(ErrPurgeIncomplete, errors.Join(purgeErrors...))
+	}
+	return nil
+}
+
+func (c *Creator) finishPurge(ctx context.Context, entry vaultcatalog.Entry) error {
+	keyRef := keyvault.Reference{VaultID: entry.VaultID, KeyID: VaultKeyID}
+	if err := c.keys.Delete(ctx, keyRef); err != nil && !errors.Is(err, keyvault.ErrNotFound) {
+		return fmt.Errorf("destroy Vault key: %w", err)
+	}
+	if err := c.databases.Purge(ctx, entry.VaultID); err != nil {
+		return fmt.Errorf("remove Vault ciphertext: %w", err)
+	}
+	if err := c.catalog.Remove(ctx, entry); err != nil && !errors.Is(err, vaultcatalog.ErrNotFound) {
+		return fmt.Errorf("complete Vault purge journal: %w", err)
+	}
+	return nil
 }
 
 func (c *Creator) compensate(ctx context.Context, cause error, entry vaultcatalog.Entry, keyRef keyvault.Reference, database vaultdb.Database) error {

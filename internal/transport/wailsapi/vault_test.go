@@ -84,6 +84,22 @@ func TestVaultServiceUpdatesRetentionAndRejectsStaleRevision(t *testing.T) {
 	}
 }
 
+func TestVaultServiceHardPurgeRequiresExactVaultID(t *testing.T) {
+	t.Parallel()
+	database := &serviceDatabase{}
+	creator, _ := vaultbootstrap.NewCreator(&serviceKeyStore{}, &serviceDatabaseFactory{database: database}, &serviceCatalog{})
+	service := NewVaultService(creator, nil)
+	created := service.Create(30, "create")
+	invalid := service.HardPurge(created.Vault.Revision, "wrong", "invalid-purge")
+	if invalid.Error == nil || invalid.Error.Code != "VAULT_INPUT_INVALID" || service.Status().State != "unlocked" {
+		t.Fatalf("invalid=%+v status=%+v", invalid, service.Status())
+	}
+	purged := service.HardPurge(created.Vault.Revision, created.Vault.VaultID, "purge")
+	if purged.Error != nil || purged.Vault == nil || purged.Vault.State != "locked" || service.Status().State != "locked" {
+		t.Fatalf("purged=%+v status=%+v", purged, service.Status())
+	}
+}
+
 func TestVaultServiceFailsClosedWhenStorageIsUnavailable(t *testing.T) {
 	t.Parallel()
 	service := NewVaultService(nil, errors.New("C:\\Users\\private\\keys"))
@@ -118,6 +134,17 @@ func TestMapErrorPrioritizesIncompleteCleanup(t *testing.T) {
 	mapped := MapError(errors.Join(vaultbootstrap.ErrCompensationFailed, vaultbootstrap.ErrInvalidInput), "cleanup")
 	if mapped.Code != "VAULT_CLEANUP_INCOMPLETE" {
 		t.Fatalf("mapped = %+v", mapped)
+	}
+}
+
+func TestMapErrorExposesPendingPurgeWithoutInternalPaths(t *testing.T) {
+	t.Parallel()
+	mapped := MapError(errors.Join(vaultbootstrap.ErrPurgeIncomplete, errors.New("C:\\Users\\private\\vault.db")), "purge")
+	if mapped.Code != "VAULT_PURGE_INCOMPLETE" || mapped.CorrelationID != "purge" {
+		t.Fatalf("mapped=%+v", mapped)
+	}
+	if mapped.Message == "" || mapped.Message == "C:\\Users\\private\\vault.db" {
+		t.Fatalf("unsafe message=%q", mapped.Message)
 	}
 }
 
@@ -156,6 +183,7 @@ func (f *serviceDatabaseFactory) Open(context.Context, string, string, []byte) (
 	return f.database, nil
 }
 func (*serviceDatabaseFactory) Remove(context.Context, string) error { return nil }
+func (*serviceDatabaseFactory) Purge(context.Context, string) error  { return nil }
 
 type serviceDatabase struct {
 	closed   bool
@@ -195,8 +223,12 @@ func (d *serviceDatabase) Close() error                           { d.closed = t
 type serviceCatalog struct{ entries []vaultcatalog.Entry }
 
 func (c *serviceCatalog) List(context.Context) ([]vaultcatalog.Entry, error) { return c.entries, nil }
+func (c *serviceCatalog) PendingPurges(context.Context) ([]vaultcatalog.Entry, error) {
+	return nil, nil
+}
 func (c *serviceCatalog) Add(_ context.Context, entry vaultcatalog.Entry) error {
 	c.entries = append(c.entries, entry)
 	return nil
 }
-func (*serviceCatalog) Remove(context.Context, vaultcatalog.Entry) error { return nil }
+func (*serviceCatalog) MarkPurgePending(context.Context, vaultcatalog.Entry) error { return nil }
+func (*serviceCatalog) Remove(context.Context, vaultcatalog.Entry) error           { return nil }

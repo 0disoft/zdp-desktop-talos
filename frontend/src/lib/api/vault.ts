@@ -63,6 +63,12 @@ export async function updateVaultRetention(retentionDays: number, expectedRevisi
   );
 }
 
+export async function hardPurgeVault(expectedRevision: number, confirmation: string): Promise<VaultResult> {
+  return parseResult(
+    await Call.ByName(`${service}.HardPurge`, expectedRevision, confirmation, correlationID()),
+  );
+}
+
 function parseResult(value: unknown): VaultResult {
   if (!isObject(value)) {
     throw new Error('VAULT_RESPONSE_INVALID');

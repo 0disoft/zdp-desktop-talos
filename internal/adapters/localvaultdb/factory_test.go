@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
@@ -74,5 +75,26 @@ func TestFactoryRefusesDatabaseRemovalWhileArtifactsRemain(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("database was removed before artifact preflight: %v", err)
+	}
+	if err := factory.Purge(context.Background(), "vault-retained"); err == nil {
+		t.Fatal("purge accepted an unexpected artifact filename")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database was removed after unsafe purge preflight: %v", err)
+	}
+	if err := os.Remove(path + ".blobs/retained.blob"); err != nil {
+		t.Fatal(err)
+	}
+	validBlob := strings.Repeat("a", 64) + ".blob"
+	if err := os.WriteFile(path+".blobs/"+validBlob, []byte("ciphertext"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := factory.Purge(context.Background(), "vault-retained"); err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []string{path, path + ".blobs"} {
+		if _, err := os.Stat(candidate); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s survived purge: %v", candidate, err)
+		}
 	}
 }
