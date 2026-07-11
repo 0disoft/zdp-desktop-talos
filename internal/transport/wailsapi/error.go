@@ -55,6 +55,12 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, taskstore.ErrIdempotencyConflict), errors.Is(err, taskstore.ErrIdempotencyUnverified):
 		mapped.Code = "TASK_REQUEST_CONFLICT"
 		mapped.Message = "같은 요청 식별자가 다른 Task Contract에 사용되었습니다."
+	case errors.Is(err, taskstore.ErrRevisionConflict):
+		mapped.Code = "TASK_REVISION_CONFLICT"
+		mapped.Message = "Task Contract가 다른 요청에서 변경되었습니다. 최신 revision을 다시 확인해 주세요."
+	case errors.Is(err, vaultbootstrap.ErrTaskWorkspaceMismatch):
+		mapped.Code = "TASK_WORKSPACE_MISMATCH"
+		mapped.Message = "이 Task Contract는 현재 Workspace 기준점에 속하지 않습니다."
 	case errors.Is(err, taskstore.ErrNotFound):
 		mapped.Code = "TASK_NOT_FOUND"
 		mapped.Message = "요청한 Task를 찾을 수 없습니다."

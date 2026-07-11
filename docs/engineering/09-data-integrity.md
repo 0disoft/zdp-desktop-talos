@@ -12,6 +12,8 @@ Implemented Vault metadata uses a `STRICT` materialized table. Vault creation an
 
 Task creation, immutable contract revision 1, its encrypted event, and idempotency claim share one transaction. The Task and revision pointer repeat the baseline under a composite foreign key, while private contract body fields remain encrypted in the event instead of being copied into materialized rows.
 
+Later Task Contract revisions append immutable encrypted events and advance the Task head only when `expected_revision` still matches. Historical idempotency replay is reconstructed from its own revision event, not from the current Task head, and generated occurrence time is excluded from caller-intent hashes.
+
 SQLite schema changes use monotonic `PRAGMA user_version` migrations. Each migration commits atomically, newer application-incompatible schemas are rejected, and the adapter validates required columns after migration instead of trusting the version integer alone. Migrations are forward-only; backup and roll-forward policy are separate release gates for destructive changes.
 
 ## Integrity Metadata

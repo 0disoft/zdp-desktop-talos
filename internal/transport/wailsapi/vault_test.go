@@ -192,6 +192,7 @@ type serviceDatabase struct {
 	closeErr    error
 	record      vault.Record
 	taskInput   taskstore.CreateInput
+	reviseInput taskstore.ReviseInput
 	taskCreated taskstore.Created
 	taskErr     error
 }
@@ -225,9 +226,22 @@ func (*serviceDatabase) GetArtifact(context.Context, string) (artifact.Record, [
 func (*serviceDatabase) ReconcileArtifacts(context.Context) error { return nil }
 func (d *serviceDatabase) CreateTaskContract(_ context.Context, input taskstore.CreateInput) (taskstore.Created, error) {
 	d.taskInput = input
+	if d.taskCreated.Task.ID != "" {
+		d.taskCreated.Task.VaultID = input.VaultID
+		d.taskCreated.Task.WorkspaceRoot = input.WorkspaceRoot
+		d.taskCreated.Task.BaselineCommit = input.BaselineCommit
+		d.taskCreated.Contract.BaselineCommit = input.BaselineCommit
+	}
 	return d.taskCreated, d.taskErr
 }
-func (*serviceDatabase) GetTask(context.Context, string) (task.Record, error) {
+func (d *serviceDatabase) ReviseTaskContract(_ context.Context, input taskstore.ReviseInput) (taskstore.Created, error) {
+	d.reviseInput = input
+	return d.taskCreated, d.taskErr
+}
+func (d *serviceDatabase) GetTask(_ context.Context, taskID string) (task.Record, error) {
+	if d.taskCreated.Task.ID == taskID {
+		return d.taskCreated.Task, nil
+	}
 	return task.Record{}, taskstore.ErrNotFound
 }
 func (*serviceDatabase) GetTaskContract(context.Context, string, int) (task.ContractRevision, error) {

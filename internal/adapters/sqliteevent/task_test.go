@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -65,6 +67,89 @@ func TestTaskAndFirstContractCommitAtomicallyAndSurviveRestart(t *testing.T) {
 	}
 	if restoredTask.BaselineCommit != input.BaselineCommit || restoredContract.Goal != input.Goal || restoredContract.EventID != created.Contract.EventID {
 		t.Fatalf("restored mismatch: %+v %+v", restoredTask, restoredContract)
+	}
+}
+
+func TestTaskContractRevisionIsAtomicRevisionCheckedAndReplayable(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, filepath.Join(t.TempDir(), "vault.db"))
+	defer store.Close()
+	ctx := context.Background()
+	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: "vault-alpha", RetentionDays: 30, IdempotencyKey: "vault-alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	createInput := taskstore.CreateInput{VaultID: "vault-alpha", WorkspaceRoot: `C:\repo`, BaselineCommit: "0123456789012345678901234567890123456789", Goal: "revision one", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"one"}, Risk: task.RiskLow, IdempotencyKey: "task-create"}
+	created, err := store.CreateTaskContract(ctx, createInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revised, err := store.ReviseTaskContract(ctx, taskstore.ReviseInput{VaultID: "vault-alpha", TaskID: created.Task.ID, ExpectedRevision: 1, Goal: "revision two", AllowedPaths: []string{"internal/**", "frontend/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"two"}, Risk: task.RiskMedium, IdempotencyKey: "task-revise-2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revised.Task.CurrentRevision != 2 || revised.Contract.Revision != 2 || revised.Task.BaselineCommit != created.Task.BaselineCommit || revised.Contract.Goal != "revision two" {
+		t.Fatalf("revised=%+v", revised)
+	}
+	if _, err := store.ReviseTaskContract(ctx, taskstore.ReviseInput{VaultID: "vault-alpha", TaskID: created.Task.ID, ExpectedRevision: 1, Goal: "stale", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"stale"}, Risk: task.RiskLow, IdempotencyKey: "task-stale"}); !errors.Is(err, taskstore.ErrRevisionConflict) {
+		t.Fatalf("stale error=%v", err)
+	}
+	if got := tableCount(t, store, "task_contract_revisions"); got != 2 {
+		t.Fatalf("revision rows=%d", got)
+	}
+	replayedRevision, err := store.ReviseTaskContract(ctx, taskstore.ReviseInput{VaultID: "vault-alpha", TaskID: created.Task.ID, ExpectedRevision: 1, Goal: "revision two", AllowedPaths: []string{"internal/**", "frontend/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"two"}, Risk: task.RiskMedium, IdempotencyKey: "task-revise-2"})
+	if err != nil || replayedRevision.Contract.EventID != revised.Contract.EventID || replayedRevision.Task.CurrentRevision != 2 {
+		t.Fatalf("replayed revision=%+v err=%v", replayedRevision, err)
+	}
+	replayedCreate, err := store.CreateTaskContract(ctx, createInput)
+	if err != nil || replayedCreate.Contract.Revision != 1 || replayedCreate.Contract.EventID != created.Contract.EventID {
+		t.Fatalf("replayed create=%+v err=%v", replayedCreate, err)
+	}
+	current, err := store.GetTask(ctx, created.Task.ID)
+	if err != nil || current.CurrentRevision != 2 || current.LastEventID != revised.Contract.EventID {
+		t.Fatalf("current=%+v err=%v", current, err)
+	}
+}
+
+func TestConcurrentTaskRevisionsAllowOneWinner(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, filepath.Join(t.TempDir(), "vault.db"))
+	defer store.Close()
+	ctx := context.Background()
+	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: "vault-alpha", RetentionDays: 30, IdempotencyKey: "vault-alpha"}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := store.CreateTaskContract(ctx, taskstore.CreateInput{VaultID: "vault-alpha", WorkspaceRoot: `C:\repo`, BaselineCommit: "0123456789012345678901234567890123456789", Goal: "one", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"one"}, Risk: task.RiskLow, IdempotencyKey: "task-create"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var group sync.WaitGroup
+	for index := 0; index < 2; index++ {
+		index := index
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			<-start
+			_, err := store.ReviseTaskContract(ctx, taskstore.ReviseInput{VaultID: "vault-alpha", TaskID: created.Task.ID, ExpectedRevision: 1, Goal: fmt.Sprintf("winner-%d", index), AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"pass"}, Risk: task.RiskMedium, IdempotencyKey: fmt.Sprintf("revise-%d", index)})
+			results <- err
+		}()
+	}
+	close(start)
+	group.Wait()
+	close(results)
+	successes, conflicts := 0, 0
+	for err := range results {
+		if err == nil {
+			successes++
+		} else if errors.Is(err, taskstore.ErrRevisionConflict) {
+			conflicts++
+		} else {
+			t.Fatalf("unexpected error=%v", err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes=%d conflicts=%d", successes, conflicts)
 	}
 }
 

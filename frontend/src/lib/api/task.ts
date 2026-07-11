@@ -28,6 +28,12 @@ export async function createTaskContract(input: TaskContractInput): Promise<Task
   return parseResult(await Call.ByName(`${service}.CreateContract`, request));
 }
 
+export async function reviseTaskContract(taskID: string, expectedRevision: number, input: TaskContractInput): Promise<TaskResult> {
+  if (!taskID || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error('TASK_REVISION_INVALID');
+  const request = { ...input, task_id: taskID, expected_revision: expectedRevision, request_id: correlationID(), correlation_id: correlationID() };
+  return parseResult(await Call.ByName(`${service}.ReviseContract`, request));
+}
+
 function parseResult(value: unknown): TaskResult {
   if (!isObject(value)) throw new Error('TASK_RESPONSE_INVALID');
   const result: TaskResult = {};
@@ -38,7 +44,7 @@ function parseResult(value: unknown): TaskResult {
 }
 
 function parseTask(value: unknown): TaskStatus {
-  if (!isObject(value) || typeof value.task_id !== 'string' || value.task_id.length === 0 || value.revision !== 1 || typeof value.baseline_commit !== 'string' || !commitPattern.test(value.baseline_commit) || (value.risk !== 'low' && value.risk !== 'medium' && value.risk !== 'high') || value.status !== 'contracted' || typeof value.created_at !== 'string' || Number.isNaN(new Date(value.created_at).getTime())) {
+  if (!isObject(value) || typeof value.task_id !== 'string' || value.task_id.length === 0 || typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision) || value.revision < 1 || typeof value.baseline_commit !== 'string' || !commitPattern.test(value.baseline_commit) || (value.risk !== 'low' && value.risk !== 'medium' && value.risk !== 'high') || value.status !== 'contracted' || typeof value.created_at !== 'string' || Number.isNaN(new Date(value.created_at).getTime())) {
     throw new Error('TASK_RESPONSE_INVALID');
   }
   return { task_id: value.task_id, revision: value.revision, baseline_commit: value.baseline_commit, risk: value.risk, status: value.status, created_at: value.created_at };

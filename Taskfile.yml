@@ -56,4 +56,4 @@ tasks:
   windows:package:
     summary: Build a Windows installer on a provisioned signing host
     cmds:
-      - powershell.exe -NoProfile -NonInteractive -File packaging/windows/package.ps1 -Version 0.1.17 -RequireSignature
+      - powershell.exe -NoProfile -NonInteractive -File packaging/windows/package.ps1 -Version 0.1.18 -RequireSignature

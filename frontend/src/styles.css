@@ -316,6 +316,24 @@ h1 {
   font-size: 0.76rem;
 }
 
+.task-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.task-summary button,
+.task-actions button.secondary {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #d7deea;
+  background: transparent;
+  cursor: pointer;
+}
+
 .vault-actions {
   flex-wrap: wrap;
   display: flex;

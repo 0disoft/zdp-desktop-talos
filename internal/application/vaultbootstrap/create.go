@@ -27,11 +27,12 @@ const (
 )
 
 var (
-	ErrInvalidInput       = errors.New("invalid Vault creation input")
-	ErrCompensationFailed = errors.New("Vault creation failed and cleanup was incomplete")
-	ErrNotCataloged       = errors.New("Vault is not present in the protected catalog")
-	ErrNotOpen            = errors.New("Vault session is not open")
-	ErrPurgeIncomplete    = errors.New("Vault hard purge is pending recovery")
+	ErrInvalidInput          = errors.New("invalid Vault creation input")
+	ErrCompensationFailed    = errors.New("Vault creation failed and cleanup was incomplete")
+	ErrNotCataloged          = errors.New("Vault is not present in the protected catalog")
+	ErrNotOpen               = errors.New("Vault session is not open")
+	ErrPurgeIncomplete       = errors.New("Vault hard purge is pending recovery")
+	ErrTaskWorkspaceMismatch = errors.New("task does not belong to the current workspace snapshot")
 )
 
 type CreateInput struct {
@@ -52,6 +53,19 @@ type StoreArtifactInput struct {
 }
 
 type CreateTaskContractInput struct {
+	WorkspaceRoot      string
+	BaselineCommit     string
+	Goal               string
+	AllowedPaths       []string
+	ForbiddenActions   []string
+	AcceptanceCriteria []string
+	Risk               task.Risk
+	IdempotencyKey     string
+}
+
+type ReviseTaskContractInput struct {
+	TaskID             string
+	ExpectedRevision   int
 	WorkspaceRoot      string
 	BaselineCommit     string
 	Goal               string
@@ -143,7 +157,29 @@ func (s *Session) CreateTaskContract(ctx context.Context, input CreateTaskContra
 	return s.database.CreateTaskContract(ctx, taskstore.CreateInput{
 		VaultID: s.Record.ID, WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: input.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: input.AllowedPaths, ForbiddenActions: input.ForbiddenActions,
-		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk, OccurredAt: time.Now().UTC(),
+		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk,
+		IdempotencyKey: input.IdempotencyKey,
+	})
+}
+
+func (s *Session) ReviseTaskContract(ctx context.Context, input ReviseTaskContractInput) (taskstore.Created, error) {
+	if s == nil || s.database == nil {
+		return taskstore.Created{}, ErrNotOpen
+	}
+	if input.TaskID == "" || input.ExpectedRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+		return taskstore.Created{}, ErrInvalidInput
+	}
+	current, err := s.database.GetTask(ctx, input.TaskID)
+	if err != nil {
+		return taskstore.Created{}, err
+	}
+	if current.VaultID != s.Record.ID || current.WorkspaceRoot != input.WorkspaceRoot || current.BaselineCommit != input.BaselineCommit {
+		return taskstore.Created{}, ErrTaskWorkspaceMismatch
+	}
+	return s.database.ReviseTaskContract(ctx, taskstore.ReviseInput{
+		VaultID: s.Record.ID, TaskID: input.TaskID, ExpectedRevision: input.ExpectedRevision,
+		Goal: input.Goal, AllowedPaths: input.AllowedPaths, ForbiddenActions: input.ForbiddenActions,
+		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk,
 		IdempotencyKey: input.IdempotencyKey,
 	})
 }

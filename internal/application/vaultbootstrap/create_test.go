@@ -371,6 +371,9 @@ func (*fakeDatabase) ReconcileArtifacts(context.Context) error { return nil }
 func (*fakeDatabase) CreateTaskContract(context.Context, taskstore.CreateInput) (taskstore.Created, error) {
 	return taskstore.Created{}, taskstore.ErrNotFound
 }
+func (*fakeDatabase) ReviseTaskContract(context.Context, taskstore.ReviseInput) (taskstore.Created, error) {
+	return taskstore.Created{}, taskstore.ErrNotFound
+}
 func (*fakeDatabase) GetTask(context.Context, string) (task.Record, error) {
 	return task.Record{}, taskstore.ErrNotFound
 }

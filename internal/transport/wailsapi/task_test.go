@@ -34,6 +34,20 @@ func TestTaskServiceReinspectsCleanBaselineAndPersistsContract(t *testing.T) {
 	if database.taskInput.WorkspaceRoot != snapshot.Root || database.taskInput.BaselineCommit != snapshot.BaselineCommit || database.taskInput.IdempotencyKey != "task-contract:request-1" {
 		t.Fatalf("input=%+v", database.taskInput)
 	}
+	database.taskCreated.Task.CurrentRevision = 2
+	database.taskCreated.Task.UpdatedAt = now.Add(time.Minute)
+	database.taskCreated.Task.LastEventID = "event-2"
+	database.taskCreated.Contract.Revision = 2
+	database.taskCreated.Contract.Goal = "Revised contracts"
+	database.taskCreated.Contract.CreatedAt = now.Add(time.Minute)
+	database.taskCreated.Contract.EventID = "event-2"
+	revised := service.ReviseContract(TaskReviseRequest{TaskID: "task-1", ExpectedRevision: 1, Goal: "Revised contracts", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, Risk: "medium", RequestID: "request-2", CorrelationID: "task-revise"})
+	if revised.Error != nil || revised.Task == nil || revised.Task.Revision != 2 {
+		t.Fatalf("revised=%+v", revised)
+	}
+	if database.reviseInput.TaskID != "task-1" || database.reviseInput.ExpectedRevision != 1 || database.reviseInput.IdempotencyKey != "task-contract-revision:request-2" {
+		t.Fatalf("revise input=%+v", database.reviseInput)
+	}
 }
 
 func TestTaskServiceRejectsDirtyOrChangedWorkspaceBeforePersistence(t *testing.T) {
