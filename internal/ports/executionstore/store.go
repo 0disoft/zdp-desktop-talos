@@ -28,9 +28,6 @@ type PrepareAttemptInput struct {
 	VaultID        string
 	TaskID         string
 	WorkspaceHash  string
-	RunID          string
-	AttemptID      string
-	CallID         string
 	CapabilityHash string
 	GrantID        string
 	OccurredAt     time.Time
@@ -38,8 +35,9 @@ type PrepareAttemptInput struct {
 }
 
 type Prepared struct {
-	Run     execution.Run
-	Attempt execution.Attempt
+	Run      execution.Run
+	Attempt  execution.Attempt
+	Replayed bool
 }
 
 type FinishAttemptInput struct {

@@ -16,6 +16,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -130,6 +131,18 @@ type HardPurgeInput struct {
 type Session struct {
 	Record   vault.Record
 	database vaultdb.Database
+}
+
+type ExecutionDatabase interface {
+	taskstore.Store
+	executionstore.Store
+}
+
+func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {
+	if s == nil || s.database == nil {
+		return nil, ErrNotOpen
+	}
+	return s.database, nil
 }
 
 func (s *Session) Close() error {

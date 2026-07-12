@@ -6,6 +6,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 )
@@ -19,6 +20,7 @@ type Database interface {
 	vaultstore.Store
 	artifactstore.Store
 	decisionstore.Store
+	executionstore.Store
 	taskstore.Store
 	Close() error
 }

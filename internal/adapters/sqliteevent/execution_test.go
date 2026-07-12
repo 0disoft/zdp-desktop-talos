@@ -164,9 +164,6 @@ func TestFinishedAttemptAllowsRunToCloseAndReleasesWorkspace(t *testing.T) {
 		t.Fatalf("late preparation replay lost current state: %+v", replayed)
 	}
 	second := input
-	second.RunID = "run-2"
-	second.AttemptID = "attempt-2"
-	second.CallID = "call-2"
 	second.GrantID = ""
 	second.IdempotencyKey = "prepare-second-run"
 	if _, err := store.PrepareAttempt(ctx, second); err != nil {
@@ -193,7 +190,7 @@ func executionFixture(t *testing.T) (*Store, task.Record, permission.Grant, exec
 	}
 	capabilityHash := strings.Repeat("b", 64)
 	grant := permission.Grant{ID: "grant-once", Outcome: permission.OutcomeAllowOnce, State: permission.GrantActive, CapabilityHash: capabilityHash, TaskID: created.Task.ID, WorkspaceHash: workspaceHash, CreatedAt: now.Add(2 * time.Second), ExpiresAt: now.Add(time.Hour)}
-	input := executionstore.PrepareAttemptInput{VaultID: created.Task.VaultID, TaskID: created.Task.ID, WorkspaceHash: workspaceHash, RunID: "run-1", AttemptID: "attempt-1", CallID: "call-1", CapabilityHash: capabilityHash, GrantID: grant.ID, OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "prepare-attempt"}
+	input := executionstore.PrepareAttemptInput{VaultID: created.Task.VaultID, TaskID: created.Task.ID, WorkspaceHash: workspaceHash, CapabilityHash: capabilityHash, GrantID: grant.ID, OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "prepare-attempt"}
 	return store, created.Task, grant, input
 }
 

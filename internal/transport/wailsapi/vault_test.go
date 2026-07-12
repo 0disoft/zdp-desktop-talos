@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -275,6 +279,24 @@ func (d *serviceDatabase) GetTask(_ context.Context, taskID string) (task.Record
 }
 func (*serviceDatabase) GetTaskContract(context.Context, string, int) (task.ContractRevision, error) {
 	return task.ContractRevision{}, taskstore.ErrNotFound
+}
+func (*serviceDatabase) SavePermissionGrant(context.Context, executionstore.SaveGrantInput) (permission.Grant, error) {
+	return permission.Grant{}, executionstore.ErrNotFound
+}
+func (*serviceDatabase) ListActivePermissionGrants(context.Context, string, string) ([]permission.Grant, error) {
+	return nil, nil
+}
+func (*serviceDatabase) PrepareAttempt(context.Context, executionstore.PrepareAttemptInput) (executionstore.Prepared, error) {
+	return executionstore.Prepared{}, executionstore.ErrNotFound
+}
+func (*serviceDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (execution.Attempt, error) {
+	return execution.Attempt{}, executionstore.ErrNotFound
+}
+func (*serviceDatabase) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
+	return execution.Run{}, executionstore.ErrNotFound
+}
+func (*serviceDatabase) ReconcilePendingAttempts(context.Context, string, time.Time) (int, error) {
+	return 0, nil
 }
 func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
+	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 )
 
@@ -114,7 +115,7 @@ func (s *Store) ListActivePermissionGrants(ctx context.Context, vaultID, workspa
 
 func (s *Store) PrepareAttempt(ctx context.Context, input executionstore.PrepareAttemptInput) (executionstore.Prepared, error) {
 	occurredAt := normalizedTime(input.OccurredAt, s.now)
-	if input.VaultID == "" || input.TaskID == "" || input.RunID == "" || input.AttemptID == "" || input.CallID == "" || len(input.WorkspaceHash) != 64 || len(input.CapabilityHash) != 64 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+	if input.VaultID == "" || input.TaskID == "" || len(input.WorkspaceHash) != 64 || len(input.CapabilityHash) != 64 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
 		return executionstore.Prepared{}, executionstore.ErrInvalidCommand
 	}
 	requestHash, err := hashExecutionCommand(input)
@@ -132,6 +133,18 @@ func (s *Store) PrepareAttempt(ctx context.Context, input executionstore.Prepare
 	}
 	if found {
 		return s.preparedByEvent(ctx, tx, existing.ID)
+	}
+	runID, err := id.UUIDv7(occurredAt, s.random)
+	if err != nil {
+		return executionstore.Prepared{}, fmt.Errorf("generate run id: %w", err)
+	}
+	attemptID, err := id.UUIDv7(occurredAt, s.random)
+	if err != nil {
+		return executionstore.Prepared{}, fmt.Errorf("generate attempt id: %w", err)
+	}
+	callID, err := id.UUIDv7(occurredAt, s.random)
+	if err != nil {
+		return executionstore.Prepared{}, fmt.Errorf("generate tool call id: %w", err)
 	}
 	if err := requireActiveVault(ctx, tx, input.VaultID); err != nil {
 		return executionstore.Prepared{}, err
@@ -160,7 +173,7 @@ func (s *Store) PrepareAttempt(ctx context.Context, input executionstore.Prepare
 		}
 		consumeGrant = grant.Outcome == permission.OutcomeAllowOnce
 	}
-	payload := executionPayload{GrantID: input.GrantID, TaskID: input.TaskID, WorkspaceHash: input.WorkspaceHash, CapabilityHash: input.CapabilityHash, RunID: input.RunID, AttemptID: input.AttemptID, CallID: input.CallID, AttemptState: execution.AttemptDispatchPending, OccurredAt: occurredAt.Format(time.RFC3339Nano)}
+	payload := executionPayload{GrantID: input.GrantID, TaskID: input.TaskID, WorkspaceHash: input.WorkspaceHash, CapabilityHash: input.CapabilityHash, RunID: runID, AttemptID: attemptID, CallID: callID, AttemptState: execution.AttemptDispatchPending, OccurredAt: occurredAt.Format(time.RFC3339Nano)}
 	record, err := s.executionEvent(input.VaultID, "execution.attempt.prepared", payload, occurredAt)
 	if err != nil {
 		return executionstore.Prepared{}, err
@@ -178,18 +191,18 @@ func (s *Store) PrepareAttempt(ctx context.Context, input executionstore.Prepare
 			return executionstore.Prepared{}, executionstore.ErrGrantUnavailable
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO runs(run_id, vault_id, task_id, workspace_hash, state, created_at, updated_at, created_event_id, last_event_id) VALUES(?, ?, ?, ?, 'active', ?, ?, ?, ?) ON CONFLICT(run_id) DO NOTHING`, input.RunID, input.VaultID, input.TaskID, input.WorkspaceHash, payload.OccurredAt, payload.OccurredAt, record.ID, record.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO runs(run_id, vault_id, task_id, workspace_hash, state, created_at, updated_at, created_event_id, last_event_id) VALUES(?, ?, ?, ?, 'active', ?, ?, ?, ?)`, runID, input.VaultID, input.TaskID, input.WorkspaceHash, payload.OccurredAt, payload.OccurredAt, record.ID, record.ID); err != nil {
 		return executionstore.Prepared{}, fmt.Errorf("insert active run: %w", err)
 	}
-	run, err := scanRun(tx.QueryRowContext(ctx, runSelect+" WHERE run_id = ?", input.RunID))
-	if err != nil || run.State != execution.RunActive || run.TaskID != input.TaskID || run.WorkspaceHash != input.WorkspaceHash {
-		return executionstore.Prepared{}, executionstore.ErrConflict
+	run, err := scanRun(tx.QueryRowContext(ctx, runSelect+" WHERE run_id = ?", runID))
+	if err != nil {
+		return executionstore.Prepared{}, err
 	}
 	var grantID any
 	if input.GrantID != "" {
 		grantID = input.GrantID
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO attempts(attempt_id, run_id, call_id, capability_hash, grant_id, state, created_at, updated_at, prepared_event_id, last_event_id) VALUES(?, ?, ?, ?, ?, 'dispatch_pending', ?, ?, ?, ?)`, input.AttemptID, input.RunID, input.CallID, input.CapabilityHash, grantID, payload.OccurredAt, payload.OccurredAt, record.ID, record.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO attempts(attempt_id, run_id, call_id, capability_hash, grant_id, state, created_at, updated_at, prepared_event_id, last_event_id) VALUES(?, ?, ?, ?, ?, 'dispatch_pending', ?, ?, ?, ?)`, attemptID, runID, callID, input.CapabilityHash, grantID, payload.OccurredAt, payload.OccurredAt, record.ID, record.ID); err != nil {
 		return executionstore.Prepared{}, fmt.Errorf("insert pending attempt: %w", err)
 	}
 	if err := claimIdempotency(ctx, tx, input.IdempotencyKey, record.ID, requestHash); err != nil {
@@ -198,7 +211,7 @@ func (s *Store) PrepareAttempt(ctx context.Context, input executionstore.Prepare
 	if err := tx.Commit(); err != nil {
 		return executionstore.Prepared{}, fmt.Errorf("commit attempt preparation: %w", err)
 	}
-	attempt, err := s.GetAttempt(ctx, input.AttemptID)
+	attempt, err := s.GetAttempt(ctx, attemptID)
 	return executionstore.Prepared{Run: run, Attempt: attempt}, err
 }
 
@@ -412,7 +425,7 @@ func (s *Store) preparedByEvent(ctx context.Context, tx *sql.Tx, eventID string)
 		return executionstore.Prepared{}, err
 	}
 	run, err := scanRun(tx.QueryRowContext(ctx, runSelect+" WHERE run_id = ?", attempt.RunID))
-	return executionstore.Prepared{Run: run, Attempt: attempt}, err
+	return executionstore.Prepared{Run: run, Attempt: attempt, Replayed: true}, err
 }
 
 func hashExecutionCommand(value any) ([]byte, error) {

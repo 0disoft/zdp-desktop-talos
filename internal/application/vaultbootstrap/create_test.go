@@ -9,10 +9,13 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -399,6 +402,24 @@ func (*fakeDatabase) GetTask(context.Context, string) (task.Record, error) {
 }
 func (*fakeDatabase) GetTaskContract(context.Context, string, int) (task.ContractRevision, error) {
 	return task.ContractRevision{}, taskstore.ErrNotFound
+}
+func (*fakeDatabase) SavePermissionGrant(context.Context, executionstore.SaveGrantInput) (permission.Grant, error) {
+	return permission.Grant{}, executionstore.ErrNotFound
+}
+func (*fakeDatabase) ListActivePermissionGrants(context.Context, string, string) ([]permission.Grant, error) {
+	return nil, nil
+}
+func (*fakeDatabase) PrepareAttempt(context.Context, executionstore.PrepareAttemptInput) (executionstore.Prepared, error) {
+	return executionstore.Prepared{}, executionstore.ErrNotFound
+}
+func (*fakeDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (execution.Attempt, error) {
+	return execution.Attempt{}, executionstore.ErrNotFound
+}
+func (*fakeDatabase) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
+	return execution.Run{}, executionstore.ErrNotFound
+}
+func (*fakeDatabase) ReconcilePendingAttempts(context.Context, string, time.Time) (int, error) {
+	return 0, nil
 }
 func (d *fakeDatabase) Close() error { d.closed = true; return nil }
 
