@@ -24,6 +24,27 @@ type SaveGrantInput struct {
 	IdempotencyKey string
 }
 
+type CreatePermissionRequestInput struct {
+	VaultID        string
+	Intent         permission.ProcessIntent
+	OccurredAt     time.Time
+	IdempotencyKey string
+}
+
+type ResolvePermissionRequestInput struct {
+	VaultID        string
+	RequestID      string
+	Outcome        permission.Outcome
+	ExpiresAt      time.Time
+	OccurredAt     time.Time
+	IdempotencyKey string
+}
+
+type PermissionResolution struct {
+	Request permission.Request
+	Grant   permission.Grant
+}
+
 type PrepareAttemptInput struct {
 	VaultID        string
 	TaskID         string
@@ -61,6 +82,9 @@ type FinishRunInput struct {
 }
 
 type Store interface {
+	CreatePermissionRequest(context.Context, CreatePermissionRequestInput) (permission.Request, error)
+	ListOpenPermissionRequests(context.Context, string, string, int) ([]permission.Request, error)
+	ResolvePermissionRequest(context.Context, ResolvePermissionRequestInput) (PermissionResolution, error)
 	SavePermissionGrant(context.Context, SaveGrantInput) (permission.Grant, error)
 	ListActivePermissionGrants(context.Context, string, string) ([]permission.Grant, error)
 	PrepareAttempt(context.Context, PrepareAttemptInput) (Prepared, error)

@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 8
+const currentSchemaVersion = 9
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -197,6 +197,25 @@ var migrations = []migration{
 			`CREATE UNIQUE INDEX attempts_one_pending_run_idx ON attempts(run_id) WHERE state = 'dispatch_pending'`,
 		},
 	},
+	{
+		version: 9,
+		statements: []string{
+			`CREATE TABLE permission_requests (
+				request_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				workspace_hash TEXT NOT NULL,
+				capability_hash TEXT NOT NULL,
+				state TEXT NOT NULL CHECK (state IN ('open','approved','denied')),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				created_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE UNIQUE INDEX permission_requests_one_open_intent_idx ON permission_requests(vault_id, task_id, capability_hash) WHERE state = 'open'`,
+			`CREATE INDEX permission_requests_open_task_idx ON permission_requests(vault_id, task_id, state, created_at, request_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -238,6 +257,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT grant_id, vault_id, outcome, state, capability_hash, task_id, workspace_hash, created_at, expires_at, created_event_id, last_event_id FROM permission_grants LIMIT 0`,
 		`SELECT run_id, vault_id, task_id, workspace_hash, state, created_at, updated_at, created_event_id, last_event_id FROM runs LIMIT 0`,
 		`SELECT attempt_id, run_id, call_id, capability_hash, grant_id, state, exit_code, safe_error_code, created_at, updated_at, prepared_event_id, last_event_id FROM attempts LIMIT 0`,
+		`SELECT request_id, vault_id, task_id, workspace_hash, capability_hash, state, created_at, updated_at, created_event_id, last_event_id FROM permission_requests LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

@@ -19,13 +19,13 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/workerruntime"
 )
 
-func TestCoordinatorReviewHasNoSideEffects(t *testing.T) {
+func TestCoordinatorReviewPersistsRequestWithoutDispatchSideEffects(t *testing.T) {
 	fixture := newCoordinatorFixture(t, permission.OutcomeRequireReview)
 	result, err := fixture.coordinator.Execute(context.Background(), fixture.request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Outcome != permission.OutcomeRequireReview || fixture.worktrees.created || fixture.workers.started || len(fixture.store.order) != 0 {
+	if result.Outcome != permission.OutcomeRequireReview || result.PermissionRequest.ID == "" || fixture.worktrees.created || fixture.workers.started || strings.Join(fixture.store.order, "|") != "permission-request" {
 		t.Fatalf("result=%+v worktree=%v worker=%v order=%v", result, fixture.worktrees.created, fixture.workers.started, fixture.store.order)
 	}
 }
@@ -144,6 +144,18 @@ func (*coordinatorStore) ReviseTaskContract(context.Context, taskstore.ReviseInp
 }
 func (*coordinatorStore) SavePermissionGrant(context.Context, executionstore.SaveGrantInput) (permission.Grant, error) {
 	return permission.Grant{}, errors.New("not used")
+}
+func (s *coordinatorStore) CreatePermissionRequest(_ context.Context, input executionstore.CreatePermissionRequestInput) (permission.Request, error) {
+	s.order = append(s.order, "permission-request")
+	workspaceHash, _ := permission.WorkspaceHash(input.Intent.WorkspaceRoot)
+	capabilityHash, _ := permission.IntentHash(input.Intent)
+	return permission.Request{ID: "permission-request-1", VaultID: input.VaultID, TaskID: input.Intent.TaskID, WorkspaceHash: workspaceHash, CapabilityHash: capabilityHash, Intent: input.Intent, State: permission.RequestOpen, CreatedAt: input.OccurredAt, UpdatedAt: input.OccurredAt, LastEventID: "permission-request-event"}, nil
+}
+func (*coordinatorStore) ListOpenPermissionRequests(context.Context, string, string, int) ([]permission.Request, error) {
+	return nil, errors.New("not used")
+}
+func (*coordinatorStore) ResolvePermissionRequest(context.Context, executionstore.ResolvePermissionRequestInput) (executionstore.PermissionResolution, error) {
+	return executionstore.PermissionResolution{}, errors.New("not used")
 }
 func (*coordinatorStore) ListActivePermissionGrants(context.Context, string, string) ([]permission.Grant, error) {
 	return nil, nil

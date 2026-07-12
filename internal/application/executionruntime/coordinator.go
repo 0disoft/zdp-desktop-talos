@@ -44,15 +44,16 @@ type Request struct {
 }
 
 type Result struct {
-	Outcome       permission.Outcome
-	ReasonCode    string
-	RunID         string
-	AttemptID     string
-	CallID        string
-	Worktree      worktree.Record
-	Tool          workerruntime.ToolResult
-	ShutdownError error
-	Replayed      bool
+	Outcome           permission.Outcome
+	ReasonCode        string
+	PermissionRequest permission.Request
+	RunID             string
+	AttemptID         string
+	CallID            string
+	Worktree          worktree.Record
+	Tool              workerruntime.ToolResult
+	ShutdownError     error
+	Replayed          bool
 }
 
 type Coordinator struct {
@@ -96,6 +97,11 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	evaluation := c.broker.Evaluate(record, contract, request.Intent, grants)
 	result := Result{Outcome: evaluation.Outcome, ReasonCode: evaluation.ReasonCode}
 	if evaluation.Outcome == permission.OutcomeRequireReview {
+		permissionRequest, err := c.store.CreatePermissionRequest(ctx, executionstore.CreatePermissionRequestInput{VaultID: record.VaultID, Intent: request.Intent, OccurredAt: c.now().UTC(), IdempotencyKey: request.IdempotencyKey + ":permission-request"})
+		if err != nil {
+			return result, fmt.Errorf("%w: %v", ErrJournalFailed, err)
+		}
+		result.PermissionRequest = permissionRequest
 		return result, nil
 	}
 	if evaluation.Outcome == permission.OutcomeDeny || evaluation.Capability == nil {

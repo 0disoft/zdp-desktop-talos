@@ -406,6 +406,15 @@ func (*fakeDatabase) GetTaskContract(context.Context, string, int) (task.Contrac
 func (*fakeDatabase) SavePermissionGrant(context.Context, executionstore.SaveGrantInput) (permission.Grant, error) {
 	return permission.Grant{}, executionstore.ErrNotFound
 }
+func (*fakeDatabase) CreatePermissionRequest(context.Context, executionstore.CreatePermissionRequestInput) (permission.Request, error) {
+	return permission.Request{}, executionstore.ErrNotFound
+}
+func (*fakeDatabase) ListOpenPermissionRequests(context.Context, string, string, int) ([]permission.Request, error) {
+	return nil, executionstore.ErrNotFound
+}
+func (*fakeDatabase) ResolvePermissionRequest(context.Context, executionstore.ResolvePermissionRequestInput) (executionstore.PermissionResolution, error) {
+	return executionstore.PermissionResolution{}, executionstore.ErrNotFound
+}
 func (*fakeDatabase) ListActivePermissionGrants(context.Context, string, string) ([]permission.Grant, error) {
 	return nil, nil
 }

@@ -33,6 +33,14 @@ const (
 	GrantRevoked  GrantState = "revoked"
 )
 
+type RequestState string
+
+const (
+	RequestOpen     RequestState = "open"
+	RequestApproved RequestState = "approved"
+	RequestDenied   RequestState = "denied"
+)
+
 type ProcessIntent struct {
 	TaskID           string
 	WorkspaceRoot    string
@@ -64,6 +72,37 @@ type Grant struct {
 	WorkspaceHash  string
 	CreatedAt      time.Time
 	ExpiresAt      time.Time
+}
+
+type Request struct {
+	ID             string
+	VaultID        string
+	TaskID         string
+	WorkspaceHash  string
+	CapabilityHash string
+	Intent         ProcessIntent
+	State          RequestState
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LastEventID    string
+}
+
+func (r Request) Validate() error {
+	if r.ID == "" || len(r.ID) > 128 || r.VaultID == "" || r.TaskID == "" || !validHash(r.WorkspaceHash) || !validHash(r.CapabilityHash) || r.Intent.Validate() != nil || r.Intent.TaskID != r.TaskID || r.CreatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) || r.LastEventID == "" {
+		return ErrInvalidRecord
+	}
+	if r.State != RequestOpen && r.State != RequestApproved && r.State != RequestDenied {
+		return ErrInvalidRecord
+	}
+	workspaceHash, err := WorkspaceHash(r.Intent.WorkspaceRoot)
+	if err != nil || workspaceHash != r.WorkspaceHash {
+		return ErrInvalidRecord
+	}
+	intentHash, err := IntentHash(r.Intent)
+	if err != nil || intentHash != r.CapabilityHash {
+		return ErrInvalidRecord
+	}
+	return nil
 }
 
 func (i ProcessIntent) Validate() error {
