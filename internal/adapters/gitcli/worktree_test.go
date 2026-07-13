@@ -87,6 +87,32 @@ func TestWorktreeSnapshotChangesWithTrackedAndUntrackedContent(t *testing.T) {
 	}
 }
 
+func TestWorktreeOpenVerifiesOwnedMarkerAndBaseline(t *testing.T) {
+	t.Parallel()
+	_, primary, baseline := createWorktreeTestRepository(t)
+	manager, err := NewWorktreeManager(filepath.Join(t.TempDir(), "talos-owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := repository.CreateWorktreeInput{TaskID: testTaskID, RepositoryRoot: primary, BaselineCommit: baseline}
+	created, err := manager.Create(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(created.Root, "tracked.txt"), []byte("review patch\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := manager.Open(context.Background(), input)
+	if err != nil || reopened.Root != created.Root || reopened.CreatedAt != created.CreatedAt {
+		t.Fatalf("reopened=%+v created=%+v error=%v", reopened, created, err)
+	}
+	tampered := input
+	tampered.BaselineCommit = strings.Repeat("b", 40)
+	if _, err := manager.Open(context.Background(), tampered); !errors.Is(err, repository.ErrWorktreeOwnership) {
+		t.Fatalf("tampered baseline error=%v", err)
+	}
+}
+
 func TestWorktreeRejectsExecutableCheckoutFilters(t *testing.T) {
 	t.Parallel()
 	git, primary, baseline := createWorktreeTestRepository(t)

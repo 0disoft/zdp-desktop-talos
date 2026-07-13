@@ -133,6 +133,46 @@ func (m *WorktreeManager) Create(ctx context.Context, input repository.CreateWor
 	return record, nil
 }
 
+func (m *WorktreeManager) Open(ctx context.Context, input repository.CreateWorktreeInput) (worktree.Record, error) {
+	primary, err := canonicalDirectory(input.RepositoryRoot)
+	if err != nil {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	destination, markerPath, err := m.paths(input.TaskID)
+	if err != nil {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	marker, err := readWorktreeMarker(markerPath)
+	if err != nil || marker.Schema != worktreeMarkerSchema || marker.TaskID != input.TaskID || marker.RepositoryRoot != primary || marker.WorktreeRoot != destination || marker.BaselineCommit != input.BaselineCommit {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, marker.CreatedAt)
+	if err != nil {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	canonicalWorktree, err := canonicalDirectory(destination)
+	if err != nil || filepath.Clean(canonicalWorktree) != filepath.Clean(destination) || !containsPath(filepath.Join(m.ownedRoot, "worktrees"), canonicalWorktree) {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	record := worktree.Record{TaskID: input.TaskID, RepositoryRoot: primary, Root: canonicalWorktree, BaselineCommit: input.BaselineCommit, CreatedAt: createdAt.UTC()}
+	if err := record.Validate(); err != nil {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	root, err := m.git(ctx, record.Root, "rev-parse", "--show-toplevel")
+	if err != nil || root.exitCode != 0 {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	reportedRoot, err := canonicalDirectory(strings.TrimSpace(string(root.stdout)))
+	if err != nil || filepath.Clean(reportedRoot) != filepath.Clean(record.Root) {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	head, err := m.git(ctx, record.Root, "rev-parse", "HEAD")
+	if err != nil || head.exitCode != 0 || strings.TrimSpace(string(head.stdout)) != record.BaselineCommit {
+		return worktree.Record{}, repository.ErrWorktreeOwnership
+	}
+	return record, nil
+}
+
 func (m *WorktreeManager) Remove(ctx context.Context, record worktree.Record) error {
 	if err := record.Validate(); err != nil {
 		return repository.ErrWorktreeOwnership

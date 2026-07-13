@@ -64,6 +64,21 @@ func TestCoordinatorReplaysTerminalAttemptWithoutRepeatingSideEffects(t *testing
 	}
 }
 
+func TestCoordinatorReusesOwnedWorktreeForNewVerification(t *testing.T) {
+	fixture := newCoordinatorFixture(t, permission.OutcomeAllowTask)
+	if _, err := fixture.coordinator.Execute(context.Background(), fixture.request); err != nil {
+		t.Fatal(err)
+	}
+	fixture.store.prepared = executionstore.Prepared{}
+	fixture.request.IdempotencyKey = "execute-2"
+	if _, err := fixture.coordinator.Execute(context.Background(), fixture.request); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.worktrees.createCount != 1 || fixture.worktrees.openCount != 1 || fixture.worktrees.removed {
+		t.Fatalf("create=%d open=%d removed=%v", fixture.worktrees.createCount, fixture.worktrees.openCount, fixture.worktrees.removed)
+	}
+}
+
 func TestCoordinatorRecordsUnknownWhenWorkerOutcomeIsAmbiguous(t *testing.T) {
 	fixture := newCoordinatorFixture(t, permission.OutcomeAllowTask)
 	fixture.worker.runErr = workerruntime.ErrProtocol
@@ -228,11 +243,22 @@ type coordinatorWorktrees struct {
 	removed     bool
 	createCount int
 	snapshotErr error
+	openCount   int
 }
 
 func (w *coordinatorWorktrees) Create(context.Context, repository.CreateWorktreeInput) (worktree.Record, error) {
+	if w.created && !w.removed {
+		return worktree.Record{}, repository.ErrWorktreeExists
+	}
 	w.created = true
 	w.createCount++
+	return w.record, nil
+}
+func (w *coordinatorWorktrees) Open(context.Context, repository.CreateWorktreeInput) (worktree.Record, error) {
+	if !w.created || w.removed {
+		return worktree.Record{}, repository.ErrWorktreeNotFound
+	}
+	w.openCount++
 	return w.record, nil
 }
 func (w *coordinatorWorktrees) Snapshot(context.Context, worktree.Record) (repository.WorktreeState, error) {

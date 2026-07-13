@@ -134,7 +134,12 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	if journal.Replayed {
 		return replayResult(result, journal)
 	}
-	ownedWorktree, err := c.worktrees.Create(ctx, repository.CreateWorktreeInput{TaskID: record.ID, RepositoryRoot: record.WorkspaceRoot, BaselineCommit: record.BaselineCommit, CreatedAt: now})
+	worktreeInput := repository.CreateWorktreeInput{TaskID: record.ID, RepositoryRoot: record.WorkspaceRoot, BaselineCommit: record.BaselineCommit, CreatedAt: now}
+	ownedWorktree, err := c.worktrees.Create(ctx, worktreeInput)
+	createdWorktree := err == nil
+	if errors.Is(err, repository.ErrWorktreeExists) {
+		ownedWorktree, err = c.worktrees.Open(ctx, worktreeInput)
+	}
 	if err != nil {
 		_, finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, execution.AttemptFailed, execution.RunFailed, 0, "WORKTREE_CREATE_FAILED", request.IdempotencyKey, nil)
 		if finishErr != nil {
@@ -145,7 +150,9 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	result.Worktree = ownedWorktree
 	worker, err := c.workers.Start(ctx)
 	if err != nil {
-		_ = c.worktrees.Remove(context.WithoutCancel(ctx), ownedWorktree)
+		if createdWorktree {
+			_ = c.worktrees.Remove(context.WithoutCancel(ctx), ownedWorktree)
+		}
 		_, finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, execution.AttemptFailed, execution.RunFailed, 0, "WORKER_START_FAILED", request.IdempotencyKey, nil)
 		if finishErr != nil {
 			return result, finishErr
@@ -155,7 +162,9 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	capability := workerruntime.Capability{ID: evaluation.Capability.ID, Executable: evaluation.Capability.Executable, Arguments: append([]string(nil), evaluation.Capability.ArgumentPrefix...), EnvironmentNames: append([]string(nil), evaluation.Capability.EnvironmentNames...), Timeout: evaluation.Capability.MaxTimeout, MaxOutputBytes: evaluation.Capability.MaxOutputBytes}
 	if err := worker.StartRun(ctx, workerruntime.RunPolicy{RunID: journal.Run.ID, WorktreeRoot: ownedWorktree.Root, Capabilities: []workerruntime.Capability{capability}}); err != nil {
 		finishErr := c.finishKnownFailure(ctx, worker, record.VaultID, journal.Attempt.ID, journal.Run.ID, "WORKER_START_FAILED", request.IdempotencyKey)
-		_ = c.worktrees.Remove(context.WithoutCancel(ctx), ownedWorktree)
+		if createdWorktree {
+			_ = c.worktrees.Remove(context.WithoutCancel(ctx), ownedWorktree)
+		}
 		return result, finishErr
 	}
 	toolResult, toolErr := worker.RunTool(ctx, workerruntime.ToolRequest{RunID: journal.Run.ID, CallID: journal.Attempt.CallID, CapabilityID: capability.ID, Arguments: append([]string(nil), resolved.Intent.Arguments...), WorkingDirectory: resolved.WorkingDirectory, Environment: copyEnvironment(resolved.Environment), Timeout: resolved.Intent.Timeout, MaxOutputBytes: resolved.Intent.MaxOutputBytes})

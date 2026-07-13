@@ -27,6 +27,7 @@ type CreateWorktreeInput struct {
 
 type WorktreeManager interface {
 	Create(context.Context, CreateWorktreeInput) (worktree.Record, error)
+	Open(context.Context, CreateWorktreeInput) (worktree.Record, error)
 	Snapshot(context.Context, worktree.Record) (WorktreeState, error)
 	Remove(context.Context, worktree.Record) error
 }

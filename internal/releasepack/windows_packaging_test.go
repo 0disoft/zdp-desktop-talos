@@ -100,8 +100,8 @@ func TestWindowsPackagingVersionIsSynchronized(t *testing.T) {
 		"windows-signing.yml": signingWorkflow,
 		"packaging/README.md": packagingReadme,
 	} {
-		if !strings.Contains(content, "0.5.0") {
-			t.Errorf("%s does not contain release version 0.5.0", path)
+		if !strings.Contains(content, "0.6.0") {
+			t.Errorf("%s does not contain release version 0.6.0", path)
 		}
 	}
 }
