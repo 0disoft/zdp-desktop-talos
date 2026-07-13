@@ -12,7 +12,10 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 )
 
-var ErrInvalidPolicy = errors.New("invalid permission broker policy")
+var (
+	ErrInvalidPolicy               = errors.New("invalid permission broker policy")
+	ErrVerificationRuleUnavailable = errors.New("verification rule is unavailable")
+)
 
 type ProcessRule struct {
 	ID               string
@@ -31,6 +34,12 @@ type Evaluation struct {
 	Capability     *permission.ProcessCapability
 	MatchedGrantID string
 	ConsumesGrant  bool
+}
+
+type ResolvedVerification struct {
+	Intent           permission.ProcessIntent
+	Environment      map[string]string
+	WorkingDirectory string
 }
 
 type Broker struct {
@@ -67,6 +76,28 @@ func New(rules []ProcessRule) (*Broker, error) {
 		indexed[rule.ID] = rule
 	}
 	return &Broker{rules: indexed, now: func() time.Time { return time.Now().UTC() }}, nil
+}
+
+func (b *Broker) ResolveVerification(record task.Record, command task.VerificationCommand) (ResolvedVerification, error) {
+	if b == nil || record.Validate() != nil {
+		return ResolvedVerification{}, ErrVerificationRuleUnavailable
+	}
+	normalized, err := command.Normalize()
+	if err != nil {
+		return ResolvedVerification{}, ErrVerificationRuleUnavailable
+	}
+	rule, exists := b.rules[normalized.RuleID]
+	if !exists || !prefixMatches(rule.ArgumentPrefix, normalized.Arguments) || len(normalized.Arguments) > rule.MaxArguments {
+		return ResolvedVerification{}, ErrVerificationRuleUnavailable
+	}
+	intent := permission.ProcessIntent{
+		TaskID: record.ID, WorkspaceRoot: record.WorkspaceRoot, RuleID: rule.ID, Executable: rule.Executable,
+		Arguments: append([]string(nil), normalized.Arguments...), Timeout: rule.MaxTimeout, MaxOutputBytes: rule.MaxOutputBytes,
+	}
+	if err := intent.Validate(); err != nil {
+		return ResolvedVerification{}, ErrVerificationRuleUnavailable
+	}
+	return ResolvedVerification{Intent: intent, Environment: map[string]string{}, WorkingDirectory: normalized.WorkingDirectory}, nil
 }
 
 func (b *Broker) Evaluate(record task.Record, contract task.ContractRevision, intent permission.ProcessIntent, grants []permission.Grant) Evaluation {

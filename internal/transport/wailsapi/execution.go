@@ -1,0 +1,99 @@
+package wailsapi
+
+import (
+	"context"
+	"errors"
+	"strings"
+
+	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
+)
+
+type ExecutionRequest struct {
+	TaskID        string `json:"task_id"`
+	CommandIndex  int    `json:"command_index"`
+	RequestID     string `json:"request_id"`
+	CorrelationID string `json:"correlation_id"`
+}
+
+type ExecutionStatus struct {
+	State               string `json:"state"`
+	Outcome             string `json:"outcome"`
+	PermissionRequestID string `json:"permission_request_id,omitempty"`
+	RunID               string `json:"run_id,omitempty"`
+	AttemptID           string `json:"attempt_id,omitempty"`
+	ExitCode            *int   `json:"exit_code,omitempty"`
+	Replayed            bool   `json:"replayed"`
+}
+
+type ExecutionResult struct {
+	Execution *ExecutionStatus `json:"execution,omitempty"`
+	Error     *TalosError      `json:"error,omitempty"`
+}
+
+type ExecutionService struct {
+	vault               *VaultService
+	factory             executionruntime.Factory
+	initializationError error
+}
+
+func NewExecutionService(vault *VaultService, factory executionruntime.Factory, initializationError error) *ExecutionService {
+	return &ExecutionService{vault: vault, factory: factory, initializationError: initializationError}
+}
+
+func (s *ExecutionService) ExecuteVerification(request ExecutionRequest) ExecutionResult {
+	correlationID := normalizeCorrelationID(request.CorrelationID)
+	if s == nil || s.vault == nil || s.factory == nil {
+		var err error
+		if s != nil {
+			err = s.initializationError
+		}
+		if err == nil {
+			err = executionruntime.ErrInvalidRequest
+		}
+		mapped := MapError(errors.Join(errExecutionUnavailable, err), correlationID)
+		return ExecutionResult{Error: &mapped}
+	}
+	requestID := strings.TrimSpace(request.RequestID)
+	if strings.TrimSpace(request.TaskID) == "" || request.CommandIndex < 0 || requestID == "" || len(requestID) > 96 {
+		mapped := MapError(executionruntime.ErrInvalidRequest, correlationID)
+		return ExecutionResult{Error: &mapped}
+	}
+
+	s.vault.mu.Lock()
+	defer s.vault.mu.Unlock()
+	if s.vault.session == nil {
+		mapped := MapError(executionruntime.ErrInvalidRequest, correlationID)
+		mapped.Code = "VAULT_NOT_OPEN"
+		mapped.Message = "검증을 실행하려면 Vault를 먼저 열어 주세요."
+		return ExecutionResult{Error: &mapped}
+	}
+	store, err := s.vault.session.ExecutionDatabase()
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		return ExecutionResult{Error: &mapped}
+	}
+	coordinator, err := s.factory.New(store)
+	if err != nil {
+		mapped := MapError(errors.Join(errExecutionUnavailable, err), correlationID)
+		return ExecutionResult{Error: &mapped}
+	}
+	result, err := coordinator.Execute(context.Background(), executionruntime.Request{
+		TaskID: strings.TrimSpace(request.TaskID), CommandIndex: request.CommandIndex,
+		IdempotencyKey: "task-verification:" + requestID,
+	})
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		return ExecutionResult{Error: &mapped}
+	}
+	status := ExecutionStatus{Outcome: string(result.Outcome), RunID: result.RunID, AttemptID: result.AttemptID, Replayed: result.Replayed}
+	if result.Outcome == permission.OutcomeRequireReview {
+		status.State = "review_required"
+		status.PermissionRequestID = result.PermissionRequest.ID
+	} else {
+		status.State = "succeeded"
+		exitCode := result.Tool.ExitCode
+		status.ExitCode = &exitCode
+	}
+	return ExecutionResult{Execution: &status}
+}

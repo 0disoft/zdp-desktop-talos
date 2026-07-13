@@ -20,11 +20,14 @@ var assets embed.FS
 func main() {
 	localDataRoot, rootErr := os.UserCacheDir()
 	var vaultService *wailsapi.VaultService
+	var executionFactory *bootstrap.ExecutionFactory
+	var executionInitializationError error
 	inspector, inspectorErr := gitcli.New()
 	workspaceService := wailsapi.NewWorkspaceService(inspector, inspectorErr)
 	var singleInstance *application.SingleInstanceOptions
 	if rootErr != nil {
 		vaultService = wailsapi.NewVaultService(nil, rootErr)
+		executionInitializationError = rootErr
 	} else {
 		root := filepath.Join(localDataRoot, "0disoft", "Talos Agent")
 		creator, creatorErr := bootstrap.NewVaultCreator(root)
@@ -39,7 +42,14 @@ func main() {
 			creator = nil
 		}
 		vaultService = wailsapi.NewVaultService(creator, errors.Join(creatorErr, instanceErr))
+		workerExecutable, workerErr := bootstrap.SiblingWorkerExecutable()
+		if workerErr == nil {
+			executionFactory, executionInitializationError = bootstrap.NewDefaultExecutionFactory(root, workerExecutable)
+		} else {
+			executionInitializationError = workerErr
+		}
 	}
+	executionService := wailsapi.NewExecutionService(vaultService, executionFactory, executionInitializationError)
 	var window *application.WebviewWindow
 	if singleInstance != nil {
 		singleInstance.OnSecondInstanceLaunch = func(application.SecondInstanceData) {
@@ -60,6 +70,7 @@ func main() {
 			application.NewService(wailsapi.NewTaskService(vaultService, workspaceService)),
 			application.NewService(wailsapi.NewDecisionService(vaultService, workspaceService)),
 			application.NewService(wailsapi.NewPermissionService(vaultService)),
+			application.NewService(executionService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

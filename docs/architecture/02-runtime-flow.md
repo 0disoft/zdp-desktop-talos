@@ -30,3 +30,5 @@ The control plane journals an attempt before worker execution. A worker crash yi
 ## Completion
 
 Verification evidence records the repository revision, diff hash, command identity, exit status, bounded output reference, and timestamp. Any later patch change invalidates affected evidence before completion is reevaluated.
+
+The desktop execution surface accepts only a Task ID and verification-command index. The coordinator reloads the current Task and contract revision, resolves the stored rule through bootstrap-owned tool policy, and only then evaluates permission and dispatches an exact worker capability. Unknown rules, stale indexes, unavailable tools, and mismatched policy fail before worktree or worker side effects.

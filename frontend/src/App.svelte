@@ -16,6 +16,7 @@
   import { createTaskContract, reviseTaskContract, type TaskStatus } from './lib/api/task';
   import { answerDecision, listDecisions, resolveDecisionConflict, type DecisionItem } from './lib/api/decision';
   import { listPermissionRequests, resolvePermissionRequest, type PermissionOutcome, type PermissionRequest } from './lib/api/permission';
+  import { executeVerification, type ExecutionStatus } from './lib/api/execution';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -40,6 +41,7 @@
   let decisions = $state<DecisionItem[]>([]);
   let decisionDrafts = $state<Record<string, string>>({});
   let permissionRequests = $state<PermissionRequest[]>([]);
+  let execution = $state<ExecutionStatus | null>(null);
 
   onMount(async () => {
     try {
@@ -198,6 +200,7 @@
         }
       } else if (result.task) {
         task = result.task;
+        execution = null;
         editingTask = false;
         await Promise.all([refreshDecisions(), refreshPermissions()]);
       }
@@ -237,6 +240,21 @@
     } finally { loading = false; }
   }
 
+  async function handleExecution() {
+    if (!task || vault.state !== 'unlocked') return;
+    loading = true; latestError = null;
+    try {
+      const result = await executeVerification(task.task_id);
+      if (result.error) latestError = result.error;
+      else if (result.execution) {
+        execution = result.execution;
+        if (result.execution.state === 'review_required') await refreshPermissions();
+      }
+    } catch {
+      latestError = localError('EXECUTION_REQUEST_FAILED', '검증 실행 상태를 확인하지 못했습니다.');
+    } finally { loading = false; }
+  }
+
   async function handleDecisionAnswer(item: DecisionItem, optionID = '') {
     loading = true;
     latestError = null;
@@ -264,7 +282,7 @@
   }
 
   function clearPrivateTaskState() {
-    task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; editingTask = false;
+    task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; editingTask = false;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
@@ -424,6 +442,18 @@
           {/if}
         </div>
       {/if}
+    </article>
+
+    <article class="status-card">
+      <div class="status-heading">
+        <span class:unlocked={execution?.state === 'succeeded'} class:error={execution === null && latestError?.code.startsWith('EXECUTION_')} class="status-dot waiting" aria-hidden="true"></span>
+        <h2>Verification</h2>
+      </div>
+      <strong>{execution?.state === 'succeeded' ? '통과' : execution?.state === 'review_required' ? '권한 확인 대기' : '실행 대기'}</strong>
+      <p>{execution?.state === 'succeeded' ? `exit ${execution.exit_code} · ${execution.replayed ? '저장된 결과' : '새 실행'}` : execution?.state === 'review_required' ? '아래 Permission Review에서 실행 범위를 선택해 주세요.' : 'Task Contract에 확정한 첫 번째 검증 명령을 실행합니다.'}</p>
+      <button type="button" onclick={handleExecution} disabled={loading || vault.state !== 'unlocked' || !task || editingTask}>
+        {execution?.state === 'review_required' ? '승인 후 다시 실행' : execution?.state === 'succeeded' ? '다시 검증' : '검증 시작'}
+      </button>
     </article>
 
     <article class="status-card decision-card">

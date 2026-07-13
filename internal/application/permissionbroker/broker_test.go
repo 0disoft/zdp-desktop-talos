@@ -1,6 +1,7 @@
 package permissionbroker
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,40 @@ func TestBrokerRequiresReviewThenAppliesExactScopedGrant(t *testing.T) {
 	changed.Arguments = append(append([]string(nil), intent.Arguments...), "-run", "Danger")
 	if evaluation = broker.Evaluate(record, contract, changed, []permission.Grant{grant}); evaluation.Outcome != permission.OutcomeDeny || evaluation.ReasonCode != "PROCESS_RULE_MISMATCH" {
 		t.Fatalf("changed=%+v", evaluation)
+	}
+}
+
+func TestBrokerResolvesContractVerificationFromTrustedRule(t *testing.T) {
+	record, _, _, rule := brokerFixture(t)
+	broker, err := New([]ProcessRule{rule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := task.VerificationCommand{RuleID: rule.ID, Arguments: append([]string(nil), rule.ArgumentPrefix...)}
+	resolved, err := broker.ResolveVerification(record, command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Intent.Executable != rule.Executable || resolved.Intent.TaskID != record.ID || resolved.Intent.Timeout != rule.MaxTimeout || resolved.Intent.MaxOutputBytes != rule.MaxOutputBytes || resolved.WorkingDirectory != "." || len(resolved.Environment) != 0 {
+		t.Fatalf("resolved=%+v", resolved)
+	}
+	resolved.Intent.Arguments[0] = "changed"
+	if command.Arguments[0] != rule.ArgumentPrefix[0] {
+		t.Fatal("resolved intent aliased contract arguments")
+	}
+}
+
+func TestBrokerRejectsUnknownOrBroadenedContractVerification(t *testing.T) {
+	record, _, _, rule := brokerFixture(t)
+	broker, _ := New([]ProcessRule{rule})
+	for _, command := range []task.VerificationCommand{
+		{RuleID: "unknown", Arguments: append([]string(nil), rule.ArgumentPrefix...)},
+		{RuleID: rule.ID, Arguments: []string{"different"}},
+		{RuleID: rule.ID, Arguments: append(append([]string(nil), rule.ArgumentPrefix...), "one", "two")},
+	} {
+		if _, err := broker.ResolveVerification(record, command); !errors.Is(err, ErrVerificationRuleUnavailable) {
+			t.Fatalf("command=%+v error=%v", command, err)
+		}
 	}
 }
 

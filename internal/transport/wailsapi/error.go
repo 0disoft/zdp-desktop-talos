@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
@@ -14,9 +15,12 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/workerruntime"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
 )
+
+var errExecutionUnavailable = errors.New("execution runtime is unavailable")
 
 type TalosError struct {
 	Code          string            `json:"code"`
@@ -34,6 +38,24 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, errExecutionUnavailable), errors.Is(err, workerruntime.ErrUnavailable):
+		mapped.Code = "EXECUTION_UNAVAILABLE"
+		mapped.Message = "이 기기에서 안전한 검증 실행기를 사용할 수 없습니다."
+	case errors.Is(err, executionruntime.ErrInvalidRequest):
+		mapped.Code = "EXECUTION_REQUEST_INVALID"
+		mapped.Message = "현재 Task Contract의 검증 요청을 확인해 주세요."
+	case errors.Is(err, executionruntime.ErrPermissionDenied):
+		mapped.Code = "EXECUTION_PERMISSION_DENIED"
+		mapped.Message = "현재 Task Contract 또는 권한 정책이 이 검증을 허용하지 않습니다."
+	case errors.Is(err, executionruntime.ErrJournalFailed):
+		mapped.Code = "EXECUTION_JOURNAL_FAILED"
+		mapped.Message = "검증 실행 기록을 안전하게 저장하지 못했습니다."
+	case errors.Is(err, workerruntime.ErrProtocol):
+		mapped.Code = "EXECUTION_OUTCOME_UNKNOWN"
+		mapped.Message = "Worker 응답을 확인할 수 없어 실행 결과가 불명확합니다."
+	case errors.Is(err, workerruntime.ErrExecutionFailed):
+		mapped.Code = "EXECUTION_FAILED"
+		mapped.Message = "검증 명령이 성공하지 못했습니다."
 	case errors.Is(err, permissionreview.ErrInvalidResolution), errors.Is(err, executionstore.ErrInvalidCommand):
 		mapped.Code = "PERMISSION_REVIEW_INVALID"
 		mapped.Message = "권한 검토 요청 또는 선택값을 확인해 주세요."

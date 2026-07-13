@@ -69,6 +69,18 @@ type VerificationCommand struct {
 	WorkingDirectory string
 }
 
+func (c VerificationCommand) Normalize() (VerificationCommand, error) {
+	workingDirectory, err := normalizeWorkingDirectory(c.WorkingDirectory)
+	if err != nil {
+		return VerificationCommand{}, err
+	}
+	normalized := VerificationCommand{RuleID: c.RuleID, Arguments: append([]string(nil), c.Arguments...), WorkingDirectory: workingDirectory}
+	if err := validateVerificationCommands([]VerificationCommand{normalized}); err != nil {
+		return VerificationCommand{}, err
+	}
+	return normalized, nil
+}
+
 func (r Record) Validate() error {
 	if r.ID == "" || r.VaultID == "" || !filepath.IsAbs(r.WorkspaceRoot) || !commitPattern.MatchString(r.BaselineCommit) {
 		return fmt.Errorf("%w: identity, workspace root, and baseline are required", ErrInvalidRecord)

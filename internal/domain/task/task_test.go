@@ -55,3 +55,19 @@ func TestContractRevisionValidatesStructuredVerificationCommands(t *testing.T) {
 		t.Fatalf("duplicate error=%v", err)
 	}
 }
+
+func TestVerificationCommandNormalizesRepositoryRootWithoutMutatingArguments(t *testing.T) {
+	t.Parallel()
+	command := VerificationCommand{RuleID: "go-test", Arguments: []string{"test", "./..."}}
+	normalized, err := command.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.WorkingDirectory != "." || normalized.RuleID != command.RuleID || len(normalized.Arguments) != 2 {
+		t.Fatalf("normalized=%+v", normalized)
+	}
+	normalized.Arguments[0] = "changed"
+	if command.Arguments[0] != "test" {
+		t.Fatal("normalization aliased argument storage")
+	}
+}

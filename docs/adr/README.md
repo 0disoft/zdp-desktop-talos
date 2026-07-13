@@ -35,5 +35,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0026-durable-permission-review-requests.md`: encrypted exact-intent review requests, atomic grant resolution, and dispatch-free review persistence
 - `0027-bounded-permission-review-ui.md`: server-owned grant expiry, task-bounded approval choices, and use-case-specific Wails review methods
 - `0028-structured-task-verification-commands.md`: policy-resolved rule IDs and exact argv in immutable Task Contract revisions
+- `0029-contract-derived-verification-execution.md`: current-revision command resolution, bootstrap-owned tool policy, and bounded Wails execution
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

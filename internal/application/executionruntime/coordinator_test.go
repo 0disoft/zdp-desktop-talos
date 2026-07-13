@@ -87,6 +87,18 @@ func TestCoordinatorCleansWorktreeWhenWorkerPolicyCannotStart(t *testing.T) {
 	}
 }
 
+func TestCoordinatorRejectsUnknownContractCommandBeforePermissionOrDispatch(t *testing.T) {
+	fixture := newCoordinatorFixture(t, permission.OutcomeAllowTask)
+	fixture.request.CommandIndex = 1
+	_, err := fixture.coordinator.Execute(context.Background(), fixture.request)
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("error=%v", err)
+	}
+	if len(fixture.store.order) != 0 || fixture.worktrees.created || fixture.workers.started {
+		t.Fatalf("order=%v worktree=%v worker=%v", fixture.store.order, fixture.worktrees.created, fixture.workers.started)
+	}
+}
+
 type coordinatorFixture struct {
 	coordinator *Coordinator
 	request     Request
@@ -103,7 +115,8 @@ func newCoordinatorFixture(t *testing.T, defaultOutcome permission.Outcome) coor
 	executable := filepath.Join(t.TempDir(), "tool.exe")
 	taskID := "0198a58c-7b00-7000-8000-000000000001"
 	record := task.Record{ID: taskID, VaultID: "vault-1", WorkspaceRoot: root, BaselineCommit: strings.Repeat("a", 40), Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
-	contract := task.ContractRevision{TaskID: taskID, Revision: 1, BaselineCommit: record.BaselineCommit, Goal: "run tests", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}
+	command := task.VerificationCommand{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}
+	contract := task.ContractRevision{TaskID: taskID, Revision: 1, BaselineCommit: record.BaselineCommit, Goal: "run tests", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{command}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}
 	store := &coordinatorStore{record: record, contract: contract}
 	worktrees := &coordinatorWorktrees{record: worktree.Record{TaskID: taskID, RepositoryRoot: root, Root: filepath.Join(t.TempDir(), "worktree"), BaselineCommit: record.BaselineCommit, CreatedAt: now}}
 	worker := &coordinatorWorker{order: &store.order, result: workerruntime.ToolResult{State: workerruntime.ToolSucceeded, ExitCode: 0, StartedAt: now, FinishedAt: now.Add(time.Second)}}
@@ -117,7 +130,7 @@ func newCoordinatorFixture(t *testing.T, defaultOutcome permission.Outcome) coor
 		t.Fatal(err)
 	}
 	coordinator.now = func() time.Time { return now }
-	request := Request{TaskID: taskID, Intent: permission.ProcessIntent{TaskID: taskID, WorkspaceRoot: root, RuleID: "go-test", Executable: executable, Arguments: []string{"test", "./..."}, EnvironmentNames: []string{"CI"}, Timeout: time.Minute, MaxOutputBytes: 1024}, Environment: map[string]string{"CI": "1"}, IdempotencyKey: "execute-1"}
+	request := Request{TaskID: taskID, CommandIndex: 0, IdempotencyKey: "execute-1"}
 	return coordinatorFixture{coordinator: coordinator, request: request, store: store, worktrees: worktrees, workers: workers, worker: worker}
 }
 

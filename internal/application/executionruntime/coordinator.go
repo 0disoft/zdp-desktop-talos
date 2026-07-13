@@ -31,16 +31,23 @@ type Store interface {
 	executionstore.Store
 }
 
+type Executor interface {
+	Execute(context.Context, Request) (Result, error)
+}
+
+type Factory interface {
+	New(Store) (Executor, error)
+}
+
 type Evaluator interface {
+	ResolveVerification(task.Record, task.VerificationCommand) (permissionbroker.ResolvedVerification, error)
 	Evaluate(task.Record, task.ContractRevision, permission.ProcessIntent, []permission.Grant) permissionbroker.Evaluation
 }
 
 type Request struct {
-	TaskID           string
-	Intent           permission.ProcessIntent
-	Environment      map[string]string
-	WorkingDirectory string
-	IdempotencyKey   string
+	TaskID         string
+	CommandIndex   int
+	IdempotencyKey string
 }
 
 type Result struct {
@@ -72,7 +79,7 @@ func New(store Store, broker Evaluator, worktrees repository.WorktreeManager, wo
 }
 
 func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, error) {
-	if ctx == nil || request.TaskID == "" || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 96 || request.Intent.TaskID != request.TaskID || request.Intent.Validate() != nil || !validEnvironment(request.Environment, request.Intent.EnvironmentNames) || !validWorkingDirectory(request.WorkingDirectory) {
+	if ctx == nil || request.TaskID == "" || request.CommandIndex < 0 || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 96 {
 		return Result{}, ErrInvalidRequest
 	}
 	if err := ctx.Err(); err != nil {
@@ -86,6 +93,13 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	if err != nil {
 		return Result{}, err
 	}
+	if request.CommandIndex >= len(contract.VerificationCommands) {
+		return Result{}, ErrInvalidRequest
+	}
+	resolved, err := c.broker.ResolveVerification(record, contract.VerificationCommands[request.CommandIndex])
+	if err != nil || resolved.Intent.TaskID != record.ID || resolved.Intent.WorkspaceRoot != record.WorkspaceRoot || resolved.Intent.Validate() != nil || !validEnvironment(resolved.Environment, resolved.Intent.EnvironmentNames) || !validWorkingDirectory(resolved.WorkingDirectory) {
+		return Result{}, ErrInvalidRequest
+	}
 	workspaceHash, err := permission.WorkspaceHash(record.WorkspaceRoot)
 	if err != nil {
 		return Result{}, ErrInvalidRequest
@@ -94,10 +108,10 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	if err != nil {
 		return Result{}, err
 	}
-	evaluation := c.broker.Evaluate(record, contract, request.Intent, grants)
+	evaluation := c.broker.Evaluate(record, contract, resolved.Intent, grants)
 	result := Result{Outcome: evaluation.Outcome, ReasonCode: evaluation.ReasonCode}
 	if evaluation.Outcome == permission.OutcomeRequireReview {
-		permissionRequest, err := c.store.CreatePermissionRequest(ctx, executionstore.CreatePermissionRequestInput{VaultID: record.VaultID, Intent: request.Intent, OccurredAt: c.now().UTC(), IdempotencyKey: request.IdempotencyKey + ":permission-request"})
+		permissionRequest, err := c.store.CreatePermissionRequest(ctx, executionstore.CreatePermissionRequestInput{VaultID: record.VaultID, Intent: resolved.Intent, OccurredAt: c.now().UTC(), IdempotencyKey: request.IdempotencyKey + ":permission-request"})
 		if err != nil {
 			return result, fmt.Errorf("%w: %v", ErrJournalFailed, err)
 		}
@@ -141,7 +155,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 		_ = c.worktrees.Remove(context.WithoutCancel(ctx), ownedWorktree)
 		return result, finishErr
 	}
-	toolResult, toolErr := worker.RunTool(ctx, workerruntime.ToolRequest{RunID: journal.Run.ID, CallID: journal.Attempt.CallID, CapabilityID: capability.ID, Arguments: append([]string(nil), request.Intent.Arguments...), WorkingDirectory: request.WorkingDirectory, Environment: copyEnvironment(request.Environment), Timeout: request.Intent.Timeout, MaxOutputBytes: request.Intent.MaxOutputBytes})
+	toolResult, toolErr := worker.RunTool(ctx, workerruntime.ToolRequest{RunID: journal.Run.ID, CallID: journal.Attempt.CallID, CapabilityID: capability.ID, Arguments: append([]string(nil), resolved.Intent.Arguments...), WorkingDirectory: resolved.WorkingDirectory, Environment: copyEnvironment(resolved.Environment), Timeout: resolved.Intent.Timeout, MaxOutputBytes: resolved.Intent.MaxOutputBytes})
 	result.Tool = toolResult
 	attemptState, runState, safeCode := classifyResult(toolResult, toolErr)
 	finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, attemptState, runState, toolResult.ExitCode, safeCode, request.IdempotencyKey)
