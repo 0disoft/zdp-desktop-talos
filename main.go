@@ -59,6 +59,7 @@ func main() {
 			application.NewService(workspaceService),
 			application.NewService(wailsapi.NewTaskService(vaultService, workspaceService)),
 			application.NewService(wailsapi.NewDecisionService(vaultService, workspaceService)),
+			application.NewService(wailsapi.NewPermissionService(vaultService)),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

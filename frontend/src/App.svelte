@@ -15,6 +15,7 @@
   import { closeWorkspace, inspectRepository, type WorkspaceStatus } from './lib/api/workspace';
   import { createTaskContract, reviseTaskContract, type TaskStatus } from './lib/api/task';
   import { answerDecision, listDecisions, resolveDecisionConflict, type DecisionItem } from './lib/api/decision';
+  import { listPermissionRequests, resolvePermissionRequest, type PermissionOutcome, type PermissionRequest } from './lib/api/permission';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -35,6 +36,7 @@
   let editingTask = $state(false);
   let decisions = $state<DecisionItem[]>([]);
   let decisionDrafts = $state<Record<string, string>>({});
+  let permissionRequests = $state<PermissionRequest[]>([]);
 
   onMount(async () => {
     try {
@@ -189,7 +191,7 @@
       } else if (result.task) {
         task = result.task;
         editingTask = false;
-        await refreshDecisions();
+        await Promise.all([refreshDecisions(), refreshPermissions()]);
       }
     } catch {
       latestError = localError('TASK_REQUEST_FAILED', 'Task Contract를 저장하지 못했습니다.');
@@ -207,6 +209,24 @@
     const result = await listDecisions(task.task_id);
     if (result.error) latestError = result.error;
     else decisions = result.decisions;
+  }
+
+  async function refreshPermissions() {
+    if (!task || vault.state !== 'unlocked') { permissionRequests = []; return; }
+    const result = await listPermissionRequests(task.task_id);
+    if (result.error) latestError = result.error;
+    else permissionRequests = result.requests;
+  }
+
+  async function handlePermission(item: PermissionRequest, outcome: PermissionOutcome) {
+    loading = true; latestError = null;
+    try {
+      const result = await resolvePermissionRequest(item.request_id, outcome);
+      if (result.error) latestError = result.error;
+      else permissionRequests = permissionRequests.filter((current) => current.request_id !== item.request_id);
+    } catch {
+      latestError = localError('PERMISSION_REQUEST_FAILED', '권한 선택을 저장하지 못했습니다.');
+    } finally { loading = false; }
   }
 
   async function handleDecisionAnswer(item: DecisionItem, optionID = '') {
@@ -236,7 +256,7 @@
   }
 
   function clearPrivateTaskState() {
-    task = null; decisions = []; decisionDrafts = {}; editingTask = false;
+    task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; editingTask = false;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
   }
 
@@ -432,6 +452,31 @@
           </section>
         {:else}
           <p class="decision-empty">현재 대기 중인 질문이 없습니다.</p>
+        {/each}
+      </div>
+    </article>
+
+    <article class="status-card">
+      <div class="status-heading">
+        <span class:unlocked={permissionRequests.length > 0} class="status-dot waiting" aria-hidden="true"></span>
+        <h2>권한 검토</h2>
+      </div>
+      <strong>{permissionRequests.length}개 대기</strong>
+      <p>실행 파일과 인자를 확인한 뒤 이번 실행 또는 현재 작업에만 허용할 수 있습니다.</p>
+      <div class="decision-list">
+        {#each permissionRequests as item (item.request_id)}
+          <section class="decision-item">
+            <div class="decision-meta"><span>{item.rule_id}</span><span>{Math.ceil(item.timeout_ms / 1000)}초</span></div>
+            <h3>{item.executable}</h3>
+            <code>{item.arguments.join(' ')}</code>
+            <div class="decision-options">
+              <button type="button" onclick={() => handlePermission(item, 'allow_once')} disabled={loading}><strong>한 번 허용</strong><span>15분 안에 한 번만 실행</span></button>
+              <button type="button" onclick={() => handlePermission(item, 'allow_task')} disabled={loading}><strong>현재 작업 허용</strong><span>24시간 동안 같은 요청 허용</span></button>
+              <button type="button" class="danger" onclick={() => handlePermission(item, 'deny')} disabled={loading}><strong>거부</strong><span>24시간 동안 같은 요청 차단</span></button>
+            </div>
+          </section>
+        {:else}
+          <p class="decision-empty">현재 검토할 실행 권한이 없습니다.</p>
         {/each}
       </div>
     </article>

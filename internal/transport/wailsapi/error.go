@@ -4,9 +4,11 @@ import (
 	"errors"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
@@ -32,6 +34,18 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, permissionreview.ErrInvalidResolution), errors.Is(err, executionstore.ErrInvalidCommand):
+		mapped.Code = "PERMISSION_REVIEW_INVALID"
+		mapped.Message = "권한 검토 요청 또는 선택값을 확인해 주세요."
+	case errors.Is(err, executionstore.ErrConflict), errors.Is(err, executionstore.ErrGrantUnavailable):
+		mapped.Code = "PERMISSION_REVIEW_CONFLICT"
+		mapped.Message = "권한 요청이 이미 처리됐거나 현재 작업과 맞지 않습니다."
+	case errors.Is(err, executionstore.ErrIdempotencyConflict):
+		mapped.Code = "PERMISSION_REQUEST_CONFLICT"
+		mapped.Message = "같은 요청 식별자가 다른 권한 검토에 사용되었습니다."
+	case errors.Is(err, executionstore.ErrNotFound):
+		mapped.Code = "PERMISSION_REQUEST_NOT_FOUND"
+		mapped.Message = "요청한 권한 검토 항목을 찾을 수 없습니다."
 	case errors.Is(err, event.ErrSecretPayload):
 		mapped.Code = "SECRET_PAYLOAD_REJECTED"
 		mapped.Message = "비밀정보는 Vault 이벤트로 저장할 수 없습니다."
