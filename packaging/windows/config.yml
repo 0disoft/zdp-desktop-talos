@@ -7,7 +7,7 @@ info:
   description: 'Local-first coding agent runtime'
   copyright: 'Copyright (c) 2026 0disoft'
   comments: 'Private alpha'
-  version: '0.2.0'
+  version: '0.3.0'
 
 fileAssociations: []
 protocols: []

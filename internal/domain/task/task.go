@@ -10,15 +10,19 @@ import (
 )
 
 const (
-	MaxGoalLength       = 4096
-	MaxScopeEntries     = 256
-	MaxAcceptanceItems  = 128
-	MaxContractTextSize = 4096
+	MaxGoalLength                 = 4096
+	MaxScopeEntries               = 256
+	MaxAcceptanceItems            = 128
+	MaxContractTextSize           = 4096
+	MaxVerificationCommands       = 32
+	MaxVerificationArguments      = 64
+	MaxVerificationArgumentLength = 32767
 )
 
 var (
-	ErrInvalidRecord = errors.New("invalid task record")
-	commitPattern    = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+	ErrInvalidRecord        = errors.New("invalid task record")
+	commitPattern           = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+	verificationRulePattern = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
 )
 
 type Status string
@@ -46,16 +50,23 @@ type Record struct {
 }
 
 type ContractRevision struct {
-	TaskID             string
-	Revision           int
-	BaselineCommit     string
-	Goal               string
-	AllowedPaths       []string
-	ForbiddenActions   []string
-	AcceptanceCriteria []string
-	Risk               Risk
-	CreatedAt          time.Time
-	EventID            string
+	TaskID               string
+	Revision             int
+	BaselineCommit       string
+	Goal                 string
+	AllowedPaths         []string
+	ForbiddenActions     []string
+	AcceptanceCriteria   []string
+	VerificationCommands []VerificationCommand
+	Risk                 Risk
+	CreatedAt            time.Time
+	EventID              string
+}
+
+type VerificationCommand struct {
+	RuleID           string
+	Arguments        []string
+	WorkingDirectory string
 }
 
 func (r Record) Validate() error {
@@ -87,7 +98,52 @@ func (c ContractRevision) Validate() error {
 	if err := validateUnique(c.ForbiddenActions, false); err != nil {
 		return err
 	}
-	return validateUnique(c.AcceptanceCriteria, false)
+	if err := validateUnique(c.AcceptanceCriteria, false); err != nil {
+		return err
+	}
+	return validateVerificationCommands(c.VerificationCommands)
+}
+
+func validateVerificationCommands(commands []VerificationCommand) error {
+	if len(commands) > MaxVerificationCommands {
+		return fmt.Errorf("%w: too many verification commands", ErrInvalidRecord)
+	}
+	seen := make(map[string]struct{}, len(commands))
+	for _, command := range commands {
+		if !verificationRulePattern.MatchString(command.RuleID) || len(command.Arguments) > MaxVerificationArguments {
+			return fmt.Errorf("%w: verification rule or argument count is invalid", ErrInvalidRecord)
+		}
+		workingDirectory, err := normalizeWorkingDirectory(command.WorkingDirectory)
+		if err != nil {
+			return err
+		}
+		for _, argument := range command.Arguments {
+			if argument == "" || len(argument) > MaxVerificationArgumentLength || strings.IndexByte(argument, 0) >= 0 {
+				return fmt.Errorf("%w: verification argument is invalid", ErrInvalidRecord)
+			}
+		}
+		key := command.RuleID + "\x00" + workingDirectory + "\x00" + strings.Join(command.Arguments, "\x00")
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("%w: duplicate verification command", ErrInvalidRecord)
+		}
+		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func normalizeWorkingDirectory(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "."
+	}
+	if len(value) > MaxContractTextSize || strings.ContainsAny(value, "*?[]") || strings.IndexByte(value, 0) >= 0 {
+		return "", fmt.Errorf("%w: verification working directory is invalid", ErrInvalidRecord)
+	}
+	clean := filepath.Clean(filepath.FromSlash(value))
+	if filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: verification working directory must remain repository-relative", ErrInvalidRecord)
+	}
+	return filepath.ToSlash(clean), nil
 }
 
 func validateUnique(values []string, paths bool) error {

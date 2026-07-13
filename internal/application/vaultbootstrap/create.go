@@ -56,27 +56,29 @@ type StoreArtifactInput struct {
 }
 
 type CreateTaskContractInput struct {
-	WorkspaceRoot      string
-	BaselineCommit     string
-	Goal               string
-	AllowedPaths       []string
-	ForbiddenActions   []string
-	AcceptanceCriteria []string
-	Risk               task.Risk
-	IdempotencyKey     string
+	WorkspaceRoot        string
+	BaselineCommit       string
+	Goal                 string
+	AllowedPaths         []string
+	ForbiddenActions     []string
+	AcceptanceCriteria   []string
+	VerificationCommands []task.VerificationCommand
+	Risk                 task.Risk
+	IdempotencyKey       string
 }
 
 type ReviseTaskContractInput struct {
-	TaskID             string
-	ExpectedRevision   int
-	WorkspaceRoot      string
-	BaselineCommit     string
-	Goal               string
-	AllowedPaths       []string
-	ForbiddenActions   []string
-	AcceptanceCriteria []string
-	Risk               task.Risk
-	IdempotencyKey     string
+	TaskID               string
+	ExpectedRevision     int
+	WorkspaceRoot        string
+	BaselineCommit       string
+	Goal                 string
+	AllowedPaths         []string
+	ForbiddenActions     []string
+	AcceptanceCriteria   []string
+	VerificationCommands []task.VerificationCommand
+	Risk                 task.Risk
+	IdempotencyKey       string
 }
 
 type CreateDecisionInput struct {
@@ -210,13 +212,13 @@ func (s *Session) CreateTaskContract(ctx context.Context, input CreateTaskContra
 	if s == nil || s.database == nil {
 		return taskstore.Created{}, ErrNotOpen
 	}
-	if input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+	if input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || len(input.VerificationCommands) == 0 {
 		return taskstore.Created{}, ErrInvalidInput
 	}
 	return s.database.CreateTaskContract(ctx, taskstore.CreateInput{
 		VaultID: s.Record.ID, WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: input.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: input.AllowedPaths, ForbiddenActions: input.ForbiddenActions,
-		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk,
+		AcceptanceCriteria: input.AcceptanceCriteria, VerificationCommands: input.VerificationCommands, Risk: input.Risk,
 		IdempotencyKey: input.IdempotencyKey,
 	})
 }
@@ -225,7 +227,7 @@ func (s *Session) ReviseTaskContract(ctx context.Context, input ReviseTaskContra
 	if s == nil || s.database == nil {
 		return taskstore.Created{}, ErrNotOpen
 	}
-	if input.TaskID == "" || input.ExpectedRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+	if input.TaskID == "" || input.ExpectedRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || len(input.VerificationCommands) == 0 {
 		return taskstore.Created{}, ErrInvalidInput
 	}
 	current, err := s.database.GetTask(ctx, input.TaskID)
@@ -238,7 +240,7 @@ func (s *Session) ReviseTaskContract(ctx context.Context, input ReviseTaskContra
 	return s.database.ReviseTaskContract(ctx, taskstore.ReviseInput{
 		VaultID: s.Record.ID, TaskID: input.TaskID, ExpectedRevision: input.ExpectedRevision,
 		Goal: input.Goal, AllowedPaths: input.AllowedPaths, ForbiddenActions: input.ForbiddenActions,
-		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk,
+		AcceptanceCriteria: input.AcceptanceCriteria, VerificationCommands: input.VerificationCommands, Risk: input.Risk,
 		IdempotencyKey: input.IdempotencyKey,
 	})
 }

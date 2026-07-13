@@ -32,6 +32,9 @@
   let taskGoal = $state('');
   let taskPaths = $state('');
   let taskCriteria = $state('');
+  let taskVerificationRule = $state('go-test');
+  let taskVerificationArguments = $state('test\n./...');
+  let taskVerificationDirectory = $state('.');
   let taskRisk = $state<'low' | 'medium' | 'high'>('medium');
   let editingTask = $state(false);
   let decisions = $state<DecisionItem[]>([]);
@@ -178,6 +181,11 @@
         allowed_paths: lines(taskPaths),
         forbidden_actions: ['git.push', 'git.commit', 'network.egress', 'dependency.install'],
         acceptance_criteria: lines(taskCriteria),
+        verification_commands: [{
+          rule_id: taskVerificationRule.trim(),
+          arguments: lines(taskVerificationArguments),
+          working_directory: taskVerificationDirectory.trim() || '.',
+        }],
         risk: taskRisk,
       };
       const result = task
@@ -258,6 +266,7 @@
   function clearPrivateTaskState() {
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; editingTask = false;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
+    taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
 
   function localError(code: string, message: string): TalosError {
@@ -404,8 +413,11 @@
           <label><span>목표</span><textarea bind:value={taskGoal} rows="3" maxlength="4096" disabled={loading} placeholder="이번 작업에서 끝낼 한 가지 목표"></textarea></label>
           <label><span>수정 가능 경로 · 한 줄에 하나</span><textarea bind:value={taskPaths} rows="3" disabled={loading} placeholder="internal/domain/**"></textarea></label>
           <label><span>완료 조건 · 한 줄에 하나</span><textarea bind:value={taskCriteria} rows="3" disabled={loading} placeholder="관련 테스트가 통과한다"></textarea></label>
+          <label><span>검증 규칙</span><input bind:value={taskVerificationRule} maxlength="64" autocomplete="off" spellcheck="false" disabled={loading} placeholder="go-test" /></label>
+          <label><span>검증 인수 · 한 줄에 하나</span><textarea bind:value={taskVerificationArguments} rows="3" disabled={loading} placeholder={'test\n./...'}></textarea></label>
+          <label><span>실행 폴더 · 저장소 기준</span><input bind:value={taskVerificationDirectory} maxlength="4096" autocomplete="off" spellcheck="false" disabled={loading} placeholder="." /></label>
           <label class="task-risk"><span>위험도</span><select bind:value={taskRisk} disabled={loading}><option value="low">낮음</option><option value="medium">보통</option><option value="high">높음</option></select></label>
-          <button type="button" onclick={handleTaskContract} disabled={loading || vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty || !taskGoal.trim() || lines(taskPaths).length === 0 || lines(taskCriteria).length === 0}>{task ? `revision ${task.revision + 1} 확정` : '계약 확정'}</button>
+          <button type="button" onclick={handleTaskContract} disabled={loading || vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty || !taskGoal.trim() || lines(taskPaths).length === 0 || lines(taskCriteria).length === 0 || !taskVerificationRule.trim()}>{task ? `revision ${task.revision + 1} 확정` : '계약 확정'}</button>
           {#if task}<button type="button" class="secondary" onclick={() => (editingTask = false)} disabled={loading}>취소</button>{/if}
           {#if vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty}
             <small>{vault.state !== 'unlocked' ? 'Vault를 먼저 열어 주세요.' : workspace.state !== 'open' ? 'Workspace를 먼저 열어 주세요.' : '커밋되지 않은 변경을 먼저 정리해 주세요.'}</small>

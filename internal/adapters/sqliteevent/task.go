@@ -22,16 +22,23 @@ const (
 )
 
 type taskContractPayload struct {
-	TaskID             string    `json:"task_id"`
-	Revision           int       `json:"revision"`
-	WorkspaceRoot      string    `json:"workspace_root"`
-	BaselineCommit     string    `json:"baseline_commit"`
-	Goal               string    `json:"goal"`
-	AllowedPaths       []string  `json:"allowed_paths"`
-	ForbiddenActions   []string  `json:"forbidden_actions"`
-	AcceptanceCriteria []string  `json:"acceptance_criteria"`
-	Risk               task.Risk `json:"risk"`
-	CreatedAt          string    `json:"created_at"`
+	TaskID               string                           `json:"task_id"`
+	Revision             int                              `json:"revision"`
+	WorkspaceRoot        string                           `json:"workspace_root"`
+	BaselineCommit       string                           `json:"baseline_commit"`
+	Goal                 string                           `json:"goal"`
+	AllowedPaths         []string                         `json:"allowed_paths"`
+	ForbiddenActions     []string                         `json:"forbidden_actions"`
+	AcceptanceCriteria   []string                         `json:"acceptance_criteria"`
+	VerificationCommands []taskVerificationCommandPayload `json:"verification_commands,omitempty"`
+	Risk                 task.Risk                        `json:"risk"`
+	CreatedAt            string                           `json:"created_at"`
+}
+
+type taskVerificationCommandPayload struct {
+	RuleID           string   `json:"rule_id"`
+	Arguments        []string `json:"arguments"`
+	WorkingDirectory string   `json:"working_directory"`
 }
 
 func (s *Store) CreateTaskContract(ctx context.Context, input taskstore.CreateInput) (taskstore.Created, error) {
@@ -43,7 +50,7 @@ func (s *Store) CreateTaskContract(ctx context.Context, input taskstore.CreateIn
 	validation := task.ContractRevision{
 		TaskID: "validation-task", Revision: 1, BaselineCommit: input.BaselineCommit, Goal: input.Goal,
 		AllowedPaths: input.AllowedPaths, ForbiddenActions: input.ForbiddenActions,
-		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk, CreatedAt: occurredAt, EventID: "validation-event",
+		AcceptanceCriteria: input.AcceptanceCriteria, VerificationCommands: input.VerificationCommands, Risk: input.Risk, CreatedAt: occurredAt, EventID: "validation-event",
 	}
 	if input.VaultID == "" || input.WorkspaceRoot == "" || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || validation.Validate() != nil {
 		return taskstore.Created{}, taskstore.ErrInvalidCommand
@@ -77,7 +84,7 @@ func (s *Store) CreateTaskContract(ctx context.Context, input taskstore.CreateIn
 	payload := taskContractPayload{
 		TaskID: taskID, Revision: 1, WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: input.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: append([]string(nil), input.AllowedPaths...), ForbiddenActions: append([]string(nil), input.ForbiddenActions...),
-		AcceptanceCriteria: append([]string(nil), input.AcceptanceCriteria...), Risk: input.Risk, CreatedAt: occurredAt.Format(time.RFC3339Nano),
+		AcceptanceCriteria: append([]string(nil), input.AcceptanceCriteria...), VerificationCommands: verificationCommandsToPayload(input.VerificationCommands), Risk: input.Risk, CreatedAt: occurredAt.Format(time.RFC3339Nano),
 	}
 	eventRecord, err := s.taskEvent(input.VaultID, payload, occurredAt)
 	if err != nil {
@@ -150,7 +157,7 @@ func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseIn
 	validation := task.ContractRevision{
 		TaskID: input.TaskID, Revision: nextRevision, BaselineCommit: current.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: input.AllowedPaths, ForbiddenActions: input.ForbiddenActions,
-		AcceptanceCriteria: input.AcceptanceCriteria, Risk: input.Risk, CreatedAt: occurredAt, EventID: "validation-event",
+		AcceptanceCriteria: input.AcceptanceCriteria, VerificationCommands: input.VerificationCommands, Risk: input.Risk, CreatedAt: occurredAt, EventID: "validation-event",
 	}
 	if validation.Validate() != nil {
 		return taskstore.Created{}, taskstore.ErrInvalidCommand
@@ -158,7 +165,7 @@ func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseIn
 	payload := taskContractPayload{
 		TaskID: input.TaskID, Revision: nextRevision, WorkspaceRoot: current.WorkspaceRoot, BaselineCommit: current.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: append([]string(nil), input.AllowedPaths...), ForbiddenActions: append([]string(nil), input.ForbiddenActions...),
-		AcceptanceCriteria: append([]string(nil), input.AcceptanceCriteria...), Risk: input.Risk, CreatedAt: occurredAt.Format(time.RFC3339Nano),
+		AcceptanceCriteria: append([]string(nil), input.AcceptanceCriteria...), VerificationCommands: verificationCommandsToPayload(input.VerificationCommands), Risk: input.Risk, CreatedAt: occurredAt.Format(time.RFC3339Nano),
 	}
 	eventRecord, err := s.taskEventOfType(input.VaultID, taskContractRevisedEventType, payload, occurredAt)
 	if err != nil {
@@ -276,7 +283,7 @@ func taskResultFromPayload(vaultID string, payload taskContractPayload, eventID 
 	}
 	result := taskstore.Created{
 		Task:     task.Record{ID: payload.TaskID, VaultID: vaultID, WorkspaceRoot: payload.WorkspaceRoot, BaselineCommit: payload.BaselineCommit, Status: task.StatusContracted, CurrentRevision: payload.Revision, CreatedAt: taskCreatedAt, UpdatedAt: revisionAt, LastEventID: eventID},
-		Contract: task.ContractRevision{TaskID: payload.TaskID, Revision: payload.Revision, BaselineCommit: payload.BaselineCommit, Goal: payload.Goal, AllowedPaths: payload.AllowedPaths, ForbiddenActions: payload.ForbiddenActions, AcceptanceCriteria: payload.AcceptanceCriteria, Risk: payload.Risk, CreatedAt: revisionAt, EventID: eventID},
+		Contract: task.ContractRevision{TaskID: payload.TaskID, Revision: payload.Revision, BaselineCommit: payload.BaselineCommit, Goal: payload.Goal, AllowedPaths: payload.AllowedPaths, ForbiddenActions: payload.ForbiddenActions, AcceptanceCriteria: payload.AcceptanceCriteria, VerificationCommands: verificationCommandsFromPayload(payload.VerificationCommands), Risk: payload.Risk, CreatedAt: revisionAt, EventID: eventID},
 	}
 	if err := result.Task.Validate(); err != nil {
 		return taskstore.Created{}, err
@@ -356,13 +363,29 @@ func contractFromEvent(record event.Record, taskID string, revision int, baselin
 	result := task.ContractRevision{
 		TaskID: taskID, Revision: revision, BaselineCommit: baselineCommit, Goal: payload.Goal,
 		AllowedPaths: payload.AllowedPaths, ForbiddenActions: payload.ForbiddenActions,
-		AcceptanceCriteria: payload.AcceptanceCriteria, Risk: payload.Risk,
+		AcceptanceCriteria: payload.AcceptanceCriteria, VerificationCommands: verificationCommandsFromPayload(payload.VerificationCommands), Risk: payload.Risk,
 		CreatedAt: parsedCreatedAt, EventID: record.ID,
 	}
 	if err := result.Validate(); err != nil {
 		return task.ContractRevision{}, fmt.Errorf("validate stored task contract: %w", err)
 	}
 	return result, nil
+}
+
+func verificationCommandsToPayload(commands []task.VerificationCommand) []taskVerificationCommandPayload {
+	cloned := make([]taskVerificationCommandPayload, len(commands))
+	for index, command := range commands {
+		cloned[index] = taskVerificationCommandPayload{RuleID: command.RuleID, Arguments: append([]string(nil), command.Arguments...), WorkingDirectory: command.WorkingDirectory}
+	}
+	return cloned
+}
+
+func verificationCommandsFromPayload(commands []taskVerificationCommandPayload) []task.VerificationCommand {
+	cloned := make([]task.VerificationCommand, len(commands))
+	for index, command := range commands {
+		cloned[index] = task.VerificationCommand{RuleID: command.RuleID, Arguments: append([]string(nil), command.Arguments...), WorkingDirectory: command.WorkingDirectory}
+	}
+	return cloned
 }
 
 func (s *Store) getEventInTx(tx *sql.Tx, eventID string) (event.Record, error) {

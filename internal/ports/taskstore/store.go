@@ -18,16 +18,17 @@ var (
 )
 
 type CreateInput struct {
-	VaultID            string
-	WorkspaceRoot      string
-	BaselineCommit     string
-	Goal               string
-	AllowedPaths       []string
-	ForbiddenActions   []string
-	AcceptanceCriteria []string
-	Risk               task.Risk
-	OccurredAt         time.Time
-	IdempotencyKey     string
+	VaultID              string
+	WorkspaceRoot        string
+	BaselineCommit       string
+	Goal                 string
+	AllowedPaths         []string
+	ForbiddenActions     []string
+	AcceptanceCriteria   []string
+	VerificationCommands []task.VerificationCommand
+	Risk                 task.Risk
+	OccurredAt           time.Time
+	IdempotencyKey       string
 }
 
 type Created struct {
@@ -36,16 +37,17 @@ type Created struct {
 }
 
 type ReviseInput struct {
-	VaultID            string
-	TaskID             string
-	ExpectedRevision   int
-	Goal               string
-	AllowedPaths       []string
-	ForbiddenActions   []string
-	AcceptanceCriteria []string
-	Risk               task.Risk
-	OccurredAt         time.Time
-	IdempotencyKey     string
+	VaultID              string
+	TaskID               string
+	ExpectedRevision     int
+	Goal                 string
+	AllowedPaths         []string
+	ForbiddenActions     []string
+	AcceptanceCriteria   []string
+	VerificationCommands []task.VerificationCommand
+	Risk                 task.Risk
+	OccurredAt           time.Time
+	IdempotencyKey       string
 }
 
 type Store interface {

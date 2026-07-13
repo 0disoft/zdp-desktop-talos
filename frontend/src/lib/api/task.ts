@@ -9,7 +9,14 @@ export type TaskContractInput = {
   allowed_paths: string[];
   forbidden_actions: string[];
   acceptance_criteria: string[];
+  verification_commands: VerificationCommandInput[];
   risk: 'low' | 'medium' | 'high';
+};
+
+export type VerificationCommandInput = {
+  rule_id: string;
+  arguments: string[];
+  working_directory: string;
 };
 
 export type TaskStatus = {

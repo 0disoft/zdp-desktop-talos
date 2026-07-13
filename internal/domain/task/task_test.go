@@ -29,3 +29,29 @@ func TestRecordRequiresContractedRevisionAndBaseline(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestContractRevisionValidatesStructuredVerificationCommands(t *testing.T) {
+	t.Parallel()
+	valid := ContractRevision{TaskID: "task-1", Revision: 1, BaselineCommit: "0123456789012345678901234567890123456789", Goal: "Add verification", AllowedPaths: []string{"internal/task/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./internal/domain/task/..."}, WorkingDirectory: "."}}, Risk: RiskMedium, CreatedAt: time.Now(), EventID: "event-1"}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cases := []VerificationCommand{
+		{RuleID: "Go Test", Arguments: []string{"test"}, WorkingDirectory: "."},
+		{RuleID: "go-test", Arguments: []string{""}, WorkingDirectory: "."},
+		{RuleID: "go-test", Arguments: []string{"test"}, WorkingDirectory: "../outside"},
+		{RuleID: "go-test", Arguments: []string{"test"}, WorkingDirectory: "internal/*"},
+	}
+	for _, command := range cases {
+		candidate := valid
+		candidate.VerificationCommands = []VerificationCommand{command}
+		if err := candidate.Validate(); !errors.Is(err, ErrInvalidRecord) {
+			t.Fatalf("command=%+v error=%v", command, err)
+		}
+	}
+	candidate := valid
+	candidate.VerificationCommands = append(candidate.VerificationCommands, candidate.VerificationCommands[0])
+	if err := candidate.Validate(); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("duplicate error=%v", err)
+	}
+}

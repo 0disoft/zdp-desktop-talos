@@ -25,6 +25,8 @@
 
 - one repository has at most one active Run;
 - one Task Contract revision never changes its baseline;
+- new Task Contract confirmations carry at least one structured verification command; persisted legacy revisions without commands remain readable but cannot be reused as a new confirmation without adding one;
+- verification commands contain only a policy rule ID, exact argument array, and repository-relative working directory; executable resolution, environment, timeout, and output limits remain runtime policy;
 - Task Contract revision updates require the current expected revision; concurrent incompatible updates never use last-write-wins;
 - Task creation and its first encrypted contract revision commit atomically; materialized contract pointers never duplicate private contract bodies;
 - repository snapshots use a canonical worktree root, an exact commit baseline, bounded porcelain-v2 changes, and a capture time;

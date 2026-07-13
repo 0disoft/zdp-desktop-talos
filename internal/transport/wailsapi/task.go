@@ -10,25 +10,33 @@ import (
 )
 
 type TaskCreateRequest struct {
-	Goal               string   `json:"goal"`
-	AllowedPaths       []string `json:"allowed_paths"`
-	ForbiddenActions   []string `json:"forbidden_actions"`
-	AcceptanceCriteria []string `json:"acceptance_criteria"`
-	Risk               string   `json:"risk"`
-	RequestID          string   `json:"request_id"`
-	CorrelationID      string   `json:"correlation_id"`
+	Goal                 string                       `json:"goal"`
+	AllowedPaths         []string                     `json:"allowed_paths"`
+	ForbiddenActions     []string                     `json:"forbidden_actions"`
+	AcceptanceCriteria   []string                     `json:"acceptance_criteria"`
+	VerificationCommands []VerificationCommandRequest `json:"verification_commands"`
+	Risk                 string                       `json:"risk"`
+	RequestID            string                       `json:"request_id"`
+	CorrelationID        string                       `json:"correlation_id"`
+}
+
+type VerificationCommandRequest struct {
+	RuleID           string   `json:"rule_id"`
+	Arguments        []string `json:"arguments"`
+	WorkingDirectory string   `json:"working_directory"`
 }
 
 type TaskReviseRequest struct {
-	TaskID             string   `json:"task_id"`
-	ExpectedRevision   int      `json:"expected_revision"`
-	Goal               string   `json:"goal"`
-	AllowedPaths       []string `json:"allowed_paths"`
-	ForbiddenActions   []string `json:"forbidden_actions"`
-	AcceptanceCriteria []string `json:"acceptance_criteria"`
-	Risk               string   `json:"risk"`
-	RequestID          string   `json:"request_id"`
-	CorrelationID      string   `json:"correlation_id"`
+	TaskID               string                       `json:"task_id"`
+	ExpectedRevision     int                          `json:"expected_revision"`
+	Goal                 string                       `json:"goal"`
+	AllowedPaths         []string                     `json:"allowed_paths"`
+	ForbiddenActions     []string                     `json:"forbidden_actions"`
+	AcceptanceCriteria   []string                     `json:"acceptance_criteria"`
+	VerificationCommands []VerificationCommandRequest `json:"verification_commands"`
+	Risk                 string                       `json:"risk"`
+	RequestID            string                       `json:"request_id"`
+	CorrelationID        string                       `json:"correlation_id"`
 }
 
 type TaskStatus struct {
@@ -68,7 +76,7 @@ func (s *TaskService) CreateContract(request TaskCreateRequest) TaskResult {
 	created, err := s.vault.createTaskContract(vaultbootstrap.CreateTaskContractInput{
 		WorkspaceRoot: snapshot.Root, BaselineCommit: snapshot.BaselineCommit, Goal: request.Goal,
 		AllowedPaths: request.AllowedPaths, ForbiddenActions: request.ForbiddenActions,
-		AcceptanceCriteria: request.AcceptanceCriteria, Risk: task.Risk(request.Risk),
+		AcceptanceCriteria: request.AcceptanceCriteria, VerificationCommands: verificationCommands(request.VerificationCommands), Risk: task.Risk(request.Risk),
 		IdempotencyKey: "task-contract:" + strings.TrimSpace(request.RequestID),
 	})
 	if err != nil {
@@ -94,7 +102,7 @@ func (s *TaskService) ReviseContract(request TaskReviseRequest) TaskResult {
 		TaskID: strings.TrimSpace(request.TaskID), ExpectedRevision: request.ExpectedRevision,
 		WorkspaceRoot: snapshot.Root, BaselineCommit: snapshot.BaselineCommit, Goal: request.Goal,
 		AllowedPaths: request.AllowedPaths, ForbiddenActions: request.ForbiddenActions,
-		AcceptanceCriteria: request.AcceptanceCriteria, Risk: task.Risk(request.Risk),
+		AcceptanceCriteria: request.AcceptanceCriteria, VerificationCommands: verificationCommands(request.VerificationCommands), Risk: task.Risk(request.Risk),
 		IdempotencyKey: "task-contract-revision:" + strings.TrimSpace(request.RequestID),
 	})
 	if err != nil {
@@ -103,6 +111,17 @@ func (s *TaskService) ReviseContract(request TaskReviseRequest) TaskResult {
 	}
 	status := taskStatus(revised)
 	return TaskResult{Task: &status}
+}
+
+func verificationCommands(requests []VerificationCommandRequest) []task.VerificationCommand {
+	commands := make([]task.VerificationCommand, len(requests))
+	for index, request := range requests {
+		commands[index] = task.VerificationCommand{
+			RuleID: strings.TrimSpace(request.RuleID), Arguments: append([]string(nil), request.Arguments...),
+			WorkingDirectory: strings.TrimSpace(request.WorkingDirectory),
+		}
+	}
+	return commands
 }
 
 func taskStatus(created taskstore.Created) TaskStatus {

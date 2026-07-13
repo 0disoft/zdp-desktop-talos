@@ -27,12 +27,16 @@ func TestTaskServiceReinspectsCleanBaselineAndPersistsContract(t *testing.T) {
 		t.Fatalf("open=%+v", result)
 	}
 	service := NewTaskService(vault, workspaceService)
-	result := service.CreateContract(TaskCreateRequest{Goal: "Implement contracts", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"tests pass"}, Risk: "medium", RequestID: "request-1", CorrelationID: "task-create"})
+	verification := []VerificationCommandRequest{{RuleID: "go-test", Arguments: []string{"test", "./internal/..."}, WorkingDirectory: "."}}
+	result := service.CreateContract(TaskCreateRequest{Goal: "Implement contracts", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: verification, Risk: "medium", RequestID: "request-1", CorrelationID: "task-create"})
 	if result.Error != nil || result.Task == nil || result.Task.TaskID != "task-1" || result.Task.BaselineCommit != snapshot.BaselineCommit {
 		t.Fatalf("result=%+v", result)
 	}
 	if database.taskInput.WorkspaceRoot != snapshot.Root || database.taskInput.BaselineCommit != snapshot.BaselineCommit || database.taskInput.IdempotencyKey != "task-contract:request-1" {
 		t.Fatalf("input=%+v", database.taskInput)
+	}
+	if len(database.taskInput.VerificationCommands) != 1 || database.taskInput.VerificationCommands[0].RuleID != "go-test" || database.taskInput.VerificationCommands[0].WorkingDirectory != "." {
+		t.Fatalf("verification=%+v", database.taskInput.VerificationCommands)
 	}
 	database.taskCreated.Task.CurrentRevision = 2
 	database.taskCreated.Task.UpdatedAt = now.Add(time.Minute)
@@ -41,12 +45,31 @@ func TestTaskServiceReinspectsCleanBaselineAndPersistsContract(t *testing.T) {
 	database.taskCreated.Contract.Goal = "Revised contracts"
 	database.taskCreated.Contract.CreatedAt = now.Add(time.Minute)
 	database.taskCreated.Contract.EventID = "event-2"
-	revised := service.ReviseContract(TaskReviseRequest{TaskID: "task-1", ExpectedRevision: 1, Goal: "Revised contracts", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, Risk: "medium", RequestID: "request-2", CorrelationID: "task-revise"})
+	revised := service.ReviseContract(TaskReviseRequest{TaskID: "task-1", ExpectedRevision: 1, Goal: "Revised contracts", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: verification, Risk: "medium", RequestID: "request-2", CorrelationID: "task-revise"})
 	if revised.Error != nil || revised.Task == nil || revised.Task.Revision != 2 {
 		t.Fatalf("revised=%+v", revised)
 	}
 	if database.reviseInput.TaskID != "task-1" || database.reviseInput.ExpectedRevision != 1 || database.reviseInput.IdempotencyKey != "task-contract-revision:request-2" {
 		t.Fatalf("revise input=%+v", database.reviseInput)
+	}
+}
+
+func TestTaskServiceRequiresVerificationCommand(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_800_000_000, 0).UTC()
+	snapshot := workspace.RepositorySnapshot{Root: `C:\repo`, BaselineCommit: strings.Repeat("a", 40), HeadRef: "main", CapturedAt: now}
+	database := &serviceDatabase{}
+	vault := openTaskTestVault(t, database)
+	workspaceService := NewWorkspaceService(&sequenceInspector{snapshots: []workspace.RepositorySnapshot{snapshot, snapshot}}, nil)
+	if result := workspaceService.InspectRepository(snapshot.Root, "open"); result.Error != nil {
+		t.Fatal(result.Error)
+	}
+	result := NewTaskService(vault, workspaceService).CreateContract(TaskCreateRequest{Goal: "goal", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"pass"}, Risk: "low", RequestID: "request-1"})
+	if result.Error == nil || result.Error.Code != "VAULT_INPUT_INVALID" {
+		t.Fatalf("result=%+v", result)
+	}
+	if database.taskInput.VaultID != "" {
+		t.Fatalf("persistence called: %+v", database.taskInput)
 	}
 }
 

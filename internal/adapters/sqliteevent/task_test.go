@@ -28,7 +28,7 @@ func TestTaskAndFirstContractCommitAtomicallyAndSurviveRestart(t *testing.T) {
 	input := taskstore.CreateInput{
 		VaultID: "vault-alpha", WorkspaceRoot: `C:\repo`, BaselineCommit: "0123456789012345678901234567890123456789",
 		Goal: "Persist immutable contracts", AllowedPaths: []string{"internal/task/**"}, ForbiddenActions: []string{"git.push"},
-		AcceptanceCriteria: []string{"restart restores the same contract"}, Risk: task.RiskMedium, OccurredAt: createdAt.Add(time.Minute), IdempotencyKey: "task-alpha",
+		AcceptanceCriteria: []string{"restart restores the same contract"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./internal/task/..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, OccurredAt: createdAt.Add(time.Minute), IdempotencyKey: "task-alpha",
 	}
 	created, err := store.CreateTaskContract(ctx, input)
 	if err != nil {
@@ -65,7 +65,7 @@ func TestTaskAndFirstContractCommitAtomicallyAndSurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restoredTask.BaselineCommit != input.BaselineCommit || restoredContract.Goal != input.Goal || restoredContract.EventID != created.Contract.EventID {
+	if restoredTask.BaselineCommit != input.BaselineCommit || restoredContract.Goal != input.Goal || restoredContract.EventID != created.Contract.EventID || len(restoredContract.VerificationCommands) != 1 || restoredContract.VerificationCommands[0].RuleID != "go-test" {
 		t.Fatalf("restored mismatch: %+v %+v", restoredTask, restoredContract)
 	}
 }
