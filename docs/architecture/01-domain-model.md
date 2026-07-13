@@ -33,7 +33,8 @@
 - stale Decision revisions cannot resolve the current question;
 - Decision questions and answers remain encrypted; equivalent answers converge and incompatible answers move the Decision to `conflicted` without overwriting evidence;
 - duplicate commands and events produce at most one side effect;
-- evidence becomes stale when the repository revision or diff hash changes;
+- successful verification evidence is created atomically with the Attempt transition and is bound to the contract revision, command index, baseline commit, capability, and deterministic task-worktree state hash;
+- evidence becomes stale when a later task-worktree state hash differs;
 - approved memory requires evidence and an applicability scope;
 - a secret value cannot enter event payloads;
 - imported data must pass schema, signature, sequence, sensitivity, and memory gates.

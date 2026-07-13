@@ -12,6 +12,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
@@ -36,7 +37,7 @@ func TestCoordinatorJournalsBeforeDispatchAndFinishesKnownSuccess(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Outcome != permission.OutcomeAllowTask || result.Tool.State != workerruntime.ToolSucceeded || result.Worktree.Root == "" {
+	if result.Outcome != permission.OutcomeAllowTask || result.Tool.State != workerruntime.ToolSucceeded || result.Worktree.Root == "" || result.Evidence == nil {
 		t.Fatalf("result=%+v", result)
 	}
 	want := []string{"prepare", "worker-start-run", "worker-run-tool", "finish-attempt:succeeded", "finish-run:completed", "worker-shutdown"}
@@ -84,6 +85,18 @@ func TestCoordinatorCleansWorktreeWhenWorkerPolicyCannotStart(t *testing.T) {
 	}
 	if !fixture.worktrees.removed || fixture.store.attemptFinish.NextState != execution.AttemptFailed || fixture.store.runFinish.NextState != execution.RunFailed {
 		t.Fatalf("removed=%v attempt=%+v run=%+v", fixture.worktrees.removed, fixture.store.attemptFinish, fixture.store.runFinish)
+	}
+}
+
+func TestCoordinatorFailsClosedWhenSuccessfulRunCannotBeSnapshotted(t *testing.T) {
+	fixture := newCoordinatorFixture(t, permission.OutcomeAllowTask)
+	fixture.worktrees.snapshotErr = repository.ErrWorktreeSnapshotFailed
+	result, err := fixture.coordinator.Execute(context.Background(), fixture.request)
+	if !errors.Is(err, ErrEvidenceUnavailable) || result.Evidence != nil {
+		t.Fatalf("result=%+v error=%v", result, err)
+	}
+	if fixture.store.attemptFinish.NextState != execution.AttemptFailed || fixture.store.attemptFinish.Evidence != nil || fixture.store.runFinish.NextState != execution.RunFailed {
+		t.Fatalf("attempt=%+v run=%+v", fixture.store.attemptFinish, fixture.store.runFinish)
 	}
 }
 
@@ -186,13 +199,18 @@ func (s *coordinatorStore) PrepareAttempt(_ context.Context, input executionstor
 	s.prepared = executionstore.Prepared{Run: run, Attempt: attempt}
 	return s.prepared, nil
 }
-func (s *coordinatorStore) FinishAttempt(_ context.Context, input executionstore.FinishAttemptInput) (execution.Attempt, error) {
+func (s *coordinatorStore) FinishAttempt(_ context.Context, input executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
 	s.attemptFinish = input
 	s.prepared.Attempt.State = input.NextState
 	s.prepared.Attempt.ExitCode = input.ExitCode
 	s.prepared.Attempt.SafeErrorCode = input.SafeErrorCode
 	s.order = append(s.order, "finish-attempt:"+string(input.NextState))
-	return execution.Attempt{}, nil
+	finished := executionstore.FinishedAttempt{Attempt: s.prepared.Attempt}
+	if input.Evidence != nil {
+		finished.Evidence = &verification.Evidence{ID: "evidence-1", VaultID: input.VaultID, TaskID: input.Evidence.TaskID, RunID: s.prepared.Run.ID, AttemptID: s.prepared.Attempt.ID, ContractRevision: input.Evidence.ContractRevision, CommandIndex: input.Evidence.CommandIndex, BaselineCommit: input.Evidence.BaselineCommit, WorktreeStateHash: input.Evidence.WorktreeStateHash, CapabilityHash: input.Evidence.CapabilityHash, ExitCode: 0, StartedAt: input.Evidence.StartedAt, FinishedAt: input.Evidence.FinishedAt, EventID: "evidence-event"}
+		s.prepared.Evidence = finished.Evidence
+	}
+	return finished, nil
 }
 func (s *coordinatorStore) FinishRun(_ context.Context, input executionstore.FinishRunInput) (execution.Run, error) {
 	s.runFinish = input
@@ -209,12 +227,16 @@ type coordinatorWorktrees struct {
 	created     bool
 	removed     bool
 	createCount int
+	snapshotErr error
 }
 
 func (w *coordinatorWorktrees) Create(context.Context, repository.CreateWorktreeInput) (worktree.Record, error) {
 	w.created = true
 	w.createCount++
 	return w.record, nil
+}
+func (w *coordinatorWorktrees) Snapshot(context.Context, worktree.Record) (repository.WorktreeState, error) {
+	return repository.WorktreeState{Hash: strings.Repeat("b", 64)}, w.snapshotErr
 }
 func (w *coordinatorWorktrees) Remove(context.Context, worktree.Record) error {
 	w.removed = true

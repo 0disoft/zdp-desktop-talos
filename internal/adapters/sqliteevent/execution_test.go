@@ -128,7 +128,7 @@ func TestAttemptFinishAndRestartReconciliationPreserveUnknownOutcome(t *testing.
 	if err := store.db.QueryRow(`SELECT state FROM runs WHERE run_id = ?`, prepared.Run.ID).Scan(&runState); err != nil || runState != string(execution.RunUnknown) {
 		t.Fatalf("run state=%q error=%v", runState, err)
 	}
-	_, err = store.FinishAttempt(ctx, executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), IdempotencyKey: "finish-after-unknown"})
+	_, err = store.FinishAttempt(ctx, executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), OccurredAt: input.OccurredAt.Add(2 * time.Minute), IdempotencyKey: "finish-after-unknown", Evidence: evidenceInput(taskRecord, prepared, input.OccurredAt, input.OccurredAt.Add(time.Minute))})
 	if !errors.Is(err, executionstore.ErrConflict) {
 		t.Fatalf("late success error=%v", err)
 	}
@@ -146,8 +146,12 @@ func TestFinishedAttemptAllowsRunToCloseAndReleasesWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.FinishAttempt(ctx, executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-attempt"}); err != nil {
+	finishedAttempt, err := store.FinishAttempt(ctx, executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-attempt", Evidence: evidenceInput(taskRecord, prepared, input.OccurredAt, input.OccurredAt.Add(time.Second))})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if finishedAttempt.Evidence == nil || finishedAttempt.Evidence.WorktreeStateHash != strings.Repeat("c", 64) {
+		t.Fatalf("evidence=%+v", finishedAttempt.Evidence)
 	}
 	finished, err := store.FinishRun(ctx, executionstore.FinishRunInput{VaultID: taskRecord.VaultID, RunID: prepared.Run.ID, ExpectedState: execution.RunActive, NextState: execution.RunCompleted, OccurredAt: input.OccurredAt.Add(2 * time.Second), IdempotencyKey: "finish-run"})
 	if err != nil {
@@ -160,7 +164,7 @@ func TestFinishedAttemptAllowsRunToCloseAndReleasesWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if replayed.Run.State != execution.RunCompleted || replayed.Attempt.State != execution.AttemptSucceeded {
+	if replayed.Run.State != execution.RunCompleted || replayed.Attempt.State != execution.AttemptSucceeded || replayed.Evidence == nil || replayed.Evidence.ID != finishedAttempt.Evidence.ID {
 		t.Fatalf("late preparation replay lost current state: %+v", replayed)
 	}
 	second := input
@@ -168,6 +172,34 @@ func TestFinishedAttemptAllowsRunToCloseAndReleasesWorkspace(t *testing.T) {
 	second.IdempotencyKey = "prepare-second-run"
 	if _, err := store.PrepareAttempt(ctx, second); err != nil {
 		t.Fatalf("workspace was not released: %v", err)
+	}
+}
+
+func TestSuccessfulAttemptAndEvidenceRollbackTogether(t *testing.T) {
+	t.Parallel()
+	store, taskRecord, grant, input := executionFixture(t)
+	defer store.Close()
+	ctx := context.Background()
+	if _, err := store.SavePermissionGrant(ctx, executionstore.SaveGrantInput{VaultID: taskRecord.VaultID, Grant: grant, IdempotencyKey: "grant-create"}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := store.PrepareAttempt(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER reject_evidence BEFORE INSERT ON verification_evidence BEGIN SELECT RAISE(ABORT, 'forced evidence failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.FinishAttempt(ctx, executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-attempt", Evidence: evidenceInput(taskRecord, prepared, input.OccurredAt, input.OccurredAt.Add(time.Second))})
+	if err == nil {
+		t.Fatal("evidence insertion failure did not fail the attempt transition")
+	}
+	current, err := store.GetAttempt(ctx, prepared.Attempt.ID)
+	if err != nil || current.State != execution.AttemptDispatchPending {
+		t.Fatalf("attempt=%+v error=%v", current, err)
+	}
+	if count := tableCount(t, store, "verification_evidence"); count != 0 {
+		t.Fatalf("evidence rows survived rollback: %d", count)
 	}
 }
 
@@ -195,3 +227,11 @@ func executionFixture(t *testing.T) (*Store, task.Record, permission.Grant, exec
 }
 
 func intPointer(value int) *int { return &value }
+
+func evidenceInput(taskRecord task.Record, prepared executionstore.Prepared, startedAt, finishedAt time.Time) *executionstore.VerificationEvidenceInput {
+	return &executionstore.VerificationEvidenceInput{
+		TaskID: taskRecord.ID, ContractRevision: taskRecord.CurrentRevision, CommandIndex: 0,
+		BaselineCommit: taskRecord.BaselineCommit, WorktreeStateHash: strings.Repeat("c", 64),
+		CapabilityHash: prepared.Attempt.CapabilityHash, StartedAt: startedAt, FinishedAt: finishedAt,
+	}
+}

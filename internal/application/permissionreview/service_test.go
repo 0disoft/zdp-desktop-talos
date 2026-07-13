@@ -65,8 +65,8 @@ func (*reviewStore) ListActivePermissionGrants(context.Context, string, string) 
 func (*reviewStore) PrepareAttempt(context.Context, executionstore.PrepareAttemptInput) (executionstore.Prepared, error) {
 	return executionstore.Prepared{}, errors.New("not used")
 }
-func (*reviewStore) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (execution.Attempt, error) {
-	return execution.Attempt{}, errors.New("not used")
+func (*reviewStore) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
+	return executionstore.FinishedAttempt{}, errors.New("not used")
 }
 func (*reviewStore) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
 	return execution.Run{}, errors.New("not used")

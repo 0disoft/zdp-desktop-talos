@@ -450,7 +450,7 @@
         <h2>Verification</h2>
       </div>
       <strong>{execution?.state === 'succeeded' ? '통과' : execution?.state === 'review_required' ? '권한 확인 대기' : '실행 대기'}</strong>
-      <p>{execution?.state === 'succeeded' ? `exit ${execution.exit_code} · ${execution.replayed ? '저장된 결과' : '새 실행'}` : execution?.state === 'review_required' ? '아래 Permission Review에서 실행 범위를 선택해 주세요.' : 'Task Contract에 확정한 첫 번째 검증 명령을 실행합니다.'}</p>
+      <p>{execution?.state === 'succeeded' ? `revision ${execution.contract_revision} · ${execution.worktree_state_hash.slice(0, 12)} · ${execution.replayed ? '저장된 증거' : '새 증거'}` : execution?.state === 'review_required' ? '아래 Permission Review에서 실행 범위를 선택해 주세요.' : 'Task Contract에 확정한 첫 번째 검증 명령을 실행합니다.'}</p>
       <button type="button" onclick={handleExecution} disabled={loading || vault.state !== 'unlocked' || !task || editingTask}>
         {execution?.state === 'review_required' ? '승인 후 다시 실행' : execution?.state === 'succeeded' ? '다시 검증' : '검증 시작'}
       </button>

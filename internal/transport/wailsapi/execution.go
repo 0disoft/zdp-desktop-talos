@@ -24,6 +24,10 @@ type ExecutionStatus struct {
 	AttemptID           string `json:"attempt_id,omitempty"`
 	ExitCode            *int   `json:"exit_code,omitempty"`
 	Replayed            bool   `json:"replayed"`
+	EvidenceID          string `json:"evidence_id,omitempty"`
+	ContractRevision    int    `json:"contract_revision,omitempty"`
+	CommandIndex        int    `json:"command_index"`
+	WorktreeStateHash   string `json:"worktree_state_hash,omitempty"`
 }
 
 type ExecutionResult struct {
@@ -91,9 +95,17 @@ func (s *ExecutionService) ExecuteVerification(request ExecutionRequest) Executi
 		status.State = "review_required"
 		status.PermissionRequestID = result.PermissionRequest.ID
 	} else {
+		if result.Evidence == nil {
+			mapped := MapError(executionruntime.ErrJournalFailed, correlationID)
+			return ExecutionResult{Error: &mapped}
+		}
 		status.State = "succeeded"
 		exitCode := result.Tool.ExitCode
 		status.ExitCode = &exitCode
+		status.EvidenceID = result.Evidence.ID
+		status.ContractRevision = result.Evidence.ContractRevision
+		status.CommandIndex = result.Evidence.CommandIndex
+		status.WorktreeStateHash = result.Evidence.WorktreeStateHash
 	}
 	return ExecutionResult{Execution: &status}
 }

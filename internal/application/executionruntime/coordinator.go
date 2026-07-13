@@ -13,6 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
@@ -21,9 +22,10 @@ import (
 )
 
 var (
-	ErrInvalidRequest   = errors.New("invalid execution request")
-	ErrPermissionDenied = errors.New("process execution permission denied")
-	ErrJournalFailed    = errors.New("execution journal update failed")
+	ErrInvalidRequest      = errors.New("invalid execution request")
+	ErrPermissionDenied    = errors.New("process execution permission denied")
+	ErrJournalFailed       = errors.New("execution journal update failed")
+	ErrEvidenceUnavailable = errors.New("verification evidence could not be created")
 )
 
 type Store interface {
@@ -61,6 +63,7 @@ type Result struct {
 	Tool              workerruntime.ToolResult
 	ShutdownError     error
 	Replayed          bool
+	Evidence          *verification.Evidence
 }
 
 type Coordinator struct {
@@ -133,7 +136,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	}
 	ownedWorktree, err := c.worktrees.Create(ctx, repository.CreateWorktreeInput{TaskID: record.ID, RepositoryRoot: record.WorkspaceRoot, BaselineCommit: record.BaselineCommit, CreatedAt: now})
 	if err != nil {
-		finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, execution.AttemptFailed, execution.RunFailed, 0, "WORKTREE_CREATE_FAILED", request.IdempotencyKey)
+		_, finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, execution.AttemptFailed, execution.RunFailed, 0, "WORKTREE_CREATE_FAILED", request.IdempotencyKey, nil)
 		if finishErr != nil {
 			return result, finishErr
 		}
@@ -143,7 +146,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	worker, err := c.workers.Start(ctx)
 	if err != nil {
 		_ = c.worktrees.Remove(context.WithoutCancel(ctx), ownedWorktree)
-		finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, execution.AttemptFailed, execution.RunFailed, 0, "WORKER_START_FAILED", request.IdempotencyKey)
+		_, finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, execution.AttemptFailed, execution.RunFailed, 0, "WORKER_START_FAILED", request.IdempotencyKey, nil)
 		if finishErr != nil {
 			return result, finishErr
 		}
@@ -158,7 +161,27 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	toolResult, toolErr := worker.RunTool(ctx, workerruntime.ToolRequest{RunID: journal.Run.ID, CallID: journal.Attempt.CallID, CapabilityID: capability.ID, Arguments: append([]string(nil), resolved.Intent.Arguments...), WorkingDirectory: resolved.WorkingDirectory, Environment: copyEnvironment(resolved.Environment), Timeout: resolved.Intent.Timeout, MaxOutputBytes: resolved.Intent.MaxOutputBytes})
 	result.Tool = toolResult
 	attemptState, runState, safeCode := classifyResult(toolResult, toolErr)
-	finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, attemptState, runState, toolResult.ExitCode, safeCode, request.IdempotencyKey)
+	var evidenceInput *executionstore.VerificationEvidenceInput
+	if attemptState == execution.AttemptSucceeded {
+		state, snapshotErr := c.worktrees.Snapshot(ctx, ownedWorktree)
+		if snapshotErr != nil {
+			_, finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, execution.AttemptFailed, execution.RunFailed, toolResult.ExitCode, "WORKTREE_SNAPSHOT_FAILED", request.IdempotencyKey, nil)
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			result.ShutdownError = worker.Shutdown(shutdownCtx)
+			cancel()
+			if finishErr != nil {
+				return result, finishErr
+			}
+			return result, ErrEvidenceUnavailable
+		}
+		evidenceInput = &executionstore.VerificationEvidenceInput{
+			TaskID: record.ID, ContractRevision: contract.Revision, CommandIndex: request.CommandIndex,
+			BaselineCommit: record.BaselineCommit, WorktreeStateHash: state.Hash, CapabilityHash: evaluation.Capability.IntentHash,
+			StartedAt: toolResult.StartedAt, FinishedAt: toolResult.FinishedAt,
+		}
+	}
+	evidence, finishErr := c.finish(ctx, record.VaultID, journal.Attempt.ID, journal.Run.ID, attemptState, runState, toolResult.ExitCode, safeCode, request.IdempotencyKey, evidenceInput)
+	result.Evidence = evidence
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	result.ShutdownError = worker.Shutdown(shutdownCtx)
 	cancel()
@@ -172,7 +195,7 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 }
 
 func (c *Coordinator) finishKnownFailure(ctx context.Context, worker workerruntime.Session, vaultID, attemptID, runID, code, key string) error {
-	finishErr := c.finish(ctx, vaultID, attemptID, runID, execution.AttemptFailed, execution.RunFailed, 0, code, key)
+	_, finishErr := c.finish(ctx, vaultID, attemptID, runID, execution.AttemptFailed, execution.RunFailed, 0, code, key, nil)
 	_ = worker.Close()
 	if finishErr != nil {
 		return finishErr
@@ -180,21 +203,25 @@ func (c *Coordinator) finishKnownFailure(ctx context.Context, worker workerrunti
 	return workerruntime.ErrExecutionFailed
 }
 
-func (c *Coordinator) finish(ctx context.Context, vaultID, attemptID, runID string, attemptState execution.AttemptState, runState execution.RunState, exitCode int, safeCode, key string) error {
+func (c *Coordinator) finish(ctx context.Context, vaultID, attemptID, runID string, attemptState execution.AttemptState, runState execution.RunState, exitCode int, safeCode, key string, evidence *executionstore.VerificationEvidenceInput) (*verification.Evidence, error) {
 	now := c.now().UTC()
+	if evidence != nil && evidence.FinishedAt.After(now) {
+		now = evidence.FinishedAt.UTC()
+	}
 	journalCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
 	var exit *int
 	if attemptState == execution.AttemptSucceeded || attemptState == execution.AttemptFailed {
 		exit = &exitCode
 	}
-	if _, err := c.store.FinishAttempt(journalCtx, executionstore.FinishAttemptInput{VaultID: vaultID, AttemptID: attemptID, ExpectedState: execution.AttemptDispatchPending, NextState: attemptState, ExitCode: exit, SafeErrorCode: safeCode, OccurredAt: now, IdempotencyKey: key + ":attempt-finish"}); err != nil {
-		return fmt.Errorf("%w: %v", ErrJournalFailed, err)
+	finished, err := c.store.FinishAttempt(journalCtx, executionstore.FinishAttemptInput{VaultID: vaultID, AttemptID: attemptID, ExpectedState: execution.AttemptDispatchPending, NextState: attemptState, ExitCode: exit, SafeErrorCode: safeCode, OccurredAt: now, IdempotencyKey: key + ":attempt-finish", Evidence: evidence})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrJournalFailed, err)
 	}
 	if _, err := c.store.FinishRun(journalCtx, executionstore.FinishRunInput{VaultID: vaultID, RunID: runID, ExpectedState: execution.RunActive, NextState: runState, OccurredAt: now, IdempotencyKey: key + ":run-finish"}); err != nil {
-		return fmt.Errorf("%w: %v", ErrJournalFailed, err)
+		return nil, fmt.Errorf("%w: %v", ErrJournalFailed, err)
 	}
-	return nil
+	return finished.Evidence, nil
 }
 
 func classifyResult(result workerruntime.ToolResult, err error) (execution.AttemptState, execution.RunState, string) {
@@ -213,6 +240,10 @@ func classifyResult(result workerruntime.ToolResult, err error) (execution.Attem
 func replayResult(result Result, journal executionstore.Prepared) (Result, error) {
 	switch journal.Attempt.State {
 	case execution.AttemptSucceeded:
+		if journal.Evidence == nil {
+			return result, ErrJournalFailed
+		}
+		result.Evidence = journal.Evidence
 		result.Tool.State = workerruntime.ToolSucceeded
 		if journal.Attempt.ExitCode != nil {
 			result.Tool.ExitCode = *journal.Attempt.ExitCode

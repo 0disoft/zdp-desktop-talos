@@ -47,6 +47,9 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, executionruntime.ErrPermissionDenied):
 		mapped.Code = "EXECUTION_PERMISSION_DENIED"
 		mapped.Message = "현재 Task Contract 또는 권한 정책이 이 검증을 허용하지 않습니다."
+	case errors.Is(err, executionruntime.ErrEvidenceUnavailable):
+		mapped.Code = "EXECUTION_EVIDENCE_UNAVAILABLE"
+		mapped.Message = "현재 코드 상태에 검증 결과를 안전하게 연결하지 못했습니다."
 	case errors.Is(err, executionruntime.ErrJournalFailed):
 		mapped.Code = "EXECUTION_JOURNAL_FAILED"
 		mapped.Message = "검증 실행 기록을 안전하게 저장하지 못했습니다."

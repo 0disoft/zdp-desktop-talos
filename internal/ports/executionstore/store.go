@@ -7,6 +7,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 )
 
 var (
@@ -58,6 +59,7 @@ type PrepareAttemptInput struct {
 type Prepared struct {
 	Run      execution.Run
 	Attempt  execution.Attempt
+	Evidence *verification.Evidence
 	Replayed bool
 }
 
@@ -70,6 +72,23 @@ type FinishAttemptInput struct {
 	SafeErrorCode  string
 	OccurredAt     time.Time
 	IdempotencyKey string
+	Evidence       *VerificationEvidenceInput
+}
+
+type VerificationEvidenceInput struct {
+	TaskID            string
+	ContractRevision  int
+	CommandIndex      int
+	BaselineCommit    string
+	WorktreeStateHash string
+	CapabilityHash    string
+	StartedAt         time.Time
+	FinishedAt        time.Time
+}
+
+type FinishedAttempt struct {
+	Attempt  execution.Attempt
+	Evidence *verification.Evidence
 }
 
 type FinishRunInput struct {
@@ -88,7 +107,7 @@ type Store interface {
 	SavePermissionGrant(context.Context, SaveGrantInput) (permission.Grant, error)
 	ListActivePermissionGrants(context.Context, string, string) ([]permission.Grant, error)
 	PrepareAttempt(context.Context, PrepareAttemptInput) (Prepared, error)
-	FinishAttempt(context.Context, FinishAttemptInput) (execution.Attempt, error)
+	FinishAttempt(context.Context, FinishAttemptInput) (FinishedAttempt, error)
 	FinishRun(context.Context, FinishRunInput) (execution.Run, error)
 	ReconcilePendingAttempts(context.Context, string, time.Time) (int, error)
 }

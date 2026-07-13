@@ -421,8 +421,8 @@ func (*fakeDatabase) ListActivePermissionGrants(context.Context, string, string)
 func (*fakeDatabase) PrepareAttempt(context.Context, executionstore.PrepareAttemptInput) (executionstore.Prepared, error) {
 	return executionstore.Prepared{}, executionstore.ErrNotFound
 }
-func (*fakeDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (execution.Attempt, error) {
-	return execution.Attempt{}, executionstore.ErrNotFound
+func (*fakeDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
+	return executionstore.FinishedAttempt{}, executionstore.ErrNotFound
 }
 func (*fakeDatabase) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
 	return execution.Run{}, executionstore.ErrNotFound

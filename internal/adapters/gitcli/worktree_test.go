@@ -56,6 +56,37 @@ func TestWorktreeLifecycleLeavesPrimaryUntouched(t *testing.T) {
 	}
 }
 
+func TestWorktreeSnapshotChangesWithTrackedAndUntrackedContent(t *testing.T) {
+	t.Parallel()
+	_, primary, baseline := createWorktreeTestRepository(t)
+	manager, err := NewWorktreeManager(filepath.Join(t.TempDir(), "talos-owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(context.Background(), repository.CreateWorktreeInput{TaskID: testTaskID, RepositoryRoot: primary, BaselineCommit: baseline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := manager.Snapshot(context.Background(), record)
+	if err != nil || len(initial.Hash) != 64 {
+		t.Fatalf("initial=%+v error=%v", initial, err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "tracked.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tracked, err := manager.Snapshot(context.Background(), record)
+	if err != nil || tracked.Hash == initial.Hash {
+		t.Fatalf("tracked=%+v initial=%+v error=%v", tracked, initial, err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "untracked.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	untracked, err := manager.Snapshot(context.Background(), record)
+	if err != nil || untracked.Hash == tracked.Hash {
+		t.Fatalf("untracked=%+v tracked=%+v error=%v", untracked, tracked, err)
+	}
+}
+
 func TestWorktreeRejectsExecutableCheckoutFilters(t *testing.T) {
 	t.Parallel()
 	git, primary, baseline := createWorktreeTestRepository(t)

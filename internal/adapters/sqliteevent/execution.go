@@ -12,6 +12,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 )
@@ -19,19 +20,26 @@ import (
 const executionEventSchemaVersion = 1
 
 type executionPayload struct {
-	GrantID        string                 `json:"grant_id,omitempty"`
-	Outcome        permission.Outcome     `json:"outcome,omitempty"`
-	TaskID         string                 `json:"task_id,omitempty"`
-	WorkspaceHash  string                 `json:"workspace_hash,omitempty"`
-	CapabilityHash string                 `json:"capability_hash,omitempty"`
-	RunID          string                 `json:"run_id,omitempty"`
-	AttemptID      string                 `json:"attempt_id,omitempty"`
-	CallID         string                 `json:"call_id,omitempty"`
-	RunState       execution.RunState     `json:"run_state,omitempty"`
-	AttemptState   execution.AttemptState `json:"attempt_state,omitempty"`
-	ExitCode       *int                   `json:"exit_code,omitempty"`
-	SafeErrorCode  string                 `json:"safe_error_code,omitempty"`
-	OccurredAt     string                 `json:"occurred_at"`
+	GrantID           string                 `json:"grant_id,omitempty"`
+	Outcome           permission.Outcome     `json:"outcome,omitempty"`
+	TaskID            string                 `json:"task_id,omitempty"`
+	WorkspaceHash     string                 `json:"workspace_hash,omitempty"`
+	CapabilityHash    string                 `json:"capability_hash,omitempty"`
+	RunID             string                 `json:"run_id,omitempty"`
+	AttemptID         string                 `json:"attempt_id,omitempty"`
+	CallID            string                 `json:"call_id,omitempty"`
+	RunState          execution.RunState     `json:"run_state,omitempty"`
+	AttemptState      execution.AttemptState `json:"attempt_state,omitempty"`
+	ExitCode          *int                   `json:"exit_code,omitempty"`
+	SafeErrorCode     string                 `json:"safe_error_code,omitempty"`
+	EvidenceID        string                 `json:"evidence_id,omitempty"`
+	ContractRevision  int                    `json:"contract_revision,omitempty"`
+	CommandIndex      int                    `json:"command_index,omitempty"`
+	BaselineCommit    string                 `json:"baseline_commit,omitempty"`
+	WorktreeStateHash string                 `json:"worktree_state_hash,omitempty"`
+	StartedAt         string                 `json:"started_at,omitempty"`
+	FinishedAt        string                 `json:"finished_at,omitempty"`
+	OccurredAt        string                 `json:"occurred_at"`
 }
 
 func (s *Store) SavePermissionGrant(ctx context.Context, input executionstore.SaveGrantInput) (permission.Grant, error) {
@@ -219,62 +227,81 @@ func grantAllowsExecution(outcome permission.Outcome) bool {
 	return outcome == permission.OutcomeAllowOnce || outcome == permission.OutcomeAllowTask || outcome == permission.OutcomeAllowWorkspace
 }
 
-func (s *Store) FinishAttempt(ctx context.Context, input executionstore.FinishAttemptInput) (execution.Attempt, error) {
+func (s *Store) FinishAttempt(ctx context.Context, input executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
 	occurredAt := normalizedTime(input.OccurredAt, s.now)
 	validation := execution.Attempt{ID: input.AttemptID, RunID: "validation", CallID: "validation", CapabilityHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: input.NextState, ExitCode: input.ExitCode, SafeErrorCode: input.SafeErrorCode, CreatedAt: occurredAt, UpdatedAt: occurredAt, LastEventID: "validation"}
-	if input.VaultID == "" || input.AttemptID == "" || input.ExpectedState != execution.AttemptDispatchPending || input.IdempotencyKey == "" || validation.Validate() != nil {
-		return execution.Attempt{}, executionstore.ErrInvalidCommand
+	if input.VaultID == "" || input.AttemptID == "" || input.ExpectedState != execution.AttemptDispatchPending || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || validation.Validate() != nil || (input.NextState == execution.AttemptSucceeded) != (input.Evidence != nil) {
+		return executionstore.FinishedAttempt{}, executionstore.ErrInvalidCommand
 	}
 	requestHash, err := hashExecutionCommand(input)
 	if err != nil {
-		return execution.Attempt{}, err
+		return executionstore.FinishedAttempt{}, err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return execution.Attempt{}, fmt.Errorf("begin attempt finish: %w", err)
+		return executionstore.FinishedAttempt{}, fmt.Errorf("begin attempt finish: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	existing, found, err := s.resolveIdempotency(ctx, tx, input.IdempotencyKey, requestHash)
 	if err != nil {
-		return execution.Attempt{}, mapExecutionIdempotencyError(err)
+		return executionstore.FinishedAttempt{}, mapExecutionIdempotencyError(err)
 	}
 	if found {
-		return scanAttempt(tx.QueryRowContext(ctx, attemptSelect+" WHERE last_event_id = ?", existing.ID))
+		return finishedAttemptByEvent(tx, existing.ID)
 	}
 	current, err := scanAttempt(tx.QueryRowContext(ctx, attemptSelect+" WHERE attempt_id = ?", input.AttemptID))
 	if err != nil {
-		return execution.Attempt{}, err
+		return executionstore.FinishedAttempt{}, err
 	}
 	if occurredAt.Before(current.CreatedAt) {
-		return execution.Attempt{}, executionstore.ErrInvalidCommand
+		return executionstore.FinishedAttempt{}, executionstore.ErrInvalidCommand
 	}
-	var runVault string
-	if err := tx.QueryRowContext(ctx, `SELECT vault_id FROM runs WHERE run_id = ?`, current.RunID).Scan(&runVault); err != nil || runVault != input.VaultID {
-		return execution.Attempt{}, executionstore.ErrConflict
+	run, err := scanRun(tx.QueryRowContext(ctx, runSelect+" WHERE run_id = ?", current.RunID))
+	if err != nil || run.VaultID != input.VaultID {
+		return executionstore.FinishedAttempt{}, executionstore.ErrConflict
 	}
 	payload := executionPayload{RunID: current.RunID, AttemptID: current.ID, AttemptState: input.NextState, ExitCode: input.ExitCode, SafeErrorCode: input.SafeErrorCode, OccurredAt: occurredAt.Format(time.RFC3339Nano)}
+	var evidenceRecord *verification.Evidence
+	if input.Evidence != nil {
+		candidate, err := s.prepareVerificationEvidence(ctx, tx, input.VaultID, run, current, *input.Evidence, occurredAt)
+		if err != nil {
+			return executionstore.FinishedAttempt{}, err
+		}
+		evidenceRecord = &candidate
+		payload.EvidenceID, payload.ContractRevision, payload.CommandIndex = candidate.ID, candidate.ContractRevision, candidate.CommandIndex
+		payload.BaselineCommit, payload.WorktreeStateHash = candidate.BaselineCommit, candidate.WorktreeStateHash
+		payload.CapabilityHash = candidate.CapabilityHash
+		payload.StartedAt, payload.FinishedAt = candidate.StartedAt.Format(time.RFC3339Nano), candidate.FinishedAt.Format(time.RFC3339Nano)
+	}
 	record, err := s.executionEvent(input.VaultID, "execution.attempt.finished", payload, occurredAt)
 	if err != nil {
-		return execution.Attempt{}, err
+		return executionstore.FinishedAttempt{}, err
 	}
 	if err := s.insertEvent(ctx, tx, record); err != nil {
-		return execution.Attempt{}, err
+		return executionstore.FinishedAttempt{}, err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE attempts SET state = ?, exit_code = ?, safe_error_code = ?, updated_at = ?, last_event_id = ? WHERE attempt_id = ? AND state = ?`, string(input.NextState), input.ExitCode, input.SafeErrorCode, payload.OccurredAt, record.ID, input.AttemptID, string(input.ExpectedState))
 	if err != nil {
-		return execution.Attempt{}, fmt.Errorf("finish attempt: %w", err)
+		return executionstore.FinishedAttempt{}, fmt.Errorf("finish attempt: %w", err)
 	}
 	rows, _ := result.RowsAffected()
 	if rows != 1 {
-		return execution.Attempt{}, executionstore.ErrConflict
+		return executionstore.FinishedAttempt{}, executionstore.ErrConflict
+	}
+	if evidenceRecord != nil {
+		evidenceRecord.EventID = record.ID
+		if err := insertVerificationEvidence(ctx, tx, *evidenceRecord); err != nil {
+			return executionstore.FinishedAttempt{}, err
+		}
 	}
 	if err := claimIdempotency(ctx, tx, input.IdempotencyKey, record.ID, requestHash); err != nil {
-		return execution.Attempt{}, err
+		return executionstore.FinishedAttempt{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return execution.Attempt{}, fmt.Errorf("commit attempt finish: %w", err)
+		return executionstore.FinishedAttempt{}, fmt.Errorf("commit attempt finish: %w", err)
 	}
-	return s.GetAttempt(ctx, input.AttemptID)
+	attempt, err := s.GetAttempt(ctx, input.AttemptID)
+	return executionstore.FinishedAttempt{Attempt: attempt, Evidence: evidenceRecord}, err
 }
 
 func (s *Store) FinishRun(ctx context.Context, input executionstore.FinishRunInput) (execution.Run, error) {
@@ -425,7 +452,97 @@ func (s *Store) preparedByEvent(ctx context.Context, tx *sql.Tx, eventID string)
 		return executionstore.Prepared{}, err
 	}
 	run, err := scanRun(tx.QueryRowContext(ctx, runSelect+" WHERE run_id = ?", attempt.RunID))
-	return executionstore.Prepared{Run: run, Attempt: attempt, Replayed: true}, err
+	if err != nil {
+		return executionstore.Prepared{}, err
+	}
+	prepared := executionstore.Prepared{Run: run, Attempt: attempt, Replayed: true}
+	if attempt.State == execution.AttemptSucceeded {
+		evidence, evidenceErr := scanVerificationEvidence(tx.QueryRowContext(ctx, verificationEvidenceSelect+" WHERE attempt_id = ?", attempt.ID))
+		if evidenceErr != nil {
+			return executionstore.Prepared{}, executionstore.ErrConflict
+		}
+		prepared.Evidence = &evidence
+	}
+	return prepared, nil
+}
+
+func (s *Store) prepareVerificationEvidence(ctx context.Context, tx *sql.Tx, vaultID string, run execution.Run, attempt execution.Attempt, input executionstore.VerificationEvidenceInput, occurredAt time.Time) (verification.Evidence, error) {
+	var currentRevision int
+	var baselineCommit string
+	if err := tx.QueryRowContext(ctx, `SELECT current_revision, baseline_commit FROM tasks WHERE task_id = ? AND vault_id = ?`, run.TaskID, vaultID).Scan(&currentRevision, &baselineCommit); err != nil {
+		return verification.Evidence{}, executionstore.ErrConflict
+	}
+	if input.TaskID != run.TaskID || input.ContractRevision != currentRevision || input.BaselineCommit != baselineCommit || input.CapabilityHash != attempt.CapabilityHash || input.StartedAt.Before(attempt.CreatedAt) || input.FinishedAt.Before(input.StartedAt) || occurredAt.Before(input.FinishedAt) {
+		return verification.Evidence{}, executionstore.ErrConflict
+	}
+	evidenceID, err := id.UUIDv7(occurredAt, s.random)
+	if err != nil {
+		return verification.Evidence{}, fmt.Errorf("generate verification evidence id: %w", err)
+	}
+	record := verification.Evidence{
+		ID: evidenceID, VaultID: vaultID, TaskID: run.TaskID, RunID: run.ID, AttemptID: attempt.ID,
+		ContractRevision: input.ContractRevision, CommandIndex: input.CommandIndex, BaselineCommit: input.BaselineCommit,
+		WorktreeStateHash: input.WorktreeStateHash, CapabilityHash: input.CapabilityHash, ExitCode: 0,
+		StartedAt: input.StartedAt.UTC(), FinishedAt: input.FinishedAt.UTC(), EventID: "pending-event",
+	}
+	if err := record.Validate(); err != nil {
+		return verification.Evidence{}, executionstore.ErrInvalidCommand
+	}
+	return record, nil
+}
+
+func insertVerificationEvidence(ctx context.Context, tx *sql.Tx, evidence verification.Evidence) error {
+	if err := evidence.Validate(); err != nil {
+		return executionstore.ErrInvalidCommand
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO verification_evidence(
+		evidence_id, vault_id, task_id, run_id, attempt_id, contract_revision, command_index, baseline_commit,
+		worktree_state_hash, capability_hash, exit_code, started_at, finished_at, event_id
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, evidence.ID, evidence.VaultID, evidence.TaskID,
+		evidence.RunID, evidence.AttemptID, evidence.ContractRevision, evidence.CommandIndex, evidence.BaselineCommit,
+		evidence.WorktreeStateHash, evidence.CapabilityHash, evidence.ExitCode, evidence.StartedAt.Format(time.RFC3339Nano),
+		evidence.FinishedAt.Format(time.RFC3339Nano), evidence.EventID)
+	if err != nil {
+		return fmt.Errorf("insert verification evidence: %w", err)
+	}
+	return nil
+}
+
+func finishedAttemptByEvent(tx *sql.Tx, eventID string) (executionstore.FinishedAttempt, error) {
+	attempt, err := scanAttempt(tx.QueryRow(attemptSelect+" WHERE last_event_id = ?", eventID))
+	if err != nil {
+		return executionstore.FinishedAttempt{}, err
+	}
+	evidence, err := scanVerificationEvidence(tx.QueryRow(verificationEvidenceSelect+" WHERE event_id = ?", eventID))
+	if errors.Is(err, executionstore.ErrNotFound) {
+		return executionstore.FinishedAttempt{Attempt: attempt}, nil
+	}
+	if err != nil {
+		return executionstore.FinishedAttempt{}, err
+	}
+	return executionstore.FinishedAttempt{Attempt: attempt, Evidence: &evidence}, nil
+}
+
+const verificationEvidenceSelect = `SELECT evidence_id, vault_id, task_id, run_id, attempt_id, contract_revision,
+	command_index, baseline_commit, worktree_state_hash, capability_hash, exit_code, started_at, finished_at, event_id FROM verification_evidence`
+
+func scanVerificationEvidence(row scanner) (verification.Evidence, error) {
+	var evidence verification.Evidence
+	var startedAt, finishedAt string
+	if err := row.Scan(&evidence.ID, &evidence.VaultID, &evidence.TaskID, &evidence.RunID, &evidence.AttemptID,
+		&evidence.ContractRevision, &evidence.CommandIndex, &evidence.BaselineCommit, &evidence.WorktreeStateHash,
+		&evidence.CapabilityHash, &evidence.ExitCode, &startedAt, &finishedAt, &evidence.EventID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return verification.Evidence{}, executionstore.ErrNotFound
+		}
+		return verification.Evidence{}, fmt.Errorf("scan verification evidence: %w", err)
+	}
+	evidence.StartedAt, _ = time.Parse(time.RFC3339Nano, startedAt)
+	evidence.FinishedAt, _ = time.Parse(time.RFC3339Nano, finishedAt)
+	if evidence.Validate() != nil {
+		return verification.Evidence{}, executionstore.ErrConflict
+	}
+	return evidence, nil
 }
 
 func hashExecutionCommand(value any) ([]byte, error) {

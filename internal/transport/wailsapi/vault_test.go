@@ -298,8 +298,8 @@ func (*serviceDatabase) ListActivePermissionGrants(context.Context, string, stri
 func (*serviceDatabase) PrepareAttempt(context.Context, executionstore.PrepareAttemptInput) (executionstore.Prepared, error) {
 	return executionstore.Prepared{}, executionstore.ErrNotFound
 }
-func (*serviceDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (execution.Attempt, error) {
-	return execution.Attempt{}, executionstore.ErrNotFound
+func (*serviceDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
+	return executionstore.FinishedAttempt{}, executionstore.ErrNotFound
 }
 func (*serviceDatabase) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
 	return execution.Run{}, executionstore.ErrNotFound

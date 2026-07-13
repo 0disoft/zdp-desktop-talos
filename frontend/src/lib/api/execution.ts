@@ -17,6 +17,10 @@ export type ExecutionStatus =
       attempt_id: string;
       exit_code: number;
       replayed: boolean;
+      evidence_id: string;
+      contract_revision: number;
+      command_index: number;
+      worktree_state_hash: string;
     };
 
 export type ExecutionResult = { execution?: ExecutionStatus; error?: TalosError };
@@ -43,8 +47,8 @@ function parseExecution(value: unknown): ExecutionStatus {
   if (value.state === 'review_required' && value.outcome === 'require_review' && typeof value.permission_request_id === 'string' && value.permission_request_id.length > 0) {
     return { state: value.state, outcome: value.outcome, permission_request_id: value.permission_request_id, replayed: value.replayed };
   }
-  if (value.state === 'succeeded' && (value.outcome === 'allow_once' || value.outcome === 'allow_task' || value.outcome === 'allow_workspace') && typeof value.run_id === 'string' && value.run_id.length > 0 && typeof value.attempt_id === 'string' && value.attempt_id.length > 0 && typeof value.exit_code === 'number' && Number.isSafeInteger(value.exit_code)) {
-    return { state: value.state, outcome: value.outcome, run_id: value.run_id, attempt_id: value.attempt_id, exit_code: value.exit_code, replayed: value.replayed };
+  if (value.state === 'succeeded' && (value.outcome === 'allow_once' || value.outcome === 'allow_task' || value.outcome === 'allow_workspace') && typeof value.run_id === 'string' && value.run_id.length > 0 && typeof value.attempt_id === 'string' && value.attempt_id.length > 0 && typeof value.exit_code === 'number' && Number.isSafeInteger(value.exit_code) && typeof value.evidence_id === 'string' && value.evidence_id.length > 0 && typeof value.contract_revision === 'number' && Number.isSafeInteger(value.contract_revision) && value.contract_revision > 0 && typeof value.command_index === 'number' && Number.isSafeInteger(value.command_index) && value.command_index >= 0 && typeof value.worktree_state_hash === 'string' && /^[0-9a-f]{64}$/.test(value.worktree_state_hash)) {
+    return { state: value.state, outcome: value.outcome, run_id: value.run_id, attempt_id: value.attempt_id, exit_code: value.exit_code, replayed: value.replayed, evidence_id: value.evidence_id, contract_revision: value.contract_revision, command_index: value.command_index, worktree_state_hash: value.worktree_state_hash };
   }
   throw new Error('EXECUTION_RESPONSE_INVALID');
 }

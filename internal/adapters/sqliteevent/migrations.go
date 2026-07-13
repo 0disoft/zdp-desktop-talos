@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 9
+const currentSchemaVersion = 10
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -216,6 +216,28 @@ var migrations = []migration{
 			`CREATE INDEX permission_requests_open_task_idx ON permission_requests(vault_id, task_id, state, created_at, request_id)`,
 		},
 	},
+	{
+		version: 10,
+		statements: []string{
+			`CREATE TABLE verification_evidence (
+				evidence_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE RESTRICT,
+				attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(attempt_id) ON DELETE RESTRICT,
+				contract_revision INTEGER NOT NULL CHECK (contract_revision > 0),
+				command_index INTEGER NOT NULL CHECK (command_index >= 0),
+				baseline_commit TEXT NOT NULL,
+				worktree_state_hash TEXT NOT NULL,
+				capability_hash TEXT NOT NULL,
+				exit_code INTEGER NOT NULL CHECK (exit_code = 0),
+				started_at TEXT NOT NULL,
+				finished_at TEXT NOT NULL,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE INDEX verification_evidence_task_idx ON verification_evidence(vault_id, task_id, finished_at, evidence_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -258,6 +280,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT run_id, vault_id, task_id, workspace_hash, state, created_at, updated_at, created_event_id, last_event_id FROM runs LIMIT 0`,
 		`SELECT attempt_id, run_id, call_id, capability_hash, grant_id, state, exit_code, safe_error_code, created_at, updated_at, prepared_event_id, last_event_id FROM attempts LIMIT 0`,
 		`SELECT request_id, vault_id, task_id, workspace_hash, capability_hash, state, created_at, updated_at, created_event_id, last_event_id FROM permission_requests LIMIT 0`,
+		`SELECT evidence_id, vault_id, task_id, run_id, attempt_id, contract_revision, command_index, baseline_commit, worktree_state_hash, capability_hash, exit_code, started_at, finished_at, event_id FROM verification_evidence LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)
