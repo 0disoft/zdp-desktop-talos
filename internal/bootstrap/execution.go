@@ -11,9 +11,9 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/workerprocess"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionbroker"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
-	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/workerruntime"
 )
 
@@ -24,7 +24,7 @@ const (
 
 type ExecutionFactory struct {
 	broker    *permissionbroker.Broker
-	worktrees repository.WorktreeManager
+	worktrees *gitcli.WorktreeManager
 	workers   workerruntime.Factory
 }
 
@@ -71,6 +71,13 @@ func (f *ExecutionFactory) New(store executionruntime.Store) (executionruntime.E
 		return nil, fmt.Errorf("initialize execution coordinator: %w", err)
 	}
 	return coordinator, nil
+}
+
+func (f *ExecutionFactory) NewPatchReview(store patchreview.Store) (*patchreview.Service, error) {
+	if f == nil || f.worktrees == nil {
+		return nil, patchreview.ErrInvalidRequest
+	}
+	return patchreview.New(store, f.worktrees)
 }
 
 func NewExecutionCoordinator(store executionruntime.Store, localDataRoot, workerExecutable string, rules []permissionbroker.ProcessRule) (executionruntime.Executor, error) {

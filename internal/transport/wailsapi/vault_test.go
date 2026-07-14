@@ -12,6 +12,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
@@ -306,6 +307,9 @@ func (*serviceDatabase) FinishRun(context.Context, executionstore.FinishRunInput
 }
 func (*serviceDatabase) ReconcilePendingAttempts(context.Context, string, time.Time) (int, error) {
 	return 0, nil
+}
+func (*serviceDatabase) GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error) {
+	return verification.Evidence{}, executionstore.ErrNotFound
 }
 func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
 

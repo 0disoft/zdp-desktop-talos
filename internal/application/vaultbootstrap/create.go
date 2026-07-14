@@ -13,6 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
@@ -138,6 +139,7 @@ type Session struct {
 type ExecutionDatabase interface {
 	taskstore.Store
 	executionstore.Store
+	GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error)
 }
 
 func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {

@@ -17,6 +17,7 @@
   import { answerDecision, listDecisions, resolveDecisionConflict, type DecisionItem } from './lib/api/decision';
   import { listPermissionRequests, resolvePermissionRequest, type PermissionOutcome, type PermissionRequest } from './lib/api/permission';
   import { executeVerification, type ExecutionStatus } from './lib/api/execution';
+  import { getTaskReview, type PatchReview } from './lib/api/review';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -42,6 +43,7 @@
   let decisionDrafts = $state<Record<string, string>>({});
   let permissionRequests = $state<PermissionRequest[]>([]);
   let execution = $state<ExecutionStatus | null>(null);
+  let patchReview = $state<PatchReview | null>(null);
 
   onMount(async () => {
     try {
@@ -202,7 +204,7 @@
         task = result.task;
         execution = null;
         editingTask = false;
-        await Promise.all([refreshDecisions(), refreshPermissions()]);
+        await Promise.all([refreshDecisions(), refreshPermissions(), refreshPatchReview()]);
       }
     } catch {
       latestError = localError('TASK_REQUEST_FAILED', 'Task Contract를 저장하지 못했습니다.');
@@ -229,6 +231,19 @@
     else permissionRequests = result.requests;
   }
 
+  async function refreshPatchReview() {
+    if (!task || vault.state !== 'unlocked') { patchReview = null; return; }
+    try {
+      const result = await getTaskReview(task.task_id);
+      if (result.error) {
+        if (result.error.code === 'PATCH_REVIEW_NOT_READY') patchReview = null;
+        else latestError = result.error;
+      } else patchReview = result.review ?? null;
+    } catch {
+      latestError = localError('PATCH_REVIEW_REQUEST_FAILED', '패치 상태를 확인하지 못했습니다.');
+    }
+  }
+
   async function handlePermission(item: PermissionRequest, outcome: PermissionOutcome) {
     loading = true; latestError = null;
     try {
@@ -249,6 +264,7 @@
       else if (result.execution) {
         execution = result.execution;
         if (result.execution.state === 'review_required') await refreshPermissions();
+        if (result.execution.state === 'succeeded') await refreshPatchReview();
       }
     } catch {
       latestError = localError('EXECUTION_REQUEST_FAILED', '검증 실행 상태를 확인하지 못했습니다.');
@@ -282,7 +298,7 @@
   }
 
   function clearPrivateTaskState() {
-    task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; editingTask = false;
+    task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
@@ -454,6 +470,28 @@
       <button type="button" onclick={handleExecution} disabled={loading || vault.state !== 'unlocked' || !task || editingTask}>
         {execution?.state === 'review_required' ? '승인 후 다시 실행' : execution?.state === 'succeeded' ? '다시 검증' : '검증 시작'}
       </button>
+    </article>
+
+    <article class="status-card patch-review-card">
+      <div class="status-heading">
+        <span class:unlocked={patchReview?.status === 'fresh'} class:error={patchReview?.status === 'stale'} class="status-dot waiting" aria-hidden="true"></span>
+        <h2>Patch Review</h2>
+      </div>
+      <strong>{patchReview?.status === 'fresh' ? '최신 검증 완료' : patchReview?.status === 'stale' ? '다시 검증 필요' : patchReview?.status === 'unverified' ? '검증 기록 없음' : '패치 대기'}</strong>
+      <p>{patchReview ? `${patchReview.changes.length}개 파일 · ${patchReview.state_hash.slice(0, 12)}` : '검증 실행 뒤 현재 패치와 증거를 비교합니다.'}</p>
+      {#if patchReview}
+        <div class="decision-list">
+          {#each patchReview.changes as change (change.path)}
+            <section class="decision-item">
+              <div class="decision-meta"><span>{change.kind}</span><span>{change.index_status}{change.worktree_status}</span></div>
+              <code>{change.original_path ? `${change.original_path} → ${change.path}` : change.path}</code>
+            </section>
+          {:else}
+            <p class="decision-empty">변경된 파일이 없습니다.</p>
+          {/each}
+        </div>
+        <button type="button" class="secondary" onclick={refreshPatchReview} disabled={loading}>상태 새로고침</button>
+      {/if}
     </article>
 
     <article class="status-card decision-card">

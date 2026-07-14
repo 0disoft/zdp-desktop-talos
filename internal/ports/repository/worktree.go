@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspace"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 )
 
@@ -34,4 +35,9 @@ type WorktreeManager interface {
 
 type WorktreeState struct {
 	Hash string
+}
+
+type WorktreeReview struct {
+	StateHash string
+	Changes   []workspace.Change
 }

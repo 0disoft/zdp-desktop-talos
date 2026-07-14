@@ -5,6 +5,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
@@ -20,7 +21,10 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
 )
 
-var errExecutionUnavailable = errors.New("execution runtime is unavailable")
+var (
+	errExecutionUnavailable   = errors.New("execution runtime is unavailable")
+	errPatchReviewUnavailable = errors.New("patch review runtime is unavailable")
+)
 
 type TalosError struct {
 	Code          string            `json:"code"`
@@ -38,6 +42,18 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, errPatchReviewUnavailable):
+		mapped.Code = "PATCH_REVIEW_UNAVAILABLE"
+		mapped.Message = "이 기기에서 패치 상태를 안전하게 확인할 수 없습니다."
+	case errors.Is(err, patchreview.ErrInvalidRequest):
+		mapped.Code = "PATCH_REVIEW_INVALID"
+		mapped.Message = "검토할 Task를 확인해 주세요."
+	case errors.Is(err, repository.ErrWorktreeNotFound):
+		mapped.Code = "PATCH_REVIEW_NOT_READY"
+		mapped.Message = "아직 검토할 패치가 없습니다. 검증을 먼저 실행해 주세요."
+	case errors.Is(err, repository.ErrWorktreeOwnership), errors.Is(err, repository.ErrWorktreeSnapshotFailed):
+		mapped.Code = "PATCH_REVIEW_UNAVAILABLE"
+		mapped.Message = "현재 패치 상태를 안전하게 확인하지 못했습니다."
 	case errors.Is(err, errExecutionUnavailable), errors.Is(err, workerruntime.ErrUnavailable):
 		mapped.Code = "EXECUTION_UNAVAILABLE"
 		mapped.Message = "이 기기에서 안전한 검증 실행기를 사용할 수 없습니다."

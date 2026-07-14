@@ -139,6 +139,9 @@ func TestFinishedAttemptAllowsRunToCloseAndReleasesWorkspace(t *testing.T) {
 	store, taskRecord, grant, input := executionFixture(t)
 	defer store.Close()
 	ctx := context.Background()
+	if _, err := store.GetLatestVerificationEvidence(ctx, taskRecord.VaultID, taskRecord.ID); !errors.Is(err, executionstore.ErrNotFound) {
+		t.Fatalf("missing latest evidence error=%v", err)
+	}
 	if _, err := store.SavePermissionGrant(ctx, executionstore.SaveGrantInput{VaultID: taskRecord.VaultID, Grant: grant, IdempotencyKey: "grant-create"}); err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +155,10 @@ func TestFinishedAttemptAllowsRunToCloseAndReleasesWorkspace(t *testing.T) {
 	}
 	if finishedAttempt.Evidence == nil || finishedAttempt.Evidence.WorktreeStateHash != strings.Repeat("c", 64) {
 		t.Fatalf("evidence=%+v", finishedAttempt.Evidence)
+	}
+	latest, err := store.GetLatestVerificationEvidence(ctx, taskRecord.VaultID, taskRecord.ID)
+	if err != nil || latest.ID != finishedAttempt.Evidence.ID || latest.EventID != finishedAttempt.Evidence.EventID {
+		t.Fatalf("latest=%+v error=%v", latest, err)
 	}
 	finished, err := store.FinishRun(ctx, executionstore.FinishRunInput{VaultID: taskRecord.VaultID, RunID: prepared.Run.ID, ExpectedState: execution.RunActive, NextState: execution.RunCompleted, OccurredAt: input.OccurredAt.Add(2 * time.Second), IdempotencyKey: "finish-run"})
 	if err != nil {

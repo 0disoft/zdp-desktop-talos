@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
@@ -525,6 +526,14 @@ func finishedAttemptByEvent(tx *sql.Tx, eventID string) (executionstore.Finished
 
 const verificationEvidenceSelect = `SELECT evidence_id, vault_id, task_id, run_id, attempt_id, contract_revision,
 	command_index, baseline_commit, worktree_state_hash, capability_hash, exit_code, started_at, finished_at, event_id FROM verification_evidence`
+
+func (s *Store) GetLatestVerificationEvidence(ctx context.Context, vaultID, taskID string) (verification.Evidence, error) {
+	if strings.TrimSpace(vaultID) == "" || strings.TrimSpace(taskID) == "" {
+		return verification.Evidence{}, executionstore.ErrInvalidCommand
+	}
+	return scanVerificationEvidence(s.db.QueryRowContext(ctx, verificationEvidenceSelect+
+		" WHERE vault_id = ? AND task_id = ? ORDER BY finished_at DESC, evidence_id DESC LIMIT 1", vaultID, taskID))
+}
 
 func scanVerificationEvidence(row scanner) (verification.Evidence, error) {
 	var evidence verification.Evidence

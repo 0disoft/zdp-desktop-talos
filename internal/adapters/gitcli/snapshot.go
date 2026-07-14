@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspace"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 )
@@ -21,6 +22,31 @@ const maxSnapshotEntries = 200_000
 type snapshotEntry struct {
 	path      string
 	indexMeta string
+}
+
+func (m *WorktreeManager) Review(ctx context.Context, record worktree.Record) (repository.WorktreeReview, error) {
+	before, err := m.Snapshot(ctx, record)
+	if err != nil {
+		return repository.WorktreeReview{}, err
+	}
+	status, err := m.git(ctx, record.Root, "status", "--porcelain=v2", "-z", "--untracked-files=normal")
+	if err != nil || status.exitCode != 0 {
+		return repository.WorktreeReview{}, repository.ErrWorktreeSnapshotFailed
+	}
+	changes, err := parseStatus(status.stdout)
+	if err != nil {
+		return repository.WorktreeReview{}, repository.ErrWorktreeSnapshotFailed
+	}
+	after, err := m.Snapshot(ctx, record)
+	if err != nil || before.Hash != after.Hash {
+		return repository.WorktreeReview{}, repository.ErrWorktreeSnapshotFailed
+	}
+	for _, change := range changes {
+		if err := change.Validate(); err != nil {
+			return repository.WorktreeReview{}, repository.ErrWorktreeSnapshotFailed
+		}
+	}
+	return repository.WorktreeReview{StateHash: after.Hash, Changes: append([]workspace.Change(nil), changes...)}, nil
 }
 
 func (m *WorktreeManager) Snapshot(ctx context.Context, record worktree.Record) (repository.WorktreeState, error) {

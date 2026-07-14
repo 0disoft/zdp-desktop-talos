@@ -9,9 +9,9 @@
 | 1. Vault and ledger (complete) | key abstraction, event append, encrypted blobs, materialized state | protected discovery, single-instance writes, create/list/open/lock/retention, recoverable encrypted blobs, and restart-safe hard purge are implemented |
 | 2. Workspace and contract (complete) | Git inspection, baseline snapshot, Task and contract revisions | read-only inspection, atomic encrypted persistence, clean current-baseline confirmation, and optimistic immutable revisions are implemented |
 | 3. Decision Queue (complete) | scoped blocking, answer revision, conflict handling | encrypted persistence, stale rejection, conflict preservation, explicit resolution, question supersession, and Vault-scoped desktop review are implemented |
-| 4. Worker and Git (active) | task worktree, argv process execution, capabilities, cancellation | owned worktrees, policy-bound execution, deterministic permission evaluation, restart-safe journals, an owned typed worker session, and durable permission review requests are implemented; review UI and main-process dispatch assembly remain |
+| 4. Worker and Git (complete) | task worktree, argv process execution, capabilities, cancellation | owned worktrees, policy-bound execution, deterministic permission evaluation, restart-safe journals, an owned typed worker session, durable permission review, and main-process dispatch are implemented |
 | 5. Model runtime | provider port, egress receipt, structured plan and tool intents | one provider completes a bounded fake-repo scenario |
-| 6. Verification and review | fresh evidence, diff review, apply/discard | stale evidence cannot complete a task |
+| 6. Verification and review (active) | fresh evidence, bounded patch review, apply/discard | state-bound evidence and stale/unverified review are implemented; explicit apply/discard and completion transition remain |
 | 7. Memory kernel | extraction, gate, provenance, context assembly | approved memory changes a later plan and is explainable |
 | 8. Projection and manual sync | redacted projection and encrypted immutable packs | duplicate and conflicting two-device fixtures pass |
 | 9. Alpha hardening | signing, migration, backup, recovery runbooks | limited private alpha is supportable |

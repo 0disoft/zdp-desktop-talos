@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
@@ -22,6 +23,7 @@ type Database interface {
 	decisionstore.Store
 	executionstore.Store
 	taskstore.Store
+	GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error)
 	Close() error
 }
 
