@@ -10,14 +10,16 @@ Talos participates in ZDP shared signup. ZDP core owns account identity, authent
 
 Account linkage and data synchronization are separate user actions. Losing network access must not prevent local task review, local memory review, or access to an already-unlocked Vault.
 
-Talos consumes account linkage only after an external ZDP adapter has verified a one-time challenge. The core receives opaque account, workspace, and consent-record references, never passwords, session cookies, access or refresh tokens, login IDs, contact methods, or integrated profile fields. Repeating the same challenge and correlation is idempotent; reusing a challenge for another correlation fails closed.
+Talos consumes account linkage only after an external ZDP adapter has verified a one-time product-link challenge. The adapter creates a 32-octet verifier, sends only its S256 challenge, opens the trusted HTTPS ZDP verification URI in the system browser, polls no faster than every five seconds, and performs a single-use exchange before the ten-minute expiry. The verifier never enters Vault persistence, logs, crash reports, Wails DTOs, URLs, or frontend state.
+
+The core returns opaque account, optional workspace, consent-record, link-receipt, and verification-time references, never passwords, session cookies, access or refresh tokens, login IDs, contact methods, or integrated profile fields. Repeating the same challenge, correlation, and idempotency command is idempotent; reusing a challenge for another correlation or verifier fails closed. Talos does not use the browser-oriented current-session endpoint as a desktop callback.
 
 Unlinking removes active account references from the current device-local membership but does not rewrite encrypted event history. Vault hard purge remains the physical-deletion path. A failed or unavailable account service cannot change Vault lock state or disable already-authorized local work.
 
 ## Core User Flow
 
 1. Open or create a local Vault.
-2. Link a ZDP account or continue in an explicitly supported local-only mode once that policy is decided.
+2. Link a ZDP account or continue in local-only mode. Local-only mode excludes remote sync, account entitlements, and remote account features.
 3. Open one local Git repository and inspect its state.
 4. Create and confirm a versioned Task Contract.
 5. Assemble scoped approved memories and repository context.
