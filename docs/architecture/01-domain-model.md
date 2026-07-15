@@ -5,6 +5,7 @@
 | Aggregate | Responsibility |
 |---|---|
 | Vault | encryption boundary, retention, device membership |
+| AccountLink | device-local Vault membership and encrypted references to ZDP-owned account, workspace, and consent facts |
 | Device | signing identity, sync sequence, revocation |
 | Workspace | repository location and policy |
 | RepositorySnapshot | baseline commit, dirty state, toolchain facts |
@@ -25,6 +26,10 @@
 ## Key Invariants
 
 - one repository has at most one active Run;
+- one Vault has at most one current device-local account membership; link, unlink, and relink require the expected revision;
+- ZDP credentials, sessions, contact methods, profile fields, platform membership truth, and consent truth never enter the AccountLink aggregate;
+- linked account references exist only in encrypted private events; the materialized membership row contains no raw or hashed external identity references;
+- account-provider failure cannot change local Vault authority or local task availability;
 - one Task Contract revision never changes its baseline;
 - new Task Contract confirmations carry at least one structured verification command; persisted legacy revisions without commands remain readable but cannot be reused as a new confirmation without adding one;
 - verification commands contain only a policy rule ID, exact argument array, and repository-relative working directory; executable resolution, environment, timeout, and output limits remain runtime policy;

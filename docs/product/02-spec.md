@@ -10,6 +10,10 @@ Talos participates in ZDP shared signup. ZDP core owns account identity, authent
 
 Account linkage and data synchronization are separate user actions. Losing network access must not prevent local task review, local memory review, or access to an already-unlocked Vault.
 
+Talos consumes account linkage only after an external ZDP adapter has verified a one-time challenge. The core receives opaque account, workspace, and consent-record references, never passwords, session cookies, access or refresh tokens, login IDs, contact methods, or integrated profile fields. Repeating the same challenge and correlation is idempotent; reusing a challenge for another correlation fails closed.
+
+Unlinking removes active account references from the current device-local membership but does not rewrite encrypted event history. Vault hard purge remains the physical-deletion path. A failed or unavailable account service cannot change Vault lock state or disable already-authorized local work.
+
 ## Core User Flow
 
 1. Open or create a local Vault.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/accountlink"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/patchaction"
@@ -14,6 +15,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
@@ -318,6 +320,15 @@ func (*serviceDatabase) PreparePatchAction(context.Context, patchstore.PrepareIn
 }
 func (*serviceDatabase) FinishPatchAction(context.Context, patchstore.FinishInput) (patchaction.Record, error) {
 	return patchaction.Record{}, patchstore.ErrNotFound
+}
+func (*serviceDatabase) LinkAccount(context.Context, accountstore.LinkInput) (accountlink.Record, error) {
+	return accountlink.Record{}, accountstore.ErrNotFound
+}
+func (*serviceDatabase) UnlinkAccount(context.Context, accountstore.UnlinkInput) (accountlink.Record, error) {
+	return accountlink.Record{}, accountstore.ErrNotFound
+}
+func (*serviceDatabase) GetAccountLink(context.Context, string) (accountlink.Record, error) {
+	return accountlink.Record{}, accountstore.ErrNotFound
 }
 func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
 

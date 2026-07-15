@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 11
+const currentSchemaVersion = 12
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -267,6 +267,20 @@ var migrations = []migration{
 			) STRICT`,
 		},
 	},
+	{
+		version: 12,
+		statements: []string{
+			`CREATE TABLE account_links (
+				vault_id TEXT PRIMARY KEY REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				membership_id TEXT NOT NULL UNIQUE,
+				state TEXT NOT NULL CHECK (state IN ('linked','unlinked')),
+				revision INTEGER NOT NULL CHECK (revision > 0),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -312,6 +326,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT evidence_id, vault_id, task_id, run_id, attempt_id, contract_revision, command_index, baseline_commit, worktree_state_hash, capability_hash, exit_code, started_at, finished_at, event_id FROM verification_evidence LIMIT 0`,
 		`SELECT action_id, vault_id, task_id, kind, state, contract_revision, patch_hash, worktree_state_hash, evidence_id, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM patch_actions LIMIT 0`,
 		`SELECT task_id, status, action_id, completed_at, event_id FROM task_outcomes LIMIT 0`,
+		`SELECT vault_id, membership_id, state, revision, created_at, updated_at, last_event_id FROM account_links LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

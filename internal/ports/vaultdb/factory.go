@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
@@ -19,6 +20,7 @@ var (
 )
 
 type Database interface {
+	accountstore.Store
 	vaultstore.Store
 	artifactstore.Store
 	decisionstore.Store

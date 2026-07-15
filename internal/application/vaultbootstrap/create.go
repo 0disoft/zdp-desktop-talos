@@ -15,6 +15,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
@@ -149,6 +150,10 @@ type PatchDatabase interface {
 	GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error)
 }
 
+type AccountDatabase interface {
+	accountstore.Store
+}
+
 func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {
 	if s == nil || s.database == nil {
 		return nil, ErrNotOpen
@@ -157,6 +162,13 @@ func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {
 }
 
 func (s *Session) PatchDatabase() (PatchDatabase, error) {
+	if s == nil || s.database == nil {
+		return nil, ErrNotOpen
+	}
+	return s.database, nil
+}
+
+func (s *Session) AccountDatabase() (AccountDatabase, error) {
 	if s == nil || s.database == nil {
 		return nil, ErrNotOpen
 	}

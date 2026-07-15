@@ -16,6 +16,8 @@ Later Task Contract revisions append immutable encrypted events and advance the 
 
 Decision answers must match both the question revision and repository revision. Equivalent answers converge without a new event; incompatible answers remain separate immutable events and transition the Decision to `conflicted` instead of using last-write-wins.
 
+Account link, unlink, and relink append encrypted private events and advance one Vault-scoped local membership only when `expected_revision` matches. The materialized row carries no external account or consent reference. The same challenge and correlation may be verified again to recover a lost response; a different correlation cannot consume the same challenge. Unlink clears current active references but leaves encrypted history until hard purge.
+
 SQLite schema changes use monotonic `PRAGMA user_version` migrations. Each migration commits atomically, newer application-incompatible schemas are rejected, and the adapter validates required columns after migration instead of trusting the version integer alone. Migrations are forward-only; backup and roll-forward policy are separate release gates for destructive changes.
 
 ## Integrity Metadata

@@ -41,5 +41,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0032-bounded-patch-review-freshness-gate.md`: read-only changed-file review and fail-closed current-evidence freshness classification
 - `0033-redacted-bounded-safe-diff-viewer.md`: hook-free diff capture, deterministic secret redaction, and renderer payload budgets
 - `0034-atomic-patch-actions-and-completion-gate.md`: idempotent apply/discard journaling, primary-worktree preconditions, and atomic terminal Task outcomes
+- `0035-zdp-account-link-boundary.md`: normalized verified account references, encrypted Vault membership lifecycle, and dormant fake-verifier boundary
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.
