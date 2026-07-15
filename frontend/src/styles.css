@@ -438,6 +438,13 @@ h1 {
   color: #ffbd75;
 }
 
+.patch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
 .patch-list {
   display: grid;
   gap: 0.75rem;

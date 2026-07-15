@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 10
+const currentSchemaVersion = 11
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -238,6 +238,35 @@ var migrations = []migration{
 			`CREATE INDEX verification_evidence_task_idx ON verification_evidence(vault_id, task_id, finished_at, evidence_id)`,
 		},
 	},
+	{
+		version: 11,
+		statements: []string{
+			`CREATE TABLE patch_actions (
+				action_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				kind TEXT NOT NULL CHECK (kind IN ('apply','discard')),
+				state TEXT NOT NULL CHECK (state IN ('pending','succeeded','failed','unknown')),
+				contract_revision INTEGER NOT NULL CHECK (contract_revision > 0),
+				patch_hash TEXT NOT NULL,
+				worktree_state_hash TEXT NOT NULL,
+				evidence_id TEXT REFERENCES verification_evidence(evidence_id) ON DELETE RESTRICT,
+				safe_error_code TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				created_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE UNIQUE INDEX patch_actions_one_unresolved_task_idx ON patch_actions(task_id) WHERE state IN ('pending','unknown')`,
+			`CREATE TABLE task_outcomes (
+				task_id TEXT PRIMARY KEY REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				status TEXT NOT NULL CHECK (status IN ('completed','discarded')),
+				action_id TEXT NOT NULL UNIQUE REFERENCES patch_actions(action_id) ON DELETE RESTRICT,
+				completed_at TEXT NOT NULL,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT
+			) STRICT`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -281,6 +310,8 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT attempt_id, run_id, call_id, capability_hash, grant_id, state, exit_code, safe_error_code, created_at, updated_at, prepared_event_id, last_event_id FROM attempts LIMIT 0`,
 		`SELECT request_id, vault_id, task_id, workspace_hash, capability_hash, state, created_at, updated_at, created_event_id, last_event_id FROM permission_requests LIMIT 0`,
 		`SELECT evidence_id, vault_id, task_id, run_id, attempt_id, contract_revision, command_index, baseline_commit, worktree_state_hash, capability_hash, exit_code, started_at, finished_at, event_id FROM verification_evidence LIMIT 0`,
+		`SELECT action_id, vault_id, task_id, kind, state, contract_revision, patch_hash, worktree_state_hash, evidence_id, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM patch_actions LIMIT 0`,
+		`SELECT task_id, status, action_id, completed_at, event_id FROM task_outcomes LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

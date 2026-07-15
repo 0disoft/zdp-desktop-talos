@@ -17,6 +17,9 @@ var (
 	ErrWorktreeCreateFailed   = errors.New("task worktree creation failed")
 	ErrWorktreeRemoveFailed   = errors.New("task worktree removal failed")
 	ErrWorktreeSnapshotFailed = errors.New("task worktree state snapshot failed")
+	ErrPatchConflict          = errors.New("patch no longer matches the expected repository state")
+	ErrPatchApplyFailed       = errors.New("patch cannot be applied to the primary worktree")
+	ErrPatchOutcomeUnknown    = errors.New("patch mutation outcome is unknown")
 )
 
 type CreateWorktreeInput struct {

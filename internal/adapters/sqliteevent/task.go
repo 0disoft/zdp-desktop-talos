@@ -145,6 +145,9 @@ func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseIn
 	if pointer.currentRevision != input.ExpectedRevision {
 		return taskstore.Created{}, taskstore.ErrRevisionConflict
 	}
+	if task.Status(pointer.status) != task.StatusContracted {
+		return taskstore.Created{}, taskstore.ErrRevisionConflict
+	}
 	currentEvent, err := s.getEventInTx(tx, pointer.lastEventID)
 	if err != nil {
 		return taskstore.Created{}, err
@@ -294,7 +297,9 @@ func taskResultFromPayload(vaultID string, payload taskContractPayload, eventID 
 	return result, nil
 }
 
-const taskSelect = `SELECT task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id FROM tasks`
+const taskSelect = `SELECT task_id, vault_id, workspace_root_hash, baseline_commit,
+	COALESCE((SELECT status FROM task_outcomes WHERE task_outcomes.task_id = tasks.task_id), status),
+	current_revision, created_at, updated_at, last_event_id FROM tasks`
 const taskContractSelect = `SELECT task_id, revision, baseline_commit, created_at, event_id FROM task_contract_revisions`
 
 type taskPointer struct {

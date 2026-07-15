@@ -3,6 +3,7 @@ package task
 import (
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -27,7 +28,11 @@ var (
 
 type Status string
 
-const StatusContracted Status = "contracted"
+const (
+	StatusContracted Status = "contracted"
+	StatusCompleted  Status = "completed"
+	StatusDiscarded  Status = "discarded"
+)
 
 type Risk string
 
@@ -85,10 +90,31 @@ func (r Record) Validate() error {
 	if r.ID == "" || r.VaultID == "" || !filepath.IsAbs(r.WorkspaceRoot) || !commitPattern.MatchString(r.BaselineCommit) {
 		return fmt.Errorf("%w: identity, workspace root, and baseline are required", ErrInvalidRecord)
 	}
-	if r.Status != StatusContracted || r.CurrentRevision < 1 || r.CreatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) || r.LastEventID == "" {
+	if (r.Status != StatusContracted && r.Status != StatusCompleted && r.Status != StatusDiscarded) || r.CurrentRevision < 1 || r.CreatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) || r.LastEventID == "" {
 		return fmt.Errorf("%w: lifecycle metadata is invalid", ErrInvalidRecord)
 	}
 	return nil
+}
+
+func (c ContractRevision) AllowsPath(candidate string) bool {
+	candidate = path.Clean(strings.ReplaceAll(candidate, "\\", "/"))
+	if candidate == "." || candidate == ".." || strings.HasPrefix(candidate, "../") || strings.HasPrefix(candidate, "/") {
+		return false
+	}
+	for _, pattern := range c.AllowedPaths {
+		pattern = path.Clean(strings.ReplaceAll(pattern, "\\", "/"))
+		if strings.HasSuffix(pattern, "/**") {
+			prefix := strings.TrimSuffix(pattern, "/**")
+			if candidate == prefix || strings.HasPrefix(candidate, prefix+"/") {
+				return true
+			}
+			continue
+		}
+		if matched, _ := path.Match(pattern, candidate); matched {
+			return true
+		}
+	}
+	return false
 }
 
 func (c ContractRevision) Validate() error {

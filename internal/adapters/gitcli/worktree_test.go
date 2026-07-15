@@ -56,6 +56,79 @@ func TestWorktreeLifecycleLeavesPrimaryUntouched(t *testing.T) {
 	}
 }
 
+func TestApplyCopiesTrackedAndUntrackedChangesWithoutMovingPrimaryHead(t *testing.T) {
+	t.Parallel()
+	_, primary, baseline := createWorktreeTestRepository(t)
+	manager, err := NewWorktreeManager(filepath.Join(t.TempDir(), "talos-owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(context.Background(), repository.CreateWorktreeInput{TaskID: testTaskID, RepositoryRoot: primary, BaselineCommit: baseline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "tracked.txt"), []byte("applied\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "new.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	review, err := manager.Review(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Apply(context.Background(), record, review.PatchHash); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(runGitOutput(t, "git", primary, "rev-parse", "HEAD")); got != baseline {
+		t.Fatalf("primary HEAD=%s", got)
+	}
+	tracked, err := os.ReadFile(filepath.Join(primary, "tracked.txt"))
+	if err != nil || string(tracked) != "applied\n" {
+		t.Fatalf("tracked=%q error=%v", tracked, err)
+	}
+	untracked, err := os.ReadFile(filepath.Join(primary, "new.txt"))
+	if err != nil || string(untracked) != "new\n" {
+		t.Fatalf("untracked=%q error=%v", untracked, err)
+	}
+	if err := manager.Apply(context.Background(), record, review.PatchHash); !errors.Is(err, repository.ErrPatchConflict) {
+		t.Fatalf("second apply error=%v", err)
+	}
+}
+
+func TestDiscardRequiresMatchingPatchAndRemovesOnlyOwnedWorktree(t *testing.T) {
+	t.Parallel()
+	_, primary, baseline := createWorktreeTestRepository(t)
+	manager, err := NewWorktreeManager(filepath.Join(t.TempDir(), "talos-owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(context.Background(), repository.CreateWorktreeInput{TaskID: testTaskID, RepositoryRoot: primary, BaselineCommit: baseline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "tracked.txt"), []byte("discarded\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	review, err := manager.Review(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Discard(context.Background(), record, strings.Repeat("f", 64)); !errors.Is(err, repository.ErrPatchConflict) {
+		t.Fatalf("stale discard error=%v", err)
+	}
+	if err := manager.Discard(context.Background(), record, review.PatchHash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(record.Root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("owned worktree still exists: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(primary, "tracked.txt"))
+	if err != nil || string(content) == "discarded\n" {
+		t.Fatalf("primary changed during discard: %q error=%v", content, err)
+	}
+}
+
 func TestWorktreeSnapshotChangesWithTrackedAndUntrackedContent(t *testing.T) {
 	t.Parallel()
 	_, primary, baseline := createWorktreeTestRepository(t)

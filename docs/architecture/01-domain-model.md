@@ -16,6 +16,7 @@
 | PermissionGrant | capability scope and expiry |
 | Artifact | encrypted diff, log, snapshot, or report |
 | VerificationEvidence | proof bound to current revision and diff |
+| PatchAction / TaskOutcome | idempotent external mutation journal and terminal Task projection |
 | MemoryCandidate / MemoryRecord | gated durable knowledge with provenance |
 | Projection | disposable human-readable derivative |
 | SyncBatch | immutable encrypted event pack |
@@ -35,6 +36,9 @@
 - duplicate commands and events produce at most one side effect;
 - successful verification evidence is created atomically with the Attempt transition and is bound to the contract revision, command index, baseline commit, capability, and deterministic task-worktree state hash;
 - evidence becomes stale when a later task-worktree state hash differs;
+- apply requires fresh evidence, zero secret findings, contract-contained changed paths, no unresolved blocking Decision, and a clean primary worktree at the immutable baseline;
+- patch action preparation precedes external Git mutation; `pending` or `unknown` actions are never automatically repeated;
+- successful patch action and terminal Task outcome commit atomically; failed or unknown actions leave the Task contracted;
 - approved memory requires evidence and an applicability scope;
 - a secret value cannot enter event payloads;
 - imported data must pass schema, signature, sequence, sensitivity, and memory gates.

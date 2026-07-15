@@ -10,6 +10,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/patchaction"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
@@ -18,6 +19,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
@@ -433,6 +435,12 @@ func (*fakeDatabase) ReconcilePendingAttempts(context.Context, string, time.Time
 }
 func (*fakeDatabase) GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error) {
 	return verification.Evidence{}, executionstore.ErrNotFound
+}
+func (*fakeDatabase) PreparePatchAction(context.Context, patchstore.PrepareInput) (patchstore.Prepared, error) {
+	return patchstore.Prepared{}, patchstore.ErrNotFound
+}
+func (*fakeDatabase) FinishPatchAction(context.Context, patchstore.FinishInput) (patchaction.Record, error) {
+	return patchaction.Record{}, patchstore.ErrNotFound
 }
 func (d *fakeDatabase) Close() error { d.closed = true; return nil }
 

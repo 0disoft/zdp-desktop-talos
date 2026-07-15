@@ -5,6 +5,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/patchcommand"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
@@ -12,6 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -22,8 +24,9 @@ import (
 )
 
 var (
-	errExecutionUnavailable   = errors.New("execution runtime is unavailable")
-	errPatchReviewUnavailable = errors.New("patch review runtime is unavailable")
+	errExecutionUnavailable    = errors.New("execution runtime is unavailable")
+	errPatchReviewUnavailable  = errors.New("patch review runtime is unavailable")
+	errPatchCommandUnavailable = errors.New("patch command runtime is unavailable")
 )
 
 type TalosError struct {
@@ -42,6 +45,39 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, errPatchCommandUnavailable):
+		mapped.Code = "PATCH_COMMAND_UNAVAILABLE"
+		mapped.Message = "이 기기에서 패치를 안전하게 처리할 수 없습니다."
+	case errors.Is(err, patchcommand.ErrInvalidRequest), errors.Is(err, patchstore.ErrInvalidCommand):
+		mapped.Code = "PATCH_COMMAND_INVALID"
+		mapped.Message = "패치 요청과 최신 검토 상태를 확인해 주세요."
+	case errors.Is(err, patchcommand.ErrStaleReview):
+		mapped.Code = "PATCH_REVIEW_STALE"
+		mapped.Message = "패치 또는 Task Contract가 바뀌었습니다. 다시 검증해 주세요."
+	case errors.Is(err, patchcommand.ErrSecretFindings):
+		mapped.Code = "PATCH_SECRET_FINDINGS"
+		mapped.Message = "비밀정보로 보이는 내용이 있어 패치를 적용하지 않았습니다."
+	case errors.Is(err, patchcommand.ErrScopeViolation):
+		mapped.Code = "PATCH_SCOPE_VIOLATION"
+		mapped.Message = "Task Contract 범위를 벗어난 파일이 있어 패치를 적용하지 않았습니다."
+	case errors.Is(err, patchcommand.ErrNoChanges):
+		mapped.Code = "PATCH_EMPTY"
+		mapped.Message = "적용할 변경이 없습니다."
+	case errors.Is(err, patchstore.ErrBlockingDecision):
+		mapped.Code = "PATCH_BLOCKING_DECISION"
+		mapped.Message = "먼저 답해야 하는 Decision이 남아 있습니다."
+	case errors.Is(err, patchcommand.ErrPatchConflict), errors.Is(err, patchstore.ErrConflict):
+		mapped.Code = "PATCH_CONFLICT"
+		mapped.Message = "저장소 또는 패치 상태가 바뀌었습니다. 상태를 다시 확인해 주세요."
+	case errors.Is(err, patchcommand.ErrPatchApplyFailed):
+		mapped.Code = "PATCH_APPLY_FAILED"
+		mapped.Message = "현재 기본 작업 폴더에 패치를 적용할 수 없습니다."
+	case errors.Is(err, patchcommand.ErrActionUnresolved), errors.Is(err, patchcommand.ErrPatchOutcomeUnknown):
+		mapped.Code = "PATCH_OUTCOME_UNKNOWN"
+		mapped.Message = "패치 처리 결과를 확정할 수 없습니다. 저장소 상태를 직접 확인해 주세요."
+	case errors.Is(err, patchstore.ErrIdempotencyConflict):
+		mapped.Code = "PATCH_REQUEST_CONFLICT"
+		mapped.Message = "같은 요청 식별자가 다른 패치 작업에 사용되었습니다."
 	case errors.Is(err, errPatchReviewUnavailable):
 		mapped.Code = "PATCH_REVIEW_UNAVAILABLE"
 		mapped.Message = "이 기기에서 패치 상태를 안전하게 확인할 수 없습니다."

@@ -24,7 +24,7 @@ export type TaskStatus = {
   revision: number;
   baseline_commit: string;
   risk: 'low' | 'medium' | 'high';
-  status: 'contracted';
+  status: 'contracted' | 'completed' | 'discarded';
   created_at: string;
 };
 
@@ -51,7 +51,7 @@ function parseResult(value: unknown): TaskResult {
 }
 
 function parseTask(value: unknown): TaskStatus {
-  if (!isObject(value) || typeof value.task_id !== 'string' || value.task_id.length === 0 || typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision) || value.revision < 1 || typeof value.baseline_commit !== 'string' || !commitPattern.test(value.baseline_commit) || (value.risk !== 'low' && value.risk !== 'medium' && value.risk !== 'high') || value.status !== 'contracted' || typeof value.created_at !== 'string' || Number.isNaN(new Date(value.created_at).getTime())) {
+  if (!isObject(value) || typeof value.task_id !== 'string' || value.task_id.length === 0 || typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision) || value.revision < 1 || typeof value.baseline_commit !== 'string' || !commitPattern.test(value.baseline_commit) || (value.risk !== 'low' && value.risk !== 'medium' && value.risk !== 'high') || (value.status !== 'contracted' && value.status !== 'completed' && value.status !== 'discarded') || typeof value.created_at !== 'string' || Number.isNaN(new Date(value.created_at).getTime())) {
     throw new Error('TASK_RESPONSE_INVALID');
   }
   return { task_id: value.task_id, revision: value.revision, baseline_commit: value.baseline_commit, risk: value.risk, status: value.status, created_at: value.created_at };

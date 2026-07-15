@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/application/patchcommand"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 )
 
@@ -21,6 +22,26 @@ func TestMapErrorDoesNotExposeInternalErrorText(t *testing.T) {
 	}
 	if mapped.CorrelationID != "correlation-1" {
 		t.Fatalf("unexpected correlation id %q", mapped.CorrelationID)
+	}
+}
+
+func TestMapErrorUsesStablePatchCommandCodes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		err  error
+		code string
+	}{
+		{patchcommand.ErrStaleReview, "PATCH_REVIEW_STALE"},
+		{patchcommand.ErrSecretFindings, "PATCH_SECRET_FINDINGS"},
+		{patchcommand.ErrScopeViolation, "PATCH_SCOPE_VIOLATION"},
+		{patchcommand.ErrPatchConflict, "PATCH_CONFLICT"},
+		{patchcommand.ErrPatchOutcomeUnknown, "PATCH_OUTCOME_UNKNOWN"},
+	}
+	for _, item := range tests {
+		mapped := MapError(errors.Join(item.err, errors.New(`C:\private\repository`)), "patch-command")
+		if mapped.Code != item.code || strings.Contains(mapped.Message, "private") {
+			t.Fatalf("error=%v mapped=%+v", item.err, mapped)
+		}
 	}
 }
 

@@ -11,7 +11,7 @@
 | 3. Decision Queue (complete) | scoped blocking, answer revision, conflict handling | encrypted persistence, stale rejection, conflict preservation, explicit resolution, question supersession, and Vault-scoped desktop review are implemented |
 | 4. Worker and Git (complete) | task worktree, argv process execution, capabilities, cancellation | owned worktrees, policy-bound execution, deterministic permission evaluation, restart-safe journals, an owned typed worker session, durable permission review, and main-process dispatch are implemented |
 | 5. Model runtime | provider port, egress receipt, structured plan and tool intents | one provider completes a bounded fake-repo scenario |
-| 6. Verification and review (active) | fresh evidence, bounded patch review, apply/discard | state-bound evidence, stale/unverified review, and bounded redacted text diff viewing are implemented; explicit apply/discard and completion transition remain |
+| 6. Verification and review (complete) | fresh evidence, bounded patch review, apply/discard | state-bound evidence, bounded redacted diff review, explicit apply/discard, primary-worktree conflict checks, and atomic completion transitions are implemented |
 | 7. Memory kernel | extraction, gate, provenance, context assembly | approved memory changes a later plan and is explainable |
 | 8. Projection and manual sync | redacted projection and encrypted immutable packs | duplicate and conflicting two-device fixtures pass |
 | 9. Alpha hardening | signing, migration, backup, recovery runbooks | limited private alpha is supportable |

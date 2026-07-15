@@ -11,6 +11,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/workerprocess"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/patchcommand"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionbroker"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
@@ -27,6 +28,7 @@ type ExecutionFactory struct {
 	broker    *permissionbroker.Broker
 	worktrees *gitcli.WorktreeManager
 	workers   workerruntime.Factory
+	scanner   *redaction.Scanner
 }
 
 func NewExecutionFactory(localDataRoot, workerExecutable string, rules []permissionbroker.ProcessRule) (*ExecutionFactory, error) {
@@ -45,7 +47,7 @@ func NewExecutionFactory(localDataRoot, workerExecutable string, rules []permiss
 	if err != nil {
 		return nil, fmt.Errorf("initialize worker process runtime: %w", err)
 	}
-	return &ExecutionFactory{broker: broker, worktrees: worktrees, workers: workers}, nil
+	return &ExecutionFactory{broker: broker, worktrees: worktrees, workers: workers, scanner: redaction.NewScanner()}, nil
 }
 
 func NewDefaultExecutionFactory(localDataRoot, workerExecutable string) (*ExecutionFactory, error) {
@@ -78,7 +80,18 @@ func (f *ExecutionFactory) NewPatchReview(store patchreview.Store) (*patchreview
 	if f == nil || f.worktrees == nil {
 		return nil, patchreview.ErrInvalidRequest
 	}
-	return patchreview.New(store, f.worktrees, redaction.NewScanner())
+	return patchreview.New(store, f.worktrees, f.scanner)
+}
+
+func (f *ExecutionFactory) NewPatchCommand(store patchcommand.Store) (*patchcommand.Service, error) {
+	if f == nil || f.worktrees == nil || f.scanner == nil {
+		return nil, patchcommand.ErrInvalidRequest
+	}
+	reviewer, err := patchreview.New(store, f.worktrees, f.scanner)
+	if err != nil {
+		return nil, err
+	}
+	return patchcommand.New(store, reviewer, f.worktrees)
 }
 
 func NewExecutionCoordinator(store executionruntime.Store, localDataRoot, workerExecutable string, rules []permissionbroker.ProcessRule) (executionruntime.Executor, error) {

@@ -51,6 +51,7 @@ func main() {
 	}
 	executionService := wailsapi.NewExecutionService(vaultService, executionFactory, executionInitializationError)
 	reviewService := wailsapi.NewPatchReviewService(vaultService, executionFactory, executionInitializationError)
+	patchService := wailsapi.NewPatchService(vaultService, executionFactory, executionInitializationError)
 	var window *application.WebviewWindow
 	if singleInstance != nil {
 		singleInstance.OnSecondInstanceLaunch = func(application.SecondInstanceData) {
@@ -73,6 +74,7 @@ func main() {
 			application.NewService(wailsapi.NewPermissionService(vaultService)),
 			application.NewService(executionService),
 			application.NewService(reviewService),
+			application.NewService(patchService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

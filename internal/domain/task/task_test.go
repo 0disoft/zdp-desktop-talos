@@ -18,15 +18,41 @@ func TestContractRevisionRejectsEscapingAndDuplicatePaths(t *testing.T) {
 	}
 }
 
-func TestRecordRequiresContractedRevisionAndBaseline(t *testing.T) {
+func TestRecordRequiresKnownStatusRevisionAndBaseline(t *testing.T) {
 	t.Parallel()
 	record := Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: "0123456789012345678901234567890123456789", Status: StatusContracted, CurrentRevision: 1, CreatedAt: time.Now(), UpdatedAt: time.Now(), LastEventID: "event-1"}
 	if err := record.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	for _, status := range []Status{StatusCompleted, StatusDiscarded} {
+		record.Status = status
+		if err := record.Validate(); err != nil {
+			t.Fatalf("status=%s error=%v", status, err)
+		}
+	}
+	record.Status = "unknown"
+	if err := record.Validate(); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("unknown status error=%v", err)
+	}
+	record.Status = StatusContracted
 	record.CurrentRevision = 0
 	if err := record.Validate(); !errors.Is(err, ErrInvalidRecord) {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestContractRevisionMatchesAllowedPaths(t *testing.T) {
+	t.Parallel()
+	contract := ContractRevision{AllowedPaths: []string{"internal/task/**", "README.md", "frontend/*.json"}}
+	for _, candidate := range []string{"internal/task/task.go", "internal/task", "README.md", "frontend/package.json"} {
+		if !contract.AllowsPath(candidate) {
+			t.Fatalf("expected allowed: %s", candidate)
+		}
+	}
+	for _, candidate := range []string{"internal/other.go", "frontend/src/main.ts", "../secret", "/absolute"} {
+		if contract.AllowsPath(candidate) {
+			t.Fatalf("unexpected allowed: %s", candidate)
+		}
 	}
 }
 

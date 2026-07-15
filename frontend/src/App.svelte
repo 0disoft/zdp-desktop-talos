@@ -18,6 +18,7 @@
   import { listPermissionRequests, resolvePermissionRequest, type PermissionOutcome, type PermissionRequest } from './lib/api/permission';
   import { executeVerification, type ExecutionStatus } from './lib/api/execution';
   import { getTaskReview, type PatchReview } from './lib/api/review';
+  import { applyPatch, discardPatch } from './lib/api/patch';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -44,6 +45,7 @@
   let permissionRequests = $state<PermissionRequest[]>([]);
   let execution = $state<ExecutionStatus | null>(null);
   let patchReview = $state<PatchReview | null>(null);
+  let discardConfirmation = $state(false);
 
   onMount(async () => {
     try {
@@ -244,6 +246,27 @@
     }
   }
 
+  async function handlePatch(kind: 'apply' | 'discard') {
+    if (!task || !patchReview || task.status !== 'contracted') return;
+    loading = true; latestError = null;
+    try {
+      const result = kind === 'apply'
+        ? await applyPatch(task.task_id, patchReview.contract_revision, patchReview.patch_hash)
+        : await discardPatch(task.task_id, patchReview.contract_revision, patchReview.patch_hash);
+      if (result.error) {
+        latestError = result.error;
+        if (result.error.code === 'PATCH_REVIEW_STALE' || result.error.code === 'PATCH_CONFLICT') await refreshPatchReview();
+      } else if (result.command) {
+        task = { ...task, status: result.command.task_status };
+        discardConfirmation = false;
+        if (result.command.task_status === 'discarded') patchReview = null;
+        else await refreshPatchReview();
+      }
+    } catch {
+      latestError = localError('PATCH_COMMAND_FAILED', '패치 처리 상태를 확인하지 못했습니다.');
+    } finally { loading = false; }
+  }
+
   async function handlePermission(item: PermissionRequest, outcome: PermissionOutcome) {
     loading = true; latestError = null;
     try {
@@ -298,7 +321,7 @@
   }
 
   function clearPrivateTaskState() {
-    task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false;
+    task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
@@ -435,12 +458,12 @@
         <span class:unlocked={task !== null} class="status-dot waiting" aria-hidden="true"></span>
         <h2>Task Contract</h2>
       </div>
-      <strong>{task ? `확정 · revision ${task.revision}` : '작성 대기'}</strong>
+      <strong>{task ? `${task.status === 'completed' ? '적용 완료' : task.status === 'discarded' ? '폐기 완료' : '확정'} · revision ${task.revision}` : '작성 대기'}</strong>
       <p>{task ? `${task.risk} risk · ${task.baseline_commit.slice(0, 12)}` : '목표와 수정 범위, 완료 조건을 먼저 고정합니다.'}</p>
       {#if task && !editingTask}
         <div class="task-summary">
           <code>{task.task_id}</code>
-          <button type="button" class="secondary" onclick={() => (editingTask = true)} disabled={loading}>계약 수정</button>
+          <button type="button" class="secondary" onclick={() => (editingTask = true)} disabled={loading || task.status !== 'contracted'}>계약 수정</button>
         </div>
       {:else}
         <div class="task-actions">
@@ -467,7 +490,7 @@
       </div>
       <strong>{execution?.state === 'succeeded' ? '통과' : execution?.state === 'review_required' ? '권한 확인 대기' : '실행 대기'}</strong>
       <p>{execution?.state === 'succeeded' ? `revision ${execution.contract_revision} · ${execution.worktree_state_hash.slice(0, 12)} · ${execution.replayed ? '저장된 증거' : '새 증거'}` : execution?.state === 'review_required' ? '아래 Permission Review에서 실행 범위를 선택해 주세요.' : 'Task Contract에 확정한 첫 번째 검증 명령을 실행합니다.'}</p>
-      <button type="button" onclick={handleExecution} disabled={loading || vault.state !== 'unlocked' || !task || editingTask}>
+      <button type="button" onclick={handleExecution} disabled={loading || vault.state !== 'unlocked' || !task || task.status !== 'contracted' || editingTask}>
         {execution?.state === 'review_required' ? '승인 후 다시 실행' : execution?.state === 'succeeded' ? '다시 검증' : '검증 시작'}
       </button>
     </article>
@@ -503,7 +526,20 @@
             <p class="decision-empty">변경된 파일이 없습니다.</p>
           {/each}
         </div>
-        <button type="button" class="secondary" onclick={refreshPatchReview} disabled={loading}>상태 새로고침</button>
+        {#if task?.status === 'contracted'}
+          <div class="patch-actions">
+            <button type="button" onclick={() => handlePatch('apply')} disabled={loading || patchReview.status !== 'fresh' || patchReview.secret_findings > 0 || patchReview.changes.length === 0 || decisions.some((item) => item.category === 'blocking' && item.state !== 'answered')}>기본 작업 폴더에 적용</button>
+            {#if discardConfirmation}
+              <button type="button" class="danger" onclick={() => handlePatch('discard')} disabled={loading}>변경 폐기 확인</button>
+              <button type="button" class="secondary" onclick={() => (discardConfirmation = false)} disabled={loading}>취소</button>
+            {:else}
+              <button type="button" class="danger" onclick={() => (discardConfirmation = true)} disabled={loading}>변경 폐기</button>
+            {/if}
+            <button type="button" class="secondary" onclick={refreshPatchReview} disabled={loading}>상태 새로고침</button>
+          </div>
+        {:else}
+          <p class="decision-answer">{task?.status === 'completed' ? '기본 작업 폴더에 적용했습니다. 자동 커밋은 하지 않았습니다.' : '변경을 폐기했습니다.'}</p>
+        {/if}
       {/if}
     </article>
 
