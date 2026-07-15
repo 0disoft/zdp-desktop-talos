@@ -478,13 +478,26 @@
         <h2>Patch Review</h2>
       </div>
       <strong>{patchReview?.status === 'fresh' ? '최신 검증 완료' : patchReview?.status === 'stale' ? '다시 검증 필요' : patchReview?.status === 'unverified' ? '검증 기록 없음' : '패치 대기'}</strong>
-      <p>{patchReview ? `${patchReview.changes.length}개 파일 · ${patchReview.state_hash.slice(0, 12)}` : '검증 실행 뒤 현재 패치와 증거를 비교합니다.'}</p>
+      <p>{patchReview ? `${patchReview.changes.length}개 파일 · +${patchReview.diffs.reduce((sum, item) => sum + item.added_lines, 0)} −${patchReview.diffs.reduce((sum, item) => sum + item.deleted_lines, 0)} · ${patchReview.patch_hash.slice(0, 12)}` : '검증 실행 뒤 현재 패치와 증거를 비교합니다.'}</p>
       {#if patchReview}
-        <div class="decision-list">
-          {#each patchReview.changes as change (change.path)}
-            <section class="decision-item">
-              <div class="decision-meta"><span>{change.kind}</span><span>{change.index_status}{change.worktree_status}</span></div>
-              <code>{change.original_path ? `${change.original_path} → ${change.path}` : change.path}</code>
+        {#if patchReview.secret_findings > 0}
+          <p class="patch-warning">비밀정보 의심 항목 {patchReview.secret_findings}개를 가렸습니다.</p>
+        {/if}
+        <div class="patch-list">
+          {#each patchReview.diffs as diff (diff.path)}
+            <section class="patch-file">
+              <div class="patch-file-heading">
+                <code>{diff.path}</code>
+                <span>+{diff.added_lines} −{diff.deleted_lines}</span>
+              </div>
+              {#if diff.omitted_reason}
+                <p>{diff.omitted_reason === 'binary' ? '바이너리 파일은 내용을 표시하지 않습니다.' : diff.omitted_reason === 'symlink' ? '심볼릭 링크는 내용을 표시하지 않습니다.' : diff.omitted_reason === 'file_limit' ? '표시 가능한 파일 수를 넘었습니다.' : '지원하지 않는 파일 형식입니다.'}</p>
+              {:else if diff.text}
+                <pre>{diff.text}</pre>
+                {#if diff.truncated}<small>일부 내용만 표시합니다.</small>{/if}
+              {:else}
+                <p>표시할 텍스트 변경이 없습니다.</p>
+              {/if}
             </section>
           {:else}
             <p class="decision-empty">변경된 파일이 없습니다.</p>

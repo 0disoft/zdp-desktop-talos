@@ -15,6 +15,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionbroker"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/workerruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/security/redaction"
 )
 
 const (
@@ -77,7 +78,7 @@ func (f *ExecutionFactory) NewPatchReview(store patchreview.Store) (*patchreview
 	if f == nil || f.worktrees == nil {
 		return nil, patchreview.ErrInvalidRequest
 	}
-	return patchreview.New(store, f.worktrees)
+	return patchreview.New(store, f.worktrees, redaction.NewScanner())
 }
 
 func NewExecutionCoordinator(store executionruntime.Store, localDataRoot, workerExecutable string, rules []permissionbroker.ProcessRule) (executionruntime.Executor, error) {

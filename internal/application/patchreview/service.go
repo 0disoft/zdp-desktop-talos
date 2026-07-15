@@ -12,6 +12,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/secretscanner"
 )
 
 var ErrInvalidRequest = errors.New("invalid patch review request")
@@ -41,20 +42,35 @@ type Result struct {
 	Status           Status
 	Reason           string
 	StateHash        string
+	PatchHash        string
 	Changes          []workspace.Change
+	Diffs            []FileDiff
+	SecretFindings   int
 	Evidence         *verification.Evidence
+}
+
+type FileDiff struct {
+	Path          string
+	Binary        bool
+	Truncated     bool
+	OmittedReason string
+	Text          string
+	AddedLines    int
+	DeletedLines  int
+	Findings      int
 }
 
 type Service struct {
 	store     Store
 	worktrees Worktrees
+	scanner   secretscanner.Scanner
 }
 
-func New(store Store, worktrees Worktrees) (*Service, error) {
-	if store == nil || worktrees == nil {
+func New(store Store, worktrees Worktrees, scanner secretscanner.Scanner) (*Service, error) {
+	if store == nil || worktrees == nil || scanner == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &Service{store: store, worktrees: worktrees}, nil
+	return &Service{store: store, worktrees: worktrees, scanner: scanner}, nil
 }
 
 func (s *Service) Get(ctx context.Context, taskID string) (Result, error) {
@@ -73,7 +89,19 @@ func (s *Service) Get(ctx context.Context, taskID string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{TaskID: record.ID, ContractRevision: record.CurrentRevision, BaselineCommit: record.BaselineCommit, Status: StatusUnverified, Reason: "no_evidence", StateHash: review.StateHash, Changes: review.Changes}
+	result := Result{TaskID: record.ID, ContractRevision: record.CurrentRevision, BaselineCommit: record.BaselineCommit, Status: StatusUnverified, Reason: "no_evidence", StateHash: review.StateHash, PatchHash: review.PatchHash, Changes: review.Changes, Diffs: make([]FileDiff, 0, len(review.Diffs))}
+	for _, raw := range review.Diffs {
+		safe := FileDiff{Path: raw.Path, Binary: raw.Binary, Truncated: raw.Truncated, OmittedReason: raw.OmittedReason, AddedLines: raw.AddedLines, DeletedLines: raw.DeletedLines}
+		if raw.Text != "" {
+			redacted, err := s.scanner.Redact(ctx, raw.Text)
+			if err != nil {
+				return Result{}, err
+			}
+			safe.Text, safe.Findings = redacted.Text, redacted.Findings
+			result.SecretFindings += redacted.Findings
+		}
+		result.Diffs = append(result.Diffs, safe)
+	}
 	evidence, err := s.store.GetLatestVerificationEvidence(ctx, record.VaultID, record.ID)
 	if errors.Is(err, executionstore.ErrNotFound) {
 		return result, nil

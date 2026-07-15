@@ -31,6 +31,17 @@ type PatchEvidence struct {
 	FinishedAt       string `json:"finished_at"`
 }
 
+type PatchDiff struct {
+	Path          string `json:"path"`
+	Binary        bool   `json:"binary"`
+	Truncated     bool   `json:"truncated"`
+	OmittedReason string `json:"omitted_reason,omitempty"`
+	Text          string `json:"text,omitempty"`
+	AddedLines    int    `json:"added_lines"`
+	DeletedLines  int    `json:"deleted_lines"`
+	Findings      int    `json:"findings"`
+}
+
 type PatchReviewStatus struct {
 	TaskID           string         `json:"task_id"`
 	ContractRevision int            `json:"contract_revision"`
@@ -38,7 +49,10 @@ type PatchReviewStatus struct {
 	Status           string         `json:"status"`
 	Reason           string         `json:"reason"`
 	StateHash        string         `json:"state_hash"`
+	PatchHash        string         `json:"patch_hash"`
 	Changes          []PatchChange  `json:"changes"`
+	Diffs            []PatchDiff    `json:"diffs"`
+	SecretFindings   int            `json:"secret_findings"`
 	Evidence         *PatchEvidence `json:"evidence,omitempty"`
 }
 
@@ -96,9 +110,12 @@ func (s *PatchReviewService) GetTaskReview(request PatchReviewRequest) PatchRevi
 		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}
 	}
-	status := PatchReviewStatus{TaskID: review.TaskID, ContractRevision: review.ContractRevision, BaselineCommit: review.BaselineCommit, Status: string(review.Status), Reason: review.Reason, StateHash: review.StateHash, Changes: make([]PatchChange, 0, len(review.Changes))}
+	status := PatchReviewStatus{TaskID: review.TaskID, ContractRevision: review.ContractRevision, BaselineCommit: review.BaselineCommit, Status: string(review.Status), Reason: review.Reason, StateHash: review.StateHash, PatchHash: review.PatchHash, Changes: make([]PatchChange, 0, len(review.Changes)), Diffs: make([]PatchDiff, 0, len(review.Diffs)), SecretFindings: review.SecretFindings}
 	for _, change := range review.Changes {
 		status.Changes = append(status.Changes, patchChangeDTO(change))
+	}
+	for _, diff := range review.Diffs {
+		status.Diffs = append(status.Diffs, PatchDiff{Path: diff.Path, Binary: diff.Binary, Truncated: diff.Truncated, OmittedReason: diff.OmittedReason, Text: diff.Text, AddedLines: diff.AddedLines, DeletedLines: diff.DeletedLines, Findings: diff.Findings})
 	}
 	if review.Evidence != nil {
 		status.Evidence = &PatchEvidence{ID: review.Evidence.ID, ContractRevision: review.Evidence.ContractRevision, CommandIndex: review.Evidence.CommandIndex, StateHash: review.Evidence.WorktreeStateHash, FinishedAt: review.Evidence.FinishedAt.UTC().Format(time.RFC3339Nano)}

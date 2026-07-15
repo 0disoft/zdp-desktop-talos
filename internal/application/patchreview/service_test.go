@@ -13,6 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/secretscanner"
 )
 
 func TestGetClassifiesFreshStaleAndUnverifiedReview(t *testing.T) {
@@ -22,14 +23,14 @@ func TestGetClassifiesFreshStaleAndUnverifiedReview(t *testing.T) {
 	hash := strings.Repeat("b", 64)
 	evidence := verification.Evidence{ID: "evidence-1", VaultID: record.VaultID, TaskID: record.ID, RunID: "run-1", AttemptID: "attempt-1", ContractRevision: 2, CommandIndex: 0, BaselineCommit: record.BaselineCommit, WorktreeStateHash: hash, CapabilityHash: strings.Repeat("c", 64), ExitCode: 0, StartedAt: now, FinishedAt: now.Add(time.Second), EventID: "event-2"}
 	store := &reviewStore{task: record, evidence: evidence}
-	worktrees := &reviewWorktrees{record: worktree.Record{TaskID: record.ID, RepositoryRoot: record.WorkspaceRoot, Root: t.TempDir(), BaselineCommit: record.BaselineCommit, CreatedAt: now}, review: repository.WorktreeReview{StateHash: hash, Changes: []workspace.Change{{Path: "main.go", Kind: workspace.ChangeTracked, IndexStatus: '.', WorktreeStatus: 'M'}}}}
-	service, err := New(store, worktrees)
+	worktrees := &reviewWorktrees{record: worktree.Record{TaskID: record.ID, RepositoryRoot: record.WorkspaceRoot, Root: t.TempDir(), BaselineCommit: record.BaselineCommit, CreatedAt: now}, review: repository.WorktreeReview{StateHash: hash, PatchHash: strings.Repeat("d", 64), Changes: []workspace.Change{{Path: "main.go", Kind: workspace.ChangeTracked, IndexStatus: '.', WorktreeStatus: 'M'}}, Diffs: []repository.FileDiff{{Path: "main.go", Text: "+token=secret-value\n", AddedLines: 1}}}}
+	service, err := New(store, worktrees, reviewScanner{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	fresh, err := service.Get(context.Background(), record.ID)
-	if err != nil || fresh.Status != StatusFresh || fresh.Reason != "fresh" || len(fresh.Changes) != 1 {
+	if err != nil || fresh.Status != StatusFresh || fresh.Reason != "fresh" || len(fresh.Changes) != 1 || len(fresh.Diffs) != 1 || fresh.Diffs[0].Text != "+token=[REDACTED]\n" || fresh.SecretFindings != 1 {
 		t.Fatalf("fresh=%+v err=%v", fresh, err)
 	}
 
@@ -48,7 +49,7 @@ func TestGetClassifiesFreshStaleAndUnverifiedReview(t *testing.T) {
 
 func TestGetFailsClosedWhenOwnedWorktreeCannotBeReviewed(t *testing.T) {
 	t.Parallel()
-	service, err := New(&reviewStore{task: task.Record{ID: "task-1"}}, &reviewWorktrees{err: repository.ErrWorktreeOwnership})
+	service, err := New(&reviewStore{task: task.Record{ID: "task-1"}}, &reviewWorktrees{err: repository.ErrWorktreeOwnership}, reviewScanner{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,6 +57,12 @@ func TestGetFailsClosedWhenOwnedWorktreeCannotBeReviewed(t *testing.T) {
 	if !errors.Is(err, repository.ErrWorktreeOwnership) {
 		t.Fatalf("err=%v", err)
 	}
+}
+
+type reviewScanner struct{}
+
+func (reviewScanner) Redact(_ context.Context, text string) (secretscanner.Result, error) {
+	return secretscanner.Result{Text: strings.ReplaceAll(text, "secret-value", "[REDACTED]"), Findings: strings.Count(text, "secret-value")}, nil
 }
 
 type reviewStore struct {

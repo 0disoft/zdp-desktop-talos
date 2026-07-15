@@ -39,5 +39,17 @@ type WorktreeState struct {
 
 type WorktreeReview struct {
 	StateHash string
+	PatchHash string
 	Changes   []workspace.Change
+	Diffs     []FileDiff
+}
+
+type FileDiff struct {
+	Path          string
+	Binary        bool
+	Truncated     bool
+	OmittedReason string
+	Text          string
+	AddedLines    int
+	DeletedLines  int
 }

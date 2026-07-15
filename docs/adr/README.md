@@ -39,5 +39,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0030-atomic-state-bound-verification-evidence.md`: schema v10 evidence, deterministic worktree state hashes, and evidence-free-success rejection
 - `0031-owned-worktree-reopen-for-reverification.md`: marker-verified retained worktrees for repeat verification and restart recovery
 - `0032-bounded-patch-review-freshness-gate.md`: read-only changed-file review and fail-closed current-evidence freshness classification
+- `0033-redacted-bounded-safe-diff-viewer.md`: hook-free diff capture, deterministic secret redaction, and renderer payload budgets
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

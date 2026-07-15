@@ -87,6 +87,51 @@ func TestWorktreeSnapshotChangesWithTrackedAndUntrackedContent(t *testing.T) {
 	}
 }
 
+func TestWorktreeReviewBoundsTextAndOmitsBinaryContent(t *testing.T) {
+	t.Parallel()
+	_, primary, baseline := createWorktreeTestRepository(t)
+	manager, err := NewWorktreeManager(filepath.Join(t.TempDir(), "talos-owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(context.Background(), repository.CreateWorktreeInput{TaskID: testTaskID, RepositoryRoot: primary, BaselineCommit: baseline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "tracked.txt"), []byte("changed\n"+strings.Repeat("line\n", 20_000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "untracked.txt"), []byte("token=ghp_abcdefghijklmnopqrstuvwxyz123456\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "binary.dat"), []byte{0, 1, 2, 3}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	review, err := manager.Review(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(review.StateHash) != 64 || len(review.PatchHash) != 64 || len(review.Changes) != 3 || len(review.Diffs) != 3 {
+		t.Fatalf("review=%+v", review)
+	}
+	byPath := make(map[string]repository.FileDiff, len(review.Diffs))
+	for _, diff := range review.Diffs {
+		byPath[diff.Path] = diff
+		if len(diff.Text) > maxDiffBytesPerFile {
+			t.Fatalf("unbounded diff for %s: %d", diff.Path, len(diff.Text))
+		}
+	}
+	if !byPath["tracked.txt"].Truncated || byPath["tracked.txt"].Text == "" {
+		t.Fatalf("tracked=%+v", byPath["tracked.txt"])
+	}
+	if byPath["binary.dat"].OmittedReason != "binary" || byPath["binary.dat"].Text != "" {
+		t.Fatalf("binary=%+v", byPath["binary.dat"])
+	}
+	if !strings.Contains(byPath["untracked.txt"].Text, "ghp_abcdefghijklmnopqrstuvwxyz123456") {
+		t.Fatalf("untracked adapter diff missing source content: %+v", byPath["untracked.txt"])
+	}
+}
+
 func TestWorktreeOpenVerifiesOwnedMarkerAndBaseline(t *testing.T) {
 	t.Parallel()
 	_, primary, baseline := createWorktreeTestRepository(t)

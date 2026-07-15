@@ -5,7 +5,8 @@ const service = 'github.com/0disoft/zdp-desktop-talos/internal/transport/wailsap
 
 export type PatchChange = { path: string; original_path?: string; kind: 'tracked' | 'renamed' | 'untracked'; index_status: string; worktree_status: string };
 export type PatchEvidence = { id: string; contract_revision: number; command_index: number; state_hash: string; finished_at: string };
-export type PatchReview = { task_id: string; contract_revision: number; baseline_commit: string; status: 'fresh' | 'stale' | 'unverified'; reason: 'fresh' | 'no_evidence' | 'baseline_changed' | 'contract_changed' | 'patch_changed'; state_hash: string; changes: PatchChange[]; evidence?: PatchEvidence };
+export type PatchDiff = { path: string; binary: boolean; truncated: boolean; omitted_reason?: 'binary' | 'symlink' | 'unsupported_type' | 'file_limit'; text?: string; added_lines: number; deleted_lines: number; findings: number };
+export type PatchReview = { task_id: string; contract_revision: number; baseline_commit: string; status: 'fresh' | 'stale' | 'unverified'; reason: 'fresh' | 'no_evidence' | 'baseline_changed' | 'contract_changed' | 'patch_changed'; state_hash: string; patch_hash: string; changes: PatchChange[]; diffs: PatchDiff[]; secret_findings: number; evidence?: PatchEvidence };
 export type PatchReviewResult = { review?: PatchReview; error?: TalosError };
 
 export async function getTaskReview(taskID: string): Promise<PatchReviewResult> {
@@ -23,13 +24,22 @@ function parseResult(value: unknown): PatchReviewResult {
 }
 
 function parseReview(value: unknown): PatchReview {
-  if (!isObject(value) || typeof value.task_id !== 'string' || !positiveInteger(value.contract_revision) || !commit(value.baseline_commit) || !hash(value.state_hash) || !Array.isArray(value.changes)) throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
+  if (!isObject(value) || typeof value.task_id !== 'string' || !positiveInteger(value.contract_revision) || !commit(value.baseline_commit) || !hash(value.state_hash) || !hash(value.patch_hash) || !Array.isArray(value.changes) || !Array.isArray(value.diffs) || !nonnegativeInteger(value.secret_findings)) throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
   if (value.status !== 'fresh' && value.status !== 'stale' && value.status !== 'unverified') throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
   if (!['fresh', 'no_evidence', 'baseline_changed', 'contract_changed', 'patch_changed'].includes(String(value.reason))) throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
   const changes = value.changes.map(parseChange);
+  const diffs = value.diffs.map(parseDiff);
   const evidence = value.evidence === undefined ? undefined : parseEvidence(value.evidence);
   if (value.status === 'unverified' ? evidence !== undefined : evidence === undefined) throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
-  return { task_id: value.task_id, contract_revision: value.contract_revision, baseline_commit: value.baseline_commit, status: value.status, reason: value.reason as PatchReview['reason'], state_hash: value.state_hash, changes, evidence };
+  return { task_id: value.task_id, contract_revision: value.contract_revision, baseline_commit: value.baseline_commit, status: value.status, reason: value.reason as PatchReview['reason'], state_hash: value.state_hash, patch_hash: value.patch_hash, changes, diffs, secret_findings: value.secret_findings, evidence };
+}
+
+function parseDiff(value: unknown): PatchDiff {
+  if (!isObject(value) || typeof value.path !== 'string' || !value.path || typeof value.binary !== 'boolean' || typeof value.truncated !== 'boolean' || !nonnegativeInteger(value.added_lines) || !nonnegativeInteger(value.deleted_lines) || !nonnegativeInteger(value.findings)) throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
+  if (value.text !== undefined && typeof value.text !== 'string') throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
+  if (value.omitted_reason !== undefined && value.omitted_reason !== 'binary' && value.omitted_reason !== 'symlink' && value.omitted_reason !== 'unsupported_type' && value.omitted_reason !== 'file_limit') throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
+  if (value.binary && value.text) throw new Error('PATCH_REVIEW_RESPONSE_INVALID');
+  return { path: value.path, binary: value.binary, truncated: value.truncated, omitted_reason: value.omitted_reason, text: value.text, added_lines: value.added_lines, deleted_lines: value.deleted_lines, findings: value.findings };
 }
 
 function parseChange(value: unknown): PatchChange {
@@ -49,6 +59,7 @@ function parseError(value: unknown): TalosError {
 }
 function isObject(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
 function positiveInteger(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0; }
+function nonnegativeInteger(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0; }
 function hash(value: unknown): value is string { return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value); }
 function commit(value: unknown): value is string { return typeof value === 'string' && /^[0-9a-f]{40,64}$/.test(value); }
 function correlationID(): string { return typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `ui-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
