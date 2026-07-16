@@ -8,17 +8,23 @@ import (
 )
 
 var (
-	ErrInvalidChallenge = errors.New("invalid account link challenge")
-	ErrUnavailable      = errors.New("ZDP account verification is unavailable")
-	ErrRejected         = errors.New("ZDP account verification was rejected")
-	ErrChallengeUsed    = errors.New("ZDP account link challenge was already consumed")
+	ErrInvalidRequest = errors.New("invalid account link verification request")
+	ErrUnavailable    = errors.New("ZDP account verification is unavailable")
+	ErrDenied         = errors.New("ZDP account verification was denied")
+	ErrExpired        = errors.New("ZDP account link challenge expired")
+	ErrConsumed       = errors.New("ZDP account link challenge was already consumed")
+	ErrRejected       = errors.New("ZDP account verification response was rejected")
+	ErrDisabled       = errors.New("ZDP account verification is disabled")
 )
 
-type Challenge struct {
-	ID            string
-	CorrelationID string
+type Request struct {
+	ProductRef           string
+	ClientInstanceRef    string
+	ClientCorrelationRef string
+	RequestedScopeRefs   []string
+	IdempotencyKey       string
 }
 
 type Verifier interface {
-	Verify(context.Context, Challenge) (accountlink.VerifiedIdentity, error)
+	Verify(context.Context, Request) (accountlink.VerifiedIdentity, error)
 }

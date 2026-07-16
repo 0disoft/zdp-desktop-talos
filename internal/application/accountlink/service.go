@@ -13,11 +13,13 @@ import (
 var ErrInvalidRequest = errors.New("invalid account link request")
 
 type LinkRequest struct {
-	VaultID          string
-	ChallengeID      string
-	CorrelationID    string
-	ExpectedRevision int
-	IdempotencyKey   string
+	VaultID            string
+	ProductRef         string
+	ClientInstanceRef  string
+	CorrelationID      string
+	RequestedScopeRefs []string
+	ExpectedRevision   int
+	IdempotencyKey     string
 }
 
 type UnlinkRequest struct {
@@ -40,13 +42,18 @@ func New(store accountstore.Store, verifier accountidentity.Verifier) (*Service,
 
 func (s *Service) Link(ctx context.Context, request LinkRequest) (accountdomain.Record, error) {
 	request.VaultID = strings.TrimSpace(request.VaultID)
-	request.ChallengeID = strings.TrimSpace(request.ChallengeID)
+	request.ProductRef = strings.TrimSpace(request.ProductRef)
+	request.ClientInstanceRef = strings.TrimSpace(request.ClientInstanceRef)
 	request.CorrelationID = strings.TrimSpace(request.CorrelationID)
 	request.IdempotencyKey = strings.TrimSpace(request.IdempotencyKey)
-	if ctx == nil || request.VaultID == "" || !validIdentifier(request.ChallengeID) || !validIdentifier(request.CorrelationID) || request.ExpectedRevision < 0 || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 128 {
+	if ctx == nil || request.VaultID == "" || !validIdentifier(request.ProductRef) || !validIdentifier(request.ClientInstanceRef) || !validIdentifier(request.CorrelationID) || !validScopes(request.RequestedScopeRefs) || request.ExpectedRevision < 0 || !validIdentifier(request.IdempotencyKey) {
 		return accountdomain.Record{}, ErrInvalidRequest
 	}
-	identity, err := s.verifier.Verify(ctx, accountidentity.Challenge{ID: request.ChallengeID, CorrelationID: request.CorrelationID})
+	identity, err := s.verifier.Verify(ctx, accountidentity.Request{
+		ProductRef: request.ProductRef, ClientInstanceRef: request.ClientInstanceRef,
+		ClientCorrelationRef: request.CorrelationID, RequestedScopeRefs: append([]string(nil), request.RequestedScopeRefs...),
+		IdempotencyKey: request.IdempotencyKey,
+	})
 	if err != nil {
 		return accountdomain.Record{}, err
 	}
@@ -54,6 +61,23 @@ func (s *Service) Link(ctx context.Context, request LinkRequest) (accountdomain.
 		return accountdomain.Record{}, accountidentity.ErrRejected
 	}
 	return s.store.LinkAccount(ctx, accountstore.LinkInput{VaultID: request.VaultID, ExpectedRevision: request.ExpectedRevision, Identity: identity, IdempotencyKey: request.IdempotencyKey})
+}
+
+func validScopes(values []string) bool {
+	if len(values) == 0 || len(values) > 16 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if !validIdentifier(value) {
+			return false
+		}
+		if _, exists := seen[value]; exists {
+			return false
+		}
+		seen[value] = struct{}{}
+	}
+	return true
 }
 
 func validIdentifier(value string) bool {

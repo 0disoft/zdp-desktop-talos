@@ -6,7 +6,7 @@
 | Phase | Scope | Exit evidence |
 |---|---|---|
 | 0. Architecture spine (active) | repository layout, ADRs, Wails/package spike, worker IPC, encrypted event round trip | storage/IPC/DPAPI and packaging-contract tests pass; provisioned-host signed installer and native upgrade evidence remain |
-| 0A. Shared identity linkage (active) | ZDP product-link port, device-local Vault membership, encrypted references, explicit unlink | domain/storage lifecycle, fake verifier, and upstream create·complete·exchange contract are implemented; production S256 adapter and user-facing flow remain |
+| 0A. Shared identity linkage (active) | ZDP product-link port, device-local Vault membership, encrypted references, explicit unlink | domain/storage lifecycle, fake verifier, dormant S256 HTTP adapter, and upstream create·complete·exchange contract are implemented; trusted production endpoint wiring and the user-facing flow remain |
 | 1. Vault and ledger (complete) | key abstraction, event append, encrypted blobs, materialized state | protected discovery, single-instance writes, create/list/open/lock/retention, recoverable encrypted blobs, and restart-safe hard purge are implemented |
 | 2. Workspace and contract (complete) | Git inspection, baseline snapshot, Task and contract revisions | read-only inspection, atomic encrypted persistence, clean current-baseline confirmation, and optimistic immutable revisions are implemented |
 | 3. Decision Queue (complete) | scoped blocking, answer revision, conflict handling | encrypted persistence, stale rejection, conflict preservation, explicit resolution, question supersession, and Vault-scoped desktop review are implemented |

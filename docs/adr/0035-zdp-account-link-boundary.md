@@ -22,7 +22,7 @@ The ZDP desktop product-link contract is now fixed as a contract-only create, br
 - Unlink appends an encrypted tombstone-style event and clears active references from the current record. Historical encrypted events remain until Vault hard purge; unlink is not advertised as physical deletion.
 - ZDP verification failure or network unavailability cannot lock an already-open local Vault or block local review and execution that do not require account services.
 - Local-only mode is accepted. It permits local Vault and task work but does not enable remote sync, account entitlements, or remote account features.
-- A deterministic fake verifier lives under test support only. Production bootstrap and Wails services do not import or activate it. Live browser/callback transport and user-facing account controls require a later adapter and security review.
+- A deterministic fake verifier lives under test support only. The S256 HTTP adapter owns verifier generation, trusted-HTTPS browser handoff, bounded polling, standard error-envelope mapping, per-call request IDs, and exchange response filtering. Its bounded HTTP client drops caller cookie jars and never sets Cookie or Authorization. A custom transport can still inject credentials, so production transport construction remains a separate security gate. Production bootstrap and Wails services import neither adapter, so live endpoint wiring and user-facing account controls remain disabled pending deployment and security evidence.
 - The production adapter does not reuse `GET /v1/auth/sessions/current` or transport browser session credentials into Talos.
 
 ## Upstream Contract
@@ -33,7 +33,7 @@ The ZDP desktop product-link contract is now fixed as a contract-only create, br
 
 ## Consequences
 
-The account provider and callback protocol can change without changing the Talos membership model. The first slice is intentionally dormant in production: it proves domain, storage, privacy, concurrency, and retry behavior without creating a fake login path.
+The account provider and callback protocol can change without changing the Talos membership model. The implementation remains intentionally dormant in production: fake HTTPS-server tests prove S256 framing, five-second polling, the ten-minute deadline, cancellation, terminal states, trusted verification origins, and secret non-propagation without creating a fake login path.
 
 Account unlink does not delete encrypted historical references from the event ledger. Users who need physical removal must use the existing Vault hard-purge workflow until a narrower account-reference purge contract is designed.
 
@@ -41,5 +41,6 @@ Account unlink does not delete encrypted historical references from the event le
 
 - domain tests reject contact-like or whitespace-bearing values as account references and reject active references in an unlinked record;
 - fake-verifier tests cover same-command retry, cross-correlation challenge reuse, rejection, and unavailability;
+- fake HTTPS-server tests cover exact 201/200 success statuses, standard error envelopes, request/idempotency/trace header separation, `retry_after_seconds` and `Retry-After`, S256 framing, trusted browser URLs, minimum polling, deadline and cancellation, terminal states, caller cookie-jar isolation, and forbidden response fields;
 - SQLite tests cover link, replay, stale revision, unlink, relink, stable local membership, restart restoration, and plaintext-marker absence;
-- compile-time port boundaries keep ZDP provider/session types out of domain and application packages.
+- compile-time port boundaries keep ZDP provider/session types out of domain and application packages, while source-boundary tests keep verifier and token fields out of persistence, Wails DTOs, frontend code, URLs, and production assembly.

@@ -22,6 +22,7 @@ const (
 )
 
 type VerifiedIdentity struct {
+	LinkReceiptRef    string
 	SubjectRef        string
 	WorkspaceRef      string
 	ConsentReceiptRef string
@@ -29,7 +30,7 @@ type VerifiedIdentity struct {
 }
 
 func (v VerifiedIdentity) Validate() error {
-	if !validReference(v.SubjectRef) || !validOptionalReference(v.WorkspaceRef) || !validReference(v.ConsentReceiptRef) || v.VerifiedAt.IsZero() {
+	if !validReference(v.LinkReceiptRef) || !validReference(v.SubjectRef) || !validOptionalReference(v.WorkspaceRef) || !validReference(v.ConsentReceiptRef) || v.VerifiedAt.IsZero() {
 		return fmt.Errorf("%w: verified identity references or timestamp are invalid", ErrInvalidRecord)
 	}
 	return nil
@@ -40,6 +41,7 @@ type Record struct {
 	VaultID           string
 	State             State
 	Revision          int
+	LinkReceiptRef    string
 	SubjectRef        string
 	WorkspaceRef      string
 	ConsentReceiptRef string
@@ -56,12 +58,12 @@ func (r Record) Validate() error {
 	}
 	switch r.State {
 	case StateLinked:
-		identity := VerifiedIdentity{SubjectRef: r.SubjectRef, WorkspaceRef: r.WorkspaceRef, ConsentReceiptRef: r.ConsentReceiptRef, VerifiedAt: r.LastVerifiedAt}
+		identity := VerifiedIdentity{LinkReceiptRef: r.LinkReceiptRef, SubjectRef: r.SubjectRef, WorkspaceRef: r.WorkspaceRef, ConsentReceiptRef: r.ConsentReceiptRef, VerifiedAt: r.LastVerifiedAt}
 		if identity.Validate() != nil || r.LinkedAt.IsZero() || r.LinkedAt.Before(r.CreatedAt) || r.UpdatedAt.Before(r.LinkedAt) || r.LastVerifiedAt.After(r.UpdatedAt) {
 			return fmt.Errorf("%w: linked membership is missing verified references", ErrInvalidRecord)
 		}
 	case StateUnlinked:
-		if r.SubjectRef != "" || r.WorkspaceRef != "" || r.ConsentReceiptRef != "" || !r.LinkedAt.IsZero() || !r.LastVerifiedAt.IsZero() {
+		if r.LinkReceiptRef != "" || r.SubjectRef != "" || r.WorkspaceRef != "" || r.ConsentReceiptRef != "" || !r.LinkedAt.IsZero() || !r.LastVerifiedAt.IsZero() {
 			return fmt.Errorf("%w: unlinked membership retains active account references", ErrInvalidRecord)
 		}
 	default:

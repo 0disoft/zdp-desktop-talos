@@ -22,6 +22,7 @@ type accountLinkPayload struct {
 	VaultID           string            `json:"vault_id"`
 	State             accountlink.State `json:"state"`
 	Revision          int               `json:"revision"`
+	LinkReceiptRef    string            `json:"link_receipt_ref,omitempty"`
 	SubjectRef        string            `json:"subject_ref,omitempty"`
 	WorkspaceRef      string            `json:"workspace_ref,omitempty"`
 	ConsentReceiptRef string            `json:"consent_receipt_ref,omitempty"`
@@ -87,7 +88,7 @@ func (s *Store) LinkAccount(ctx context.Context, input accountstore.LinkInput) (
 		}
 		createdAt = occurredAt
 	}
-	payload := accountLinkPayload{MembershipID: membershipID, VaultID: input.VaultID, State: accountlink.StateLinked, Revision: input.ExpectedRevision + 1, SubjectRef: input.Identity.SubjectRef, WorkspaceRef: input.Identity.WorkspaceRef, ConsentReceiptRef: input.Identity.ConsentReceiptRef, CreatedAt: createdAt.Format(time.RFC3339Nano), LinkedAt: occurredAt.Format(time.RFC3339Nano), UpdatedAt: occurredAt.Format(time.RFC3339Nano), LastVerifiedAt: input.Identity.VerifiedAt.UTC().Format(time.RFC3339Nano)}
+	payload := accountLinkPayload{MembershipID: membershipID, VaultID: input.VaultID, State: accountlink.StateLinked, Revision: input.ExpectedRevision + 1, LinkReceiptRef: input.Identity.LinkReceiptRef, SubjectRef: input.Identity.SubjectRef, WorkspaceRef: input.Identity.WorkspaceRef, ConsentReceiptRef: input.Identity.ConsentReceiptRef, CreatedAt: createdAt.Format(time.RFC3339Nano), LinkedAt: occurredAt.Format(time.RFC3339Nano), UpdatedAt: occurredAt.Format(time.RFC3339Nano), LastVerifiedAt: input.Identity.VerifiedAt.UTC().Format(time.RFC3339Nano)}
 	eventRecord, err := s.accountLinkEvent("account.linked", payload, occurredAt)
 	if err != nil {
 		return accountlink.Record{}, err
@@ -242,7 +243,7 @@ func accountRecordFromPayload(payload accountLinkPayload, eventID string) (accou
 	if err != nil {
 		return accountlink.Record{}, accountstore.ErrInvalidCommand
 	}
-	record := accountlink.Record{MembershipID: payload.MembershipID, VaultID: payload.VaultID, State: payload.State, Revision: payload.Revision, SubjectRef: payload.SubjectRef, WorkspaceRef: payload.WorkspaceRef, ConsentReceiptRef: payload.ConsentReceiptRef, CreatedAt: createdAt, UpdatedAt: updatedAt, LastEventID: eventID}
+	record := accountlink.Record{MembershipID: payload.MembershipID, VaultID: payload.VaultID, State: payload.State, Revision: payload.Revision, LinkReceiptRef: payload.LinkReceiptRef, SubjectRef: payload.SubjectRef, WorkspaceRef: payload.WorkspaceRef, ConsentReceiptRef: payload.ConsentReceiptRef, CreatedAt: createdAt, UpdatedAt: updatedAt, LastEventID: eventID}
 	if payload.LinkedAt != "" {
 		record.LinkedAt, _ = time.Parse(time.RFC3339Nano, payload.LinkedAt)
 	}

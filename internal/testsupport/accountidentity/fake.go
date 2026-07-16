@@ -9,49 +9,49 @@ import (
 )
 
 type Verifier struct {
-	mu         sync.Mutex
-	challenges map[string]accountlink.VerifiedIdentity
-	used       map[string]string
-	err        error
+	mu      sync.Mutex
+	results map[string]accountlink.VerifiedIdentity
+	used    map[string]string
+	err     error
 }
 
-func New(challenges map[string]accountlink.VerifiedIdentity) *Verifier {
-	copied := make(map[string]accountlink.VerifiedIdentity, len(challenges))
-	for key, value := range challenges {
+func New(results map[string]accountlink.VerifiedIdentity) *Verifier {
+	copied := make(map[string]accountlink.VerifiedIdentity, len(results))
+	for key, value := range results {
 		copied[key] = value
 	}
-	return &Verifier{challenges: copied, used: make(map[string]string)}
+	return &Verifier{results: copied, used: make(map[string]string)}
 }
 
 func Unavailable(err error) *Verifier {
 	if err == nil {
 		err = identityport.ErrUnavailable
 	}
-	return &Verifier{err: err, challenges: map[string]accountlink.VerifiedIdentity{}, used: make(map[string]string)}
+	return &Verifier{err: err, results: map[string]accountlink.VerifiedIdentity{}, used: make(map[string]string)}
 }
 
-func (v *Verifier) Verify(ctx context.Context, challenge identityport.Challenge) (accountlink.VerifiedIdentity, error) {
+func (v *Verifier) Verify(ctx context.Context, request identityport.Request) (accountlink.VerifiedIdentity, error) {
 	if err := ctx.Err(); err != nil {
 		return accountlink.VerifiedIdentity{}, err
 	}
-	if v == nil || challenge.ID == "" || challenge.CorrelationID == "" {
-		return accountlink.VerifiedIdentity{}, identityport.ErrInvalidChallenge
+	if v == nil || request.IdempotencyKey == "" || request.ClientCorrelationRef == "" {
+		return accountlink.VerifiedIdentity{}, identityport.ErrInvalidRequest
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.err != nil {
 		return accountlink.VerifiedIdentity{}, v.err
 	}
-	if correlationID, exists := v.used[challenge.ID]; exists {
-		if correlationID != challenge.CorrelationID {
-			return accountlink.VerifiedIdentity{}, identityport.ErrChallengeUsed
+	if correlationID, exists := v.used[request.IdempotencyKey]; exists {
+		if correlationID != request.ClientCorrelationRef {
+			return accountlink.VerifiedIdentity{}, identityport.ErrConsumed
 		}
-		return v.challenges[challenge.ID], nil
+		return v.results[request.IdempotencyKey], nil
 	}
-	identity, exists := v.challenges[challenge.ID]
+	identity, exists := v.results[request.IdempotencyKey]
 	if !exists || identity.Validate() != nil {
 		return accountlink.VerifiedIdentity{}, identityport.ErrRejected
 	}
-	v.used[challenge.ID] = challenge.CorrelationID
+	v.used[request.IdempotencyKey] = request.ClientCorrelationRef
 	return identity, nil
 }

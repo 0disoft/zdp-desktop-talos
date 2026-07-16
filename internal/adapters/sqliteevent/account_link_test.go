@@ -23,7 +23,7 @@ func TestAccountLinkLifecycleIsRevisionedEncryptedAndRestartSafe(t *testing.T) {
 	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: "vault-account", RetentionDays: 30, OccurredAt: now, IdempotencyKey: "vault-account-create"}); err != nil {
 		t.Fatal(err)
 	}
-	identity := accountlink.VerifiedIdentity{SubjectRef: "usr_private_marker_01", WorkspaceRef: "wks_private_marker_01", ConsentReceiptRef: "consent_private_marker_01", VerifiedAt: now.Add(time.Second)}
+	identity := accountlink.VerifiedIdentity{LinkReceiptRef: "link_private_marker_01", SubjectRef: "usr_private_marker_01", WorkspaceRef: "wks_private_marker_01", ConsentReceiptRef: "consent_private_marker_01", VerifiedAt: now.Add(time.Second)}
 	input := accountstore.LinkInput{VaultID: "vault-account", ExpectedRevision: 0, Identity: identity, OccurredAt: now.Add(2 * time.Second), IdempotencyKey: "account-link-1"}
 	linked, err := store.LinkAccount(ctx, input)
 	if err != nil {
@@ -46,7 +46,7 @@ func TestAccountLinkLifecycleIsRevisionedEncryptedAndRestartSafe(t *testing.T) {
 	if unlinked.State != accountlink.StateUnlinked || unlinked.Revision != 2 || unlinked.MembershipID != linked.MembershipID || unlinked.SubjectRef != "" || unlinked.ConsentReceiptRef != "" {
 		t.Fatalf("unlinked=%+v", unlinked)
 	}
-	relinked, err := store.LinkAccount(ctx, accountstore.LinkInput{VaultID: input.VaultID, ExpectedRevision: 2, Identity: accountlink.VerifiedIdentity{SubjectRef: "usr_second_private_marker", ConsentReceiptRef: "consent_second_private_marker", VerifiedAt: now.Add(4 * time.Second)}, OccurredAt: now.Add(5 * time.Second), IdempotencyKey: "account-relink-3"})
+	relinked, err := store.LinkAccount(ctx, accountstore.LinkInput{VaultID: input.VaultID, ExpectedRevision: 2, Identity: accountlink.VerifiedIdentity{LinkReceiptRef: "link_second_private_marker", SubjectRef: "usr_second_private_marker", ConsentReceiptRef: "consent_second_private_marker", VerifiedAt: now.Add(4 * time.Second)}, OccurredAt: now.Add(5 * time.Second), IdempotencyKey: "account-relink-3"})
 	if err != nil || relinked.Revision != 3 || relinked.MembershipID != linked.MembershipID {
 		t.Fatalf("relinked=%+v error=%v", relinked, err)
 	}
@@ -82,7 +82,7 @@ func TestAccountLinkIdempotencyRejectsChangedVerifiedIdentity(t *testing.T) {
 	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: "vault-account", RetentionDays: 30, OccurredAt: now, IdempotencyKey: "vault-account-create"}); err != nil {
 		t.Fatal(err)
 	}
-	input := accountstore.LinkInput{VaultID: "vault-account", Identity: accountlink.VerifiedIdentity{SubjectRef: "usr_one", ConsentReceiptRef: "consent_one", VerifiedAt: now}, IdempotencyKey: "shared-account-command"}
+	input := accountstore.LinkInput{VaultID: "vault-account", Identity: accountlink.VerifiedIdentity{LinkReceiptRef: "link_one", SubjectRef: "usr_one", ConsentReceiptRef: "consent_one", VerifiedAt: now}, IdempotencyKey: "shared-account-command"}
 	if _, err := store.LinkAccount(ctx, input); err != nil {
 		t.Fatal(err)
 	}
