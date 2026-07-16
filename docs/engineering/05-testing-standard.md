@@ -5,3 +5,5 @@ Domain tests cover states and invariants. Property and fuzz tests cover event or
 The malicious-repository corpus includes prompt injection, symlinks outside the repository, hostile hooks/helpers, home-directory reads, endless child processes, huge output, ANSI/HTML payloads, case collisions, Unicode normalization, dirty state, and detached HEAD.
 
 PR tests use fake providers and recorded fixtures. Live provider contracts run separately with dedicated credentials and bounded cost. A test passed before the final patch mutation is stale evidence.
+
+The Phase 5 fixture-provider scenario is a control-plane integration test, not model-quality evidence. It proves untrusted-context framing, secret redaction, egress receipt lifecycle, plan-schema and Task Contract validation, permission review stopping, and provider-to-executor handoff. Hosted-provider compatibility, latency, pricing, retention, and planning quality remain separate live-contract and evaluation gates.

@@ -14,6 +14,7 @@
 | Run / Step / Attempt | execution, scoped blocking, retries, recovery |
 | Decision / DecisionAnswer | revision-bound human choice and conflicts |
 | ToolIntent / ToolCall / ToolResult | proposed, authorized, and observed action |
+| ModelPlan / ModelEgressReceipt | bounded provider proposal and metadata-only encrypted egress audit |
 | PermissionGrant | capability scope and expiry |
 | Artifact | encrypted diff, log, snapshot, or report |
 | VerificationEvidence | proof bound to current revision and diff |
@@ -47,3 +48,5 @@
 - approved memory requires evidence and an applicability scope;
 - a secret value cannot enter event payloads;
 - imported data must pass schema, signature, sequence, sensitivity, and memory gates.
+- model plans can reference only current Task Contract verification-command indexes; provider output cannot name executables, capabilities, credentials, or network destinations;
+- model egress is prepared before the provider call and finishes as completed or failed without storing raw prompt, repository content, or model response in the receipt.

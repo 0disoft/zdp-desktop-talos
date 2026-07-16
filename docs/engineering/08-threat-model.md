@@ -13,6 +13,7 @@ Malicious repository content, dependency scripts, compromised model/tool provide
 ## Main Abuse Paths
 
 - repository instructions expand task scope or request secret egress;
+- model output invents an executable, path, credential, network destination, or verification command outside the current Task Contract;
 - symlinks or path normalization escape the task worktree;
 - inherited environment exposes credentials to child processes;
 - stale evidence or duplicate retries falsely mark completion;
@@ -24,3 +25,5 @@ Malicious repository content, dependency scripts, compromised model/tool provide
 ## Security Gates
 
 Schema validation, path guard, redaction, egress broker, capability broker, worker protocol validation, evidence freshness, memory provenance, signed updates, device membership validation, and fail-closed export scanning. Malicious-repository and crash-recovery fixtures are release-blocking.
+
+Model receipts contain hashes, sizes, counts, provider/model/prompt keys, safe call identity, usage, status, and safe error codes only. Raw model request and response content is not an observability shortcut. The deterministic fixture provider is test-only and cannot be selected by production assembly.

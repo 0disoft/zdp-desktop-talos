@@ -24,6 +24,7 @@ Restricted worker
 - The event ledger records meaningful events; materialized tables serve current state.
 - Projections and sync packs are rebuildable derivatives.
 - The model proposes plans and tool intents. Deterministic code grants capabilities and executes tools.
+- The model runtime records metadata-only encrypted egress receipts and accepts only Task Contract verification-command references; provider wire types never enter the core.
 - ZDP identity establishes the account link but does not become the owner of local task or memory state.
 
 ## Non-negotiable Boundaries

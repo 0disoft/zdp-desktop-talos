@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 12
+const currentSchemaVersion = 13
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -281,6 +281,40 @@ var migrations = []migration{
 			) STRICT`,
 		},
 	},
+	{
+		version: 13,
+		statements: []string{
+			`CREATE TABLE model_egress_receipts (
+				receipt_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				contract_revision INTEGER NOT NULL CHECK (contract_revision > 0),
+				provider_key TEXT NOT NULL,
+				model_key TEXT NOT NULL,
+				request_id TEXT NOT NULL,
+				prompt_version TEXT NOT NULL,
+				context_hash TEXT NOT NULL,
+				request_hash TEXT NOT NULL,
+				response_hash TEXT NOT NULL DEFAULT '',
+				provider_call_id TEXT NOT NULL DEFAULT '',
+				context_items INTEGER NOT NULL CHECK (context_items BETWEEN 1 AND 64),
+				input_bytes INTEGER NOT NULL CHECK (input_bytes BETWEEN 1 AND 1048576),
+				output_bytes INTEGER NOT NULL DEFAULT 0 CHECK (output_bytes BETWEEN 0 AND 1048576),
+				redaction_count INTEGER NOT NULL CHECK (redaction_count BETWEEN 0 AND 10000),
+				input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+				cached_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (cached_input_tokens >= 0 AND cached_input_tokens <= input_tokens),
+				output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+				status TEXT NOT NULL CHECK (status IN ('prepared','completed','failed')),
+				safe_error_code TEXT NOT NULL DEFAULT '',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				created_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				UNIQUE(vault_id, request_id)
+			) STRICT`,
+			`CREATE INDEX model_egress_task_idx ON model_egress_receipts(vault_id, task_id, created_at, receipt_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -327,6 +361,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT action_id, vault_id, task_id, kind, state, contract_revision, patch_hash, worktree_state_hash, evidence_id, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM patch_actions LIMIT 0`,
 		`SELECT task_id, status, action_id, completed_at, event_id FROM task_outcomes LIMIT 0`,
 		`SELECT vault_id, membership_id, state, revision, created_at, updated_at, last_event_id FROM account_links LIMIT 0`,
+		`SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

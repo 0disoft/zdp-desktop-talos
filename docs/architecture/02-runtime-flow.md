@@ -19,6 +19,8 @@ high-level task
 
 The desktop confirms a first contract only after reinspecting the canonical repository root. A dirty worktree or changed commit baseline fails before Vault persistence; later execution uses the recorded commit rather than trusting the primary worktree to remain unchanged.
 
+The model runtime is a fixed planning workflow, not a self-authorizing agent loop. It frames Task Contract and repository context as untrusted data, applies sensitivity policy and secret redaction, enforces input/output/step/tool/deadline budgets, and records an encrypted metadata-only egress receipt before calling a provider port. A valid plan may reference only existing verification-command indexes. Every referenced command is resolved again through the deterministic broker; the provider never supplies the executable, argv, worktree root, capability, grant, or approval. PR evidence uses a deterministic fixture provider that is not production wiring.
+
 ## Decisions
 
 A Decision blocks only named steps or capabilities. Safe unrelated steps continue. Answers carry the question revision and expected repository revision. Concurrent incompatible answers become `conflicted`; last-write-wins is forbidden for security, privacy, license, public API, and deletion choices.
