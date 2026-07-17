@@ -13,7 +13,7 @@
 | 4. Worker and Git (complete) | task worktree, argv process execution, capabilities, cancellation | owned worktrees, policy-bound execution, deterministic permission evaluation, restart-safe journals, an owned typed worker session, durable permission review, and main-process dispatch are implemented |
 | 5. Model runtime (complete) | provider port, egress receipt, structured plan and tool intents | deterministic fixture provider completes a bounded fake-repo scenario through redaction, encrypted receipt persistence, contract-indexed Tool Intents, and the existing permission/execution boundary; production provider selection and disclosure UI remain separate work |
 | 6. Verification and review (complete) | fresh evidence, bounded patch review, apply/discard | state-bound evidence, bounded redacted diff review, explicit apply/discard, primary-worktree conflict checks, and atomic completion transitions are implemented |
-| 7. Memory kernel | extraction, gate, provenance, context assembly | approved memory changes a later plan and is explainable |
+| 7. Memory kernel (complete) | extraction boundary, gate, provenance, context assembly | encrypted candidate and lifecycle persistence, same-Vault provenance, explicit review, bounded deterministic assembly, and an approved memory changing a later fixture plan with an applicability reason are implemented; production extraction and review UI remain separate work |
 | 8. Projection and manual sync | redacted projection and encrypted immutable packs | duplicate and conflicting two-device fixtures pass |
 | 9. Alpha hardening | signing, migration, backup, recovery runbooks | limited private alpha is supportable |
 

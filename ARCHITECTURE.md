@@ -25,6 +25,8 @@ Restricted worker
 - Projections and sync packs are rebuildable derivatives.
 - The model proposes plans and tool intents. Deterministic code grants capabilities and executes tools.
 - The model runtime records metadata-only encrypted egress receipts and accepts only Task Contract verification-command references; provider wire types never enter the core.
+- The Memory Gate stores full candidate and transition snapshots only in encrypted events. Materialized memory rows contain lifecycle and scope metadata, never the remembered statement or rationale.
+- Context Assembly selects only approved or stable memories under workspace, applicability, item, and byte limits and returns provenance plus a local selection reason with the plan.
 - ZDP identity establishes the account link but does not become the owner of local task or memory state.
 
 ## Non-negotiable Boundaries
@@ -32,6 +34,7 @@ Restricted worker
 - The renderer gets use-case APIs, never generic file, SQL, or shell access.
 - The worker never receives the Vault root key or provider credential plaintext.
 - Repository text and model output are untrusted input.
+- Approved memory is also untrusted model context: it may guide planning but cannot modify a Task Contract, capability, approval, or completion rule.
 - Secret values are rejected before event persistence, model egress, diagnostics, and projection export.
 - Completion requires evidence bound to the current repository revision and diff hash.
 - The primary worktree is not modified during agent execution.

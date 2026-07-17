@@ -16,6 +16,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/planning"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorycontext"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelprovider"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
@@ -97,6 +98,25 @@ func TestRuntimeBlocksOversizedContextBeforeReceipt(t *testing.T) {
 	}
 }
 
+func TestApprovedMemoryChangesLaterFixturePlanAndRemainsExplainable(t *testing.T) {
+	service, store, _ := newFixture(t)
+	service.memories = memoryAssembler{result: memorycontext.Result{Items: []memorycontext.Item{{
+		ID: "memory-approved", MemoryID: "memory-1", Revision: 2, Kind: "approved_memory",
+		SourceRef: "memory:memory-1:revision:2", Sensitivity: event.SensitivityPrivate,
+		Content: "Run focused tests before the full suite.", Reason: "approved memory matched goal term \"verify\"",
+	}}, Considered: 1, SelectedBytes: 39}}
+	result, err := service.Run(context.Background(), Request{TaskID: store.record.ID, RequestID: "request-memory", IdempotencyKey: "model-run-memory"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Plan.Summary, "Run focused tests before the full suite.") || len(result.MemoryContext.Items) != 1 || result.MemoryContext.Items[0].Reason == "" {
+		t.Fatalf("result=%+v", result)
+	}
+	if !strings.Contains(store.lastProviderContext, `"Authority":"untrusted_data"`) || !strings.Contains(store.lastProviderContext, `"Kind":"approved_memory"`) {
+		t.Fatalf("provider context=%s", store.lastProviderContext)
+	}
+}
+
 func newFixture(t *testing.T) (*Service, *runtimeStore, *runtimeExecutor) {
 	t.Helper()
 	return newFixtureWithCommands(t, []int{0})
@@ -119,8 +139,8 @@ func newFixtureWithCommands(t *testing.T, commandIndexes []int) (*Service, *runt
 	}
 	executor := &runtimeExecutor{result: executionruntime.Result{Outcome: permission.OutcomeAllowTask, Evidence: &verification.Evidence{ID: "evidence"}}}
 	service, err := New(store, &capturingProvider{Provider: provider, store: store}, redaction.NewScanner(), executor, Policy{
-		ProviderKey: "fixture", ModelKey: "fixture-plan-v1", PromptVersion: "planning.v1",
-		MaxContextItems: 8, MaxInputBytes: 64 << 10, MaxOutputBytes: 16 << 10,
+		ProviderKey: "fixture", ModelKey: "fixture-plan-v1", PromptVersion: PlanningPromptVersion,
+		MaxContextItems: 8, MaxMemoryCandidates: 32, MaxMemoryItems: 4, MaxMemoryBytes: 8 << 10, MaxInputBytes: 64 << 10, MaxOutputBytes: 16 << 10,
 		MaxSteps: 4, MaxToolIntents: 4, ProviderTimeout: time.Second,
 	})
 	if err != nil {
@@ -128,6 +148,15 @@ func newFixtureWithCommands(t *testing.T, commandIndexes []int) (*Service, *runt
 	}
 	service.now = func() time.Time { return now }
 	return service, store, executor
+}
+
+type memoryAssembler struct {
+	result memorycontext.Result
+	err    error
+}
+
+func (a memoryAssembler) Assemble(context.Context, memorycontext.Request) (memorycontext.Result, error) {
+	return a.result, a.err
 }
 
 type capturingProvider struct {

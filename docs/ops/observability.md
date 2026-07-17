@@ -5,3 +5,5 @@ Structured local events expose task/run/step/attempt identity, correlation, dura
 Model egress receipts add prompt version, request/context/response hashes, encoded byte counts, token usage when reported, safe provider-call identity, status, and safe failure code. They do not duplicate context blocks, Task Contract text, repository source, provider credentials, or model output. A fixture-provider success proves control flow only; it is not hosted-provider availability, billing, retention, latency, or quality evidence.
 
 Metrics are derived locally and telemetry is opt-in. Debug mode cannot silently disable redaction or expand retention. The UI can explain which memory, permission, decision, and evidence affected an outcome without revealing protected payloads.
+
+Memory context results expose only selected memory ID, revision, kind, source reference, selected byte count, considered count, and the local applicability reason. Raw statements, rationales, evidence payloads, and rejected candidates are not copied into general diagnostics or telemetry.

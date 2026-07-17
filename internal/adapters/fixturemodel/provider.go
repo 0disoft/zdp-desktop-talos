@@ -3,6 +3,7 @@ package fixturemodel
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/planning"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelprovider"
@@ -57,7 +58,21 @@ func (p *Provider) GeneratePlan(ctx context.Context, request modelprovider.Reque
 			Tool: planning.ToolIntent{ID: "tool-" + digit(index), Kind: planning.ToolVerificationCommand, CommandIndex: commandIndex},
 		}
 	}
-	plan := planning.Plan{SchemaVersion: planning.SchemaVersion, Summary: "Run bounded contract verification.", Steps: steps}
+	summary := "Run bounded contract verification."
+	for _, block := range request.Context {
+		if block.Kind != "approved_memory" {
+			continue
+		}
+		memoryStatement := []rune(strings.TrimSpace(block.Content))
+		if len(memoryStatement) > 256 {
+			memoryStatement = memoryStatement[:256]
+		}
+		if len(memoryStatement) > 0 {
+			summary = "Apply approved memory: " + string(memoryStatement) + " Then run bounded contract verification."
+		}
+		break
+	}
+	plan := planning.Plan{SchemaVersion: planning.SchemaVersion, Summary: summary, Steps: steps}
 	if err := plan.Validate(); err != nil {
 		return modelprovider.Response{}, errors.Join(modelprovider.ErrInvalidResponse, err)
 	}

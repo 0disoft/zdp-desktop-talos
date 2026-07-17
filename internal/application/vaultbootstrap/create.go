@@ -20,6 +20,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -154,6 +155,10 @@ type AccountDatabase interface {
 	accountstore.Store
 }
 
+type MemoryDatabase interface {
+	memorystore.Store
+}
+
 func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {
 	if s == nil || s.database == nil {
 		return nil, ErrNotOpen
@@ -173,6 +178,17 @@ func (s *Session) AccountDatabase() (AccountDatabase, error) {
 		return nil, ErrNotOpen
 	}
 	return s.database, nil
+}
+
+func (s *Session) MemoryDatabase() (MemoryDatabase, error) {
+	if s == nil || s.database == nil {
+		return nil, ErrNotOpen
+	}
+	database, ok := s.database.(MemoryDatabase)
+	if !ok {
+		return nil, ErrNotOpen
+	}
+	return database, nil
 }
 
 func (s *Session) Close() error {

@@ -43,5 +43,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0034-atomic-patch-actions-and-completion-gate.md`: idempotent apply/discard journaling, primary-worktree preconditions, and atomic terminal Task outcomes
 - `0035-zdp-account-link-boundary.md`: normalized verified account references, encrypted Vault membership lifecycle, and dormant fake-verifier boundary
 - `0036-bounded-model-planning-and-egress-receipts.md`: provider-neutral planning, encrypted metadata-only egress receipts, and contract-indexed Tool Intents
+- `0037-gated-memory-lifecycle-and-context-assembly.md`: encrypted candidate lifecycle, provenance gates, bounded applicability, and explainable plan context
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

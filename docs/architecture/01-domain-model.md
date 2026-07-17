@@ -46,7 +46,12 @@
 - patch action preparation precedes external Git mutation; `pending` or `unknown` actions are never automatically repeated;
 - successful patch action and terminal Task outcome commit atomically; failed or unknown actions leave the Task contracted;
 - approved memory requires evidence and an applicability scope;
+- memory evidence IDs must already exist in the same Vault; candidate creation cannot invent or borrow provenance from another Vault;
+- only explicit optimistic-revision transitions can approve, reject, quarantine, stabilize, stale, deprecate, or supersede memory;
+- rejected, quarantined, superseded, and deprecated memories never re-enter active context;
+- materialized memory state contains lifecycle and scope hashes only; statements, rationales, applicability terms, and evidence lists remain encrypted event payloads;
 - a secret value cannot enter event payloads;
 - imported data must pass schema, signature, sequence, sensitivity, and memory gates.
 - model plans can reference only current Task Contract verification-command indexes; provider output cannot name executables, capabilities, credentials, or network destinations;
 - model egress is prepared before the provider call and finishes as completed or failed without storing raw prompt, repository content, or model response in the receipt.
+- Context Assembly returns bounded approved-memory statements plus memory ID, revision, source reference, and an applicability reason; memory never widens tool or permission authority.

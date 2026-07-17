@@ -21,6 +21,12 @@ The desktop confirms a first contract only after reinspecting the canonical repo
 
 The model runtime is a fixed planning workflow, not a self-authorizing agent loop. It frames Task Contract and repository context as untrusted data, applies sensitivity policy and secret redaction, enforces input/output/step/tool/deadline budgets, and records an encrypted metadata-only egress receipt before calling a provider port. A valid plan may reference only existing verification-command indexes. Every referenced command is resolved again through the deterministic broker; the provider never supplies the executable, argv, worktree root, capability, grant, or approval. PR evidence uses a deterministic fixture provider that is not production wiring.
 
+## Memory Gate and Context Assembly
+
+Extraction produces a candidate, never an approved rule. Candidate creation requires normalized kind, scope, applicability, sensitivity, confidence, source actor, and existing same-Vault evidence event IDs. The full snapshot is encrypted in the ledger while the materialized pointer stores only state, scope hash, confidence, revision, timestamps, and event references. User review moves a candidate to approved, rejected, or quarantined with optimistic concurrency; later stability and retirement transitions remain separate.
+
+For a later Task, Context Assembly queries only approved and stable records in Vault or matching workspace scope. It filters normalized goal and allowed-path terms, applies deterministic ordering plus item and byte budgets, and returns each selected memory with its revision, source reference, and local match reason. Planning prompt `planning.v2` labels these blocks `untrusted_data`: the model may reflect the statement in its plan summary but cannot use memory to invent a command, expand scope, grant permission, or satisfy verification.
+
 ## Decisions
 
 A Decision blocks only named steps or capabilities. Safe unrelated steps continue. Answers carry the question revision and expected repository revision. Concurrent incompatible answers become `conflicted`; last-write-wins is forbidden for security, privacy, license, public API, and deletion choices.
