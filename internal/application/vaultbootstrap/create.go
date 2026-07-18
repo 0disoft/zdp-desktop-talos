@@ -1,19 +1,24 @@
 package vaultbootstrap
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"time"
 
+	enrollmentapp "github.com/0disoft/zdp-desktop-talos/internal/application/syncenrollment"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/syncexport"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/syncidentity"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/syncpack"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncenrollment"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
@@ -21,11 +26,13 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/enrollmentstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
@@ -45,6 +52,8 @@ var (
 	ErrNotOpen               = errors.New("Vault session is not open")
 	ErrPurgeIncomplete       = errors.New("Vault hard purge is pending recovery")
 	ErrTaskWorkspaceMismatch = errors.New("task does not belong to the current workspace snapshot")
+	ErrEnrollmentConflict    = errors.New("sync enrollment conflicts with local Vault state")
+	ErrEnrollmentUnsupported = errors.New("Vault database does not support sync enrollment")
 )
 
 type CreateInput struct {
@@ -139,6 +148,42 @@ type HardPurgeInput struct {
 	Confirmation     string
 }
 
+type CreateEnrollmentOfferInput struct {
+	ValidFor time.Duration
+}
+
+type EnrollmentOffer struct {
+	EnrollmentID string
+	Encoded      []byte
+	Secret       string
+	ExpiresAt    time.Time
+}
+
+type AcceptEnrollmentOfferInput struct {
+	Encoded []byte
+	Secret  string
+}
+
+type AcceptedEnrollment struct {
+	Session           *Session
+	EnrollmentID      string
+	EncodedAcceptance []byte
+	SourceDeviceID    string
+	TargetDeviceID    string
+	Replay            bool
+}
+
+type CompleteEnrollmentInput struct {
+	EncodedAcceptance []byte
+	Secret            string
+}
+
+type ImportSyncPackInput struct {
+	Encoded    []byte
+	DeviceID   string
+	ReceivedAt time.Time
+}
+
 type Session struct {
 	Record   vault.Record
 	database vaultdb.Database
@@ -171,6 +216,12 @@ type PlanningDatabase interface {
 	ExecutionDatabase
 	memorystore.Store
 	modelstore.Store
+}
+
+type EnrollmentDatabase interface {
+	syncstore.Store
+	syncstore.ReplayStore
+	enrollmentstore.Store
 }
 
 func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {
@@ -225,6 +276,117 @@ func (s *Session) ExportNextSyncPack(ctx context.Context, limit int) (syncexport
 		return syncexport.Result{}, err
 	}
 	return exporter.ExportNext(ctx, s.Record.ID, limit)
+}
+
+func (s *Session) CreateEnrollmentOffer(ctx context.Context, input CreateEnrollmentOfferInput) (EnrollmentOffer, error) {
+	database, err := s.enrollmentDatabase()
+	if err != nil || s.keys == nil || ctx == nil {
+		return EnrollmentOffer{}, ErrNotOpen
+	}
+	identity, err := syncidentity.New(s.keys, database)
+	if err != nil {
+		return EnrollmentOffer{}, err
+	}
+	local, err := identity.Ensure(ctx, s.Record.ID)
+	if err != nil {
+		return EnrollmentOffer{}, err
+	}
+	defer clear(local.PrivateKey)
+	vaultKey, err := s.keys.Get(ctx, keyvault.Reference{VaultID: s.Record.ID, KeyID: VaultKeyID})
+	if err != nil {
+		return EnrollmentOffer{}, err
+	}
+	defer clear(vaultKey)
+	codec := enrollmentapp.NewCodec()
+	created, err := codec.CreateOffer(ctx, enrollmentapp.CreateOfferInput{VaultID: s.Record.ID, VaultCreatedAt: s.Record.CreatedAt, RetentionDays: s.Record.RetentionDays, VaultKey: vaultKey, SourceDeviceID: local.Device.DeviceID, SourcePublicKey: local.Device.PublicKey, SigningKey: local.PrivateKey, IssuedAt: time.Now().UTC(), ValidFor: input.ValidFor})
+	if err != nil {
+		return EnrollmentOffer{}, err
+	}
+	defer clear(created.Offer.VaultKey)
+	if _, _, err := database.RecordEnrollmentOffer(ctx, enrollmentstore.RecordOfferInput{EnrollmentID: created.Offer.EnrollmentID, VaultID: created.Offer.VaultID, OfferHash: created.Hash, ExpiresAt: created.Offer.ExpiresAt, OccurredAt: created.Offer.IssuedAt}); err != nil {
+		return EnrollmentOffer{}, err
+	}
+	return EnrollmentOffer{EnrollmentID: created.Offer.EnrollmentID, Encoded: created.Encoded, Secret: created.Secret, ExpiresAt: created.Offer.ExpiresAt}, nil
+}
+
+func (s *Session) CompleteEnrollment(ctx context.Context, input CompleteEnrollmentInput) (syncstate.Device, error) {
+	database, err := s.enrollmentDatabase()
+	if err != nil || s.keys == nil || ctx == nil {
+		return syncstate.Device{}, ErrNotOpen
+	}
+	codec := enrollmentapp.NewCodec()
+	acceptance, acceptanceHash, err := codec.OpenAcceptance(ctx, input.EncodedAcceptance, input.Secret)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	if acceptance.VaultID != s.Record.ID {
+		return syncstate.Device{}, ErrEnrollmentConflict
+	}
+	stored, _, err := database.GetEnrollment(ctx, s.Record.ID, acceptance.EnrollmentID)
+	if err != nil || stored.Role != syncenrollment.RoleIssuer || stored.OfferHash != acceptance.OfferHash {
+		return syncstate.Device{}, ErrEnrollmentConflict
+	}
+	if !acceptance.ExpiresAt.Equal(stored.ExpiresAt) {
+		return syncstate.Device{}, ErrEnrollmentConflict
+	}
+	identity, err := syncidentity.New(s.keys, database)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	local, err := identity.Ensure(ctx, s.Record.ID)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	clear(local.PrivateKey)
+	if acceptance.SourceDeviceID != local.Device.DeviceID {
+		return syncstate.Device{}, ErrEnrollmentConflict
+	}
+	now := time.Now().UTC()
+	if stored.State == syncenrollment.StateCompleted {
+		if stored.PeerDeviceID != acceptance.TargetDeviceID || stored.AcceptanceHash != acceptanceHash {
+			return syncstate.Device{}, ErrEnrollmentConflict
+		}
+	} else {
+		if err := enrollmentapp.RequireActiveAcceptance(acceptance, now); err != nil {
+			return syncstate.Device{}, err
+		}
+	}
+	target, err := ensureSyncDevice(ctx, database, s.Record.ID, acceptance.TargetDeviceID, acceptance.TargetPublicKey, acceptance.AcceptedAt, "sync-enrollment-target:"+acceptance.EnrollmentID)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	if _, _, err := database.CompleteEnrollment(ctx, enrollmentstore.CompleteInput{EnrollmentID: acceptance.EnrollmentID, VaultID: s.Record.ID, TargetDeviceID: acceptance.TargetDeviceID, OfferHash: acceptance.OfferHash, AcceptanceHash: acceptanceHash, OccurredAt: now}); err != nil {
+		return syncstate.Device{}, err
+	}
+	return target, nil
+}
+
+func (s *Session) ImportAndApplySyncPack(ctx context.Context, input ImportSyncPackInput) (syncpack.ApplyImportResult, error) {
+	database, err := s.enrollmentDatabase()
+	if err != nil || s.keys == nil || ctx == nil {
+		return syncpack.ApplyImportResult{}, ErrNotOpen
+	}
+	vaultKey, err := s.keys.Get(ctx, keyvault.Reference{VaultID: s.Record.ID, KeyID: VaultKeyID})
+	if err != nil {
+		return syncpack.ApplyImportResult{}, err
+	}
+	defer clear(vaultKey)
+	importer, err := syncpack.NewImporter(syncpack.New(), database)
+	if err != nil {
+		return syncpack.ApplyImportResult{}, err
+	}
+	return importer.Apply(ctx, syncpack.PrepareImportInput{Encoded: input.Encoded, VaultID: s.Record.ID, DeviceID: input.DeviceID, EncryptionKey: vaultKey, ReceivedAt: input.ReceivedAt})
+}
+
+func (s *Session) enrollmentDatabase() (EnrollmentDatabase, error) {
+	if s == nil || s.database == nil {
+		return nil, ErrNotOpen
+	}
+	database, ok := s.database.(EnrollmentDatabase)
+	if !ok {
+		return nil, ErrEnrollmentUnsupported
+	}
+	return database, nil
 }
 
 func (s *Session) Close() error {
@@ -440,6 +602,140 @@ func (c *Creator) Create(ctx context.Context, input CreateInput) (*Session, erro
 	return &Session{Record: record, database: database, keys: c.keys}, nil
 }
 
+func (c *Creator) AcceptEnrollmentOffer(ctx context.Context, input AcceptEnrollmentOfferInput) (AcceptedEnrollment, error) {
+	if c == nil || c.keys == nil || c.databases == nil || c.catalog == nil || ctx == nil {
+		return AcceptedEnrollment{}, ErrInvalidInput
+	}
+	codec := enrollmentapp.NewCodec()
+	offer, offerHash, err := codec.OpenOffer(ctx, input.Encoded, input.Secret)
+	if err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	defer clear(offer.VaultKey)
+
+	entry, cataloged, err := c.catalogEntry(ctx, offer.VaultID)
+	if err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	if cataloged {
+		if entry.State != vaultcatalog.StateActive {
+			return AcceptedEnrollment{}, ErrEnrollmentConflict
+		}
+		session, err := c.Open(ctx, offer.VaultID)
+		if err != nil {
+			return AcceptedEnrollment{}, err
+		}
+		database, err := session.enrollmentDatabase()
+		if err != nil {
+			_ = session.Close()
+			return AcceptedEnrollment{}, err
+		}
+		stored, response, err := database.GetEnrollment(ctx, offer.VaultID, offer.EnrollmentID)
+		if err != nil || stored.Role != syncenrollment.RoleRecipient || stored.State != syncenrollment.StateAccepted || stored.OfferHash != offerHash || stored.PeerDeviceID != offer.SourceDeviceID {
+			clear(response)
+			_ = session.Close()
+			return AcceptedEnrollment{}, ErrEnrollmentConflict
+		}
+		identity, err := syncidentity.New(c.keys, database)
+		if err != nil {
+			clear(response)
+			_ = session.Close()
+			return AcceptedEnrollment{}, err
+		}
+		local, err := identity.Ensure(ctx, offer.VaultID)
+		if err != nil {
+			clear(response)
+			_ = session.Close()
+			return AcceptedEnrollment{}, err
+		}
+		clear(local.PrivateKey)
+		if err := validateStoredAcceptance(ctx, codec, response, input.Secret, offer, offerHash, stored.AcceptanceHash, local.Device.DeviceID); err != nil {
+			clear(response)
+			_ = session.Close()
+			return AcceptedEnrollment{}, err
+		}
+		return AcceptedEnrollment{Session: session, EnrollmentID: offer.EnrollmentID, EncodedAcceptance: response, SourceDeviceID: offer.SourceDeviceID, TargetDeviceID: local.Device.DeviceID, Replay: true}, nil
+	}
+	if err := enrollmentapp.RequireActiveOffer(offer, c.now().UTC()); err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	if err := c.ensureEnrollmentVaultKey(ctx, offer.VaultID, offer.VaultKey); err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	database, err := c.databases.Create(ctx, offer.VaultID, VaultKeyID, offer.VaultKey)
+	if errors.Is(err, vaultdb.ErrAlreadyExists) {
+		database, err = c.databases.Open(ctx, offer.VaultID, VaultKeyID, offer.VaultKey)
+	}
+	if err != nil {
+		return AcceptedEnrollment{}, fmt.Errorf("open enrollment Vault database: %w", err)
+	}
+	keepOpen := false
+	defer func() {
+		if !keepOpen {
+			_ = database.Close()
+		}
+	}()
+	record, err := database.GetVault(ctx, offer.VaultID)
+	if errors.Is(err, vaultstore.ErrNotFound) {
+		record, err = database.CreateVault(ctx, vaultstore.CreateInput{VaultID: offer.VaultID, RetentionDays: offer.RetentionDays, OccurredAt: offer.VaultCreatedAt, IdempotencyKey: "vault-enrollment-bootstrap:" + offer.EnrollmentID})
+	}
+	if err != nil {
+		return AcceptedEnrollment{}, fmt.Errorf("initialize enrollment Vault state: %w", err)
+	}
+	if record.ID != offer.VaultID || record.Status != vault.StatusActive || record.RetentionDays != offer.RetentionDays || !record.CreatedAt.Equal(offer.VaultCreatedAt) {
+		return AcceptedEnrollment{}, ErrEnrollmentConflict
+	}
+	enrollmentDatabase, ok := database.(EnrollmentDatabase)
+	if !ok {
+		return AcceptedEnrollment{}, ErrEnrollmentUnsupported
+	}
+	if _, err := ensureSyncDevice(ctx, enrollmentDatabase, offer.VaultID, offer.SourceDeviceID, offer.SourcePublicKey, offer.IssuedAt, "sync-enrollment-source:"+offer.EnrollmentID); err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	identity, err := syncidentity.New(c.keys, enrollmentDatabase)
+	if err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	local, err := identity.Ensure(ctx, offer.VaultID)
+	if err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	defer clear(local.PrivateKey)
+	if stored, response, getErr := enrollmentDatabase.GetEnrollment(ctx, offer.VaultID, offer.EnrollmentID); getErr == nil {
+		if stored.Role != syncenrollment.RoleRecipient || stored.State != syncenrollment.StateAccepted || stored.OfferHash != offerHash || stored.PeerDeviceID != offer.SourceDeviceID {
+			clear(response)
+			return AcceptedEnrollment{}, ErrEnrollmentConflict
+		}
+		if err := validateStoredAcceptance(ctx, codec, response, input.Secret, offer, offerHash, stored.AcceptanceHash, local.Device.DeviceID); err != nil {
+			clear(response)
+			return AcceptedEnrollment{}, err
+		}
+		if err := c.ensureCatalogEntry(ctx, vaultcatalog.Entry{VaultID: offer.VaultID, CreatedAt: record.CreatedAt, State: vaultcatalog.StateActive}); err != nil {
+			clear(response)
+			return AcceptedEnrollment{}, err
+		}
+		keepOpen = true
+		return AcceptedEnrollment{Session: &Session{Record: record, database: database, keys: c.keys}, EnrollmentID: offer.EnrollmentID, EncodedAcceptance: response, SourceDeviceID: offer.SourceDeviceID, TargetDeviceID: local.Device.DeviceID, Replay: true}, nil
+	} else if !errors.Is(getErr, enrollmentstore.ErrNotFound) {
+		return AcceptedEnrollment{}, getErr
+	}
+	acceptedAt := c.now().UTC()
+	created, err := codec.CreateAcceptance(ctx, enrollmentapp.CreateAcceptanceInput{Offer: offer, OfferHash: offerHash, TargetDeviceID: local.Device.DeviceID, TargetPublicKey: local.Device.PublicKey, SigningKey: local.PrivateKey, AcceptedAt: acceptedAt, Secret: input.Secret})
+	if err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	_, storedResponse, replay, err := enrollmentDatabase.RecordEnrollmentAcceptance(ctx, enrollmentstore.RecordAcceptanceInput{EnrollmentID: offer.EnrollmentID, VaultID: offer.VaultID, SourceDeviceID: offer.SourceDeviceID, OfferHash: offerHash, AcceptanceHash: created.Hash, EncodedAcceptance: created.Encoded, ExpiresAt: offer.ExpiresAt, OccurredAt: acceptedAt})
+	if err != nil {
+		return AcceptedEnrollment{}, err
+	}
+	if err := c.ensureCatalogEntry(ctx, vaultcatalog.Entry{VaultID: offer.VaultID, CreatedAt: record.CreatedAt, State: vaultcatalog.StateActive}); err != nil {
+		clear(storedResponse)
+		return AcceptedEnrollment{}, err
+	}
+	keepOpen = true
+	return AcceptedEnrollment{Session: &Session{Record: record, database: database, keys: c.keys}, EnrollmentID: offer.EnrollmentID, EncodedAcceptance: storedResponse, SourceDeviceID: offer.SourceDeviceID, TargetDeviceID: local.Device.DeviceID, Replay: replay}, nil
+}
+
 func (c *Creator) List(ctx context.Context) ([]vaultcatalog.Entry, error) {
 	return c.catalog.List(ctx)
 }
@@ -537,6 +833,86 @@ func (c *Creator) finishPurge(ctx context.Context, entry vaultcatalog.Entry) err
 	}
 	if err := c.catalog.Remove(ctx, entry); err != nil && !errors.Is(err, vaultcatalog.ErrNotFound) {
 		return fmt.Errorf("complete Vault purge journal: %w", err)
+	}
+	return nil
+}
+
+func (c *Creator) ensureEnrollmentVaultKey(ctx context.Context, vaultID string, expected []byte) error {
+	if len(expected) != vaultKeyBytes {
+		return ErrEnrollmentConflict
+	}
+	ref := keyvault.Reference{VaultID: vaultID, KeyID: VaultKeyID}
+	err := c.keys.Put(ctx, ref, expected)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, keyvault.ErrAlreadyExists) {
+		return fmt.Errorf("persist enrolled Vault key: %w", err)
+	}
+	stored, err := c.keys.Get(ctx, ref)
+	if err != nil {
+		return fmt.Errorf("load existing enrolled Vault key: %w", err)
+	}
+	defer clear(stored)
+	if !bytes.Equal(stored, expected) {
+		return ErrEnrollmentConflict
+	}
+	return nil
+}
+
+func (c *Creator) catalogEntry(ctx context.Context, vaultID string) (vaultcatalog.Entry, bool, error) {
+	entries, err := c.catalog.List(ctx)
+	if err != nil {
+		return vaultcatalog.Entry{}, false, fmt.Errorf("read protected Vault catalog: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.VaultID == vaultID {
+			return entry, true, nil
+		}
+	}
+	return vaultcatalog.Entry{}, false, nil
+}
+
+func (c *Creator) ensureCatalogEntry(ctx context.Context, expected vaultcatalog.Entry) error {
+	if err := c.catalog.Add(ctx, expected); err == nil {
+		return nil
+	} else if !errors.Is(err, vaultcatalog.ErrConflict) {
+		return fmt.Errorf("register enrolled Vault in catalog: %w", err)
+	}
+	stored, found, err := c.catalogEntry(ctx, expected.VaultID)
+	if err != nil {
+		return err
+	}
+	if !found || stored.State != vaultcatalog.StateActive || !stored.CreatedAt.Equal(expected.CreatedAt) {
+		return ErrEnrollmentConflict
+	}
+	return nil
+}
+
+func ensureSyncDevice(ctx context.Context, store syncstore.Store, vaultID, deviceID string, publicKey ed25519.PublicKey, occurredAt time.Time, idempotencyKey string) (syncstate.Device, error) {
+	stored, err := store.GetSyncDevice(ctx, vaultID, deviceID)
+	if errors.Is(err, syncstore.ErrDeviceNotFound) {
+		stored, err = store.RegisterSyncDevice(ctx, syncstore.RegisterDeviceInput{VaultID: vaultID, DeviceID: deviceID, PublicKey: publicKey, OccurredAt: occurredAt, IdempotencyKey: idempotencyKey})
+		if errors.Is(err, syncstore.ErrDeviceExists) {
+			stored, err = store.GetSyncDevice(ctx, vaultID, deviceID)
+		}
+	}
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	if stored.State != syncstate.DeviceActive || stored.DeviceID != deviceID || !bytes.Equal(stored.PublicKey, publicKey) {
+		return syncstate.Device{}, ErrEnrollmentConflict
+	}
+	return stored, nil
+}
+
+func validateStoredAcceptance(ctx context.Context, codec *enrollmentapp.Codec, encoded []byte, secret string, offer syncenrollment.Offer, offerHash, expectedAcceptanceHash, targetDeviceID string) error {
+	acceptance, acceptanceHash, err := codec.OpenAcceptance(ctx, encoded, secret)
+	if err != nil {
+		return err
+	}
+	if acceptanceHash != expectedAcceptanceHash || acceptance.EnrollmentID != offer.EnrollmentID || acceptance.VaultID != offer.VaultID || acceptance.OfferHash != offerHash || acceptance.SourceDeviceID != offer.SourceDeviceID || acceptance.TargetDeviceID != targetDeviceID || !acceptance.ExpiresAt.Equal(offer.ExpiresAt) {
+		return ErrEnrollmentConflict
 	}
 	return nil
 }

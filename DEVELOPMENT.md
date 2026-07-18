@@ -5,7 +5,7 @@
 
 ## Current Phase
 
-The repository now proves the local MVP loop through schema 17: the renderer builds, desktop/worker/CLI binaries compile, Vault and encrypted state survive restart, Task/Decision/permission/execution/patch/memory flows are revisioned and evidence-bound, model egress is explicit, and signed sync packs have durable validation plus export journals and a DPAPI local signing identity. A provisioned signing-host run, native clean-install/N-1-upgrade evidence, upstream product-link promotion, Vault enrollment transfer, ordered sync replay, and Git exchange remain explicit blockers rather than implied functionality.
+The repository now proves the local MVP loop through schema 19: the renderer builds, desktop/worker/CLI binaries compile, Vault and encrypted state survive restart, Task/Decision/permission/execution/patch/memory flows are revisioned and evidence-bound, model egress is explicit, signed sync packs have durable export/import/replay journals, and encrypted enrollment offer/acceptance establishes two-device Vault and signing trust. A provisioned signing-host run, native clean-install/N-1-upgrade evidence, upstream product-link promotion, workspace remapping, cross-device revocation propagation, renderer sync controls, and explicit Git exchange remain blockers rather than implied functionality.
 
 ## Current Layout
 

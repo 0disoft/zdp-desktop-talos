@@ -20,6 +20,8 @@ Account link, unlink, and relink append encrypted private events and advance one
 
 SQLite schema changes use monotonic `PRAGMA user_version` migrations. Each migration commits atomically, newer application-incompatible schemas are rejected, and the adapter validates required columns after migration instead of trusting the version integer alone. Migrations are forward-only; backup and roll-forward policy are separate release gates for destructive changes.
 
+Schema 19 journals enrollment offers, accepted responses, and completed issuer handshakes. Offer and acceptance hashes bind exact transfer bytes; the recipient stores the exact acceptance under the Vault envelope so a restart returns the same response instead of minting another target identity. Conflicting bytes or target identities do not overwrite the first accepted transition.
+
 ## Integrity Metadata
 
 Events use UUIDv7 identifiers, device-local monotonic sequence numbers, correlation and causation identifiers, schema versions, sensitivity, previous-device hash, event hash, and device signature. Hash chains detect drift; they are not advertised as an immutable external audit ledger against a stolen device key.

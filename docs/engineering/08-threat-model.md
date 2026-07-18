@@ -23,10 +23,13 @@ Malicious repository content, dependency scripts, compromised model/tool provide
 - projection or diagnostics place sensitive data in Git or support systems;
 - account linkage is misrepresented as consent to sync content;
 - a revoked device submits signed but unauthorized packs.
+- a copied, logged, or shoulder-surfed enrollment capability is exercised on another offline device before expiry.
 
 ## Security Gates
 
 Schema validation, path guard, redaction, egress broker, capability broker, worker protocol validation, evidence freshness, memory provenance, signed updates, device membership validation, and fail-closed export scanning. Malicious-repository and crash-recovery fixtures are release-blocking.
+
+Enrollment packages use a random 32-byte bearer capability, authenticated encryption, source/target signatures, bounded size and validity, durable local reuse detection, and exact acceptance recovery. Offline global single use cannot be proven before peers converge: the source therefore completes only one target, the secret must never enter logs or Vault events, and later renderer/file handling must preserve that separation.
 
 Model receipts contain hashes, sizes, counts, provider/model/prompt keys, safe call identity, usage, status, and safe error codes only. Raw model request and response content is not an observability shortcut. The deterministic fixture provider is test-only and cannot be selected by production assembly.
 

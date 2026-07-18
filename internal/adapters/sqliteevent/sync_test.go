@@ -218,10 +218,10 @@ func TestSchema15MigratesToDurableSyncState(t *testing.T) {
 	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 18 {
+	if version != currentSchemaVersion {
 		t.Fatalf("schema version=%d", version)
 	}
-	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches"} {
+	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches", "sync_enrollments"} {
 		var name string
 		if err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name); err != nil || name != table {
 			t.Fatalf("table %s name=%q error=%v", table, name, err)

@@ -22,6 +22,7 @@
 | MemoryCandidate / MemoryRecord | gated durable knowledge with provenance |
 | Projection | disposable human-readable derivative |
 | SyncBatch | immutable encrypted event pack |
+| SyncEnrollment | expiry-bounded Vault-key transfer and bidirectional device-membership handshake |
 | SecretFinding / RedactionRecord | secret detection and removal evidence |
 
 ## Key Invariants
@@ -54,6 +55,7 @@
 - materialized memory state contains lifecycle and scope hashes only; statements, rationales, applicability terms, and evidence lists remain encrypted event payloads;
 - a secret value cannot enter event payloads;
 - imported data must pass schema, signature, sequence, sensitivity, and memory gates.
+- enrollment secrets are random bearer capabilities, never Vault events or catalog fields; a source completes at most one target acceptance for each enrollment ID.
 - model plans can reference only current Task Contract verification-command indexes; provider output cannot name executables, capabilities, credentials, or network destinations;
 - model egress is prepared before the provider call and finishes as completed or failed without storing raw prompt, repository content, or model response in the receipt.
 - Context Assembly returns bounded approved-memory statements plus memory ID, revision, source reference, and an applicability reason; memory never widens tool or permission authority.
