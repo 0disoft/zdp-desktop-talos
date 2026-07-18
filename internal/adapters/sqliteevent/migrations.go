@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 22
+const currentSchemaVersion = 23
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -540,6 +540,37 @@ var migrations = []migration{
 				PRIMARY KEY(memory_id, revision)
 			) STRICT`,
 			`CREATE INDEX memory_sync_snapshots_event_idx ON memory_sync_snapshots(snapshot_event_id, memory_id, revision)`,
+		},
+	},
+	{
+		version: 23,
+		statements: []string{
+			`ALTER TABLE sync_enrollments RENAME TO sync_enrollments_v22`,
+			`CREATE TABLE sync_enrollments (
+				enrollment_id TEXT PRIMARY KEY CHECK (length(enrollment_id) BETWEEN 1 AND 96),
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				role TEXT NOT NULL CHECK (role IN ('issuer','recipient')),
+				state TEXT NOT NULL CHECK (state IN ('offered','accepted','completed','canceled','expired')),
+				peer_device_id TEXT,
+				offer_hash TEXT NOT NULL CHECK (length(offer_hash) = 64),
+				acceptance_hash TEXT CHECK (acceptance_hash IS NULL OR length(acceptance_hash) = 64),
+				acceptance_envelope BLOB,
+				expires_at TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				created_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				CHECK (
+					(role = 'issuer' AND state IN ('offered','canceled','expired') AND peer_device_id IS NULL AND acceptance_hash IS NULL AND acceptance_envelope IS NULL)
+					OR (role = 'issuer' AND state = 'completed' AND peer_device_id IS NOT NULL AND acceptance_hash IS NOT NULL AND acceptance_envelope IS NULL)
+					OR (role = 'recipient' AND state = 'accepted' AND peer_device_id IS NOT NULL AND acceptance_hash IS NOT NULL AND acceptance_envelope IS NOT NULL)
+					OR (role = 'recipient' AND state IN ('canceled','expired') AND peer_device_id IS NOT NULL AND acceptance_hash IS NOT NULL AND acceptance_envelope IS NULL)
+				)
+			) STRICT`,
+			`INSERT INTO sync_enrollments(enrollment_id, vault_id, role, state, peer_device_id, offer_hash, acceptance_hash, acceptance_envelope, expires_at, created_at, updated_at, created_event_id, last_event_id)
+			 SELECT enrollment_id, vault_id, role, state, peer_device_id, offer_hash, acceptance_hash, acceptance_envelope, expires_at, created_at, updated_at, created_event_id, last_event_id FROM sync_enrollments_v22`,
+			`DROP TABLE sync_enrollments_v22`,
+			`CREATE INDEX sync_enrollments_vault_state_idx ON sync_enrollments(vault_id, state, expires_at, enrollment_id)`,
 		},
 	},
 }

@@ -43,9 +43,17 @@ type CompleteInput struct {
 	OccurredAt     time.Time
 }
 
+type CancelInput struct {
+	EnrollmentID string
+	VaultID      string
+	OccurredAt   time.Time
+}
+
 type Store interface {
 	RecordEnrollmentOffer(context.Context, RecordOfferInput) (syncenrollment.Record, bool, error)
 	RecordEnrollmentAcceptance(context.Context, RecordAcceptanceInput) (syncenrollment.Record, []byte, bool, error)
 	CompleteEnrollment(context.Context, CompleteInput) (syncenrollment.Record, bool, error)
+	CancelEnrollment(context.Context, CancelInput) (syncenrollment.Record, bool, error)
+	ExpireEnrollments(context.Context, string, time.Time) ([]syncenrollment.Record, error)
 	GetEnrollment(context.Context, string, string) (syncenrollment.Record, []byte, error)
 }

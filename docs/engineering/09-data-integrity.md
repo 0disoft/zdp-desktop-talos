@@ -20,7 +20,7 @@ Account link, unlink, and relink append encrypted private events and advance one
 
 SQLite schema changes use monotonic `PRAGMA user_version` migrations. Each migration commits atomically, newer application-incompatible schemas are rejected, and the adapter validates required columns after migration instead of trusting the version integer alone. Migrations are forward-only; backup and roll-forward policy are separate release gates for destructive changes.
 
-Schema 19 journals enrollment offers, accepted responses, and completed issuer handshakes. Offer and acceptance hashes bind exact transfer bytes; the recipient stores the exact acceptance under the Vault envelope so a restart returns the same response instead of minting another target identity. Conflicting bytes or target identities do not overwrite the first accepted transition.
+Schema 19 journals enrollment offers, accepted responses, and completed issuer handshakes. Offer and acceptance hashes bind exact transfer bytes; the recipient stores the exact acceptance under the Vault envelope so a restart returns the same response instead of minting another target identity. Schema 23 adds terminal cancellation and expiry with conditional prior-state updates. Terminal recipient transitions erase the acceptance envelope, elapsed deadlines reconcile after restart, and issuer completion checks the active state before registering a target. Conflicting bytes, target identities, or terminal outcomes do not overwrite the first accepted transition.
 
 ## Integrity Metadata
 

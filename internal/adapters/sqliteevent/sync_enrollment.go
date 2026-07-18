@@ -48,7 +48,7 @@ func (s *Store) RecordEnrollmentOffer(ctx context.Context, input enrollmentstore
 		return syncenrollment.Record{}, false, err
 	}
 	if found {
-		if stored.Role == syncenrollment.RoleIssuer && stored.OfferHash == input.OfferHash && stored.ExpiresAt.Equal(input.ExpiresAt.UTC()) {
+		if stored.Role == syncenrollment.RoleIssuer && stored.State == syncenrollment.StateOffered && stored.OfferHash == input.OfferHash && stored.ExpiresAt.Equal(input.ExpiresAt.UTC()) {
 			return stored, true, nil
 		}
 		return syncenrollment.Record{}, false, enrollmentstore.ErrConflict
@@ -73,6 +73,140 @@ func (s *Store) RecordEnrollmentOffer(ctx context.Context, input enrollmentstore
 	candidate.CreatedEventID = record.ID
 	candidate.LastEventID = record.ID
 	return candidate, false, nil
+}
+
+func (s *Store) CancelEnrollment(ctx context.Context, input enrollmentstore.CancelInput) (syncenrollment.Record, bool, error) {
+	if input.EnrollmentID == "" || input.VaultID == "" {
+		return syncenrollment.Record{}, false, enrollmentstore.ErrInvalidCommand
+	}
+	return s.transitionEnrollmentTerminal(ctx, input.VaultID, input.EnrollmentID, syncenrollment.StateCanceled, normalizedTime(input.OccurredAt, s.now))
+}
+
+func (s *Store) ExpireEnrollments(ctx context.Context, vaultID string, asOf time.Time) ([]syncenrollment.Record, error) {
+	if vaultID == "" || asOf.IsZero() {
+		return nil, enrollmentstore.ErrInvalidCommand
+	}
+	return s.expireEnrollments(ctx, vaultID, asOf.UTC())
+}
+
+func (s *Store) ReconcileExpiredEnrollments(ctx context.Context) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT vault_id FROM sync_enrollments WHERE state IN ('offered','accepted') AND expires_at <= ? ORDER BY vault_id`, s.now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return fmt.Errorf("list Vaults with expired sync enrollments: %w", err)
+	}
+	var vaultIDs []string
+	for rows.Next() {
+		var vaultID string
+		if err := rows.Scan(&vaultID); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan Vault with expired sync enrollments: %w", err)
+		}
+		vaultIDs = append(vaultIDs, vaultID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate Vaults with expired sync enrollments: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close expired sync enrollment Vault cursor: %w", err)
+	}
+	for _, vaultID := range vaultIDs {
+		if _, err := s.expireEnrollments(ctx, vaultID, s.now().UTC()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) expireEnrollments(ctx context.Context, vaultID string, asOf time.Time) ([]syncenrollment.Record, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT enrollment_id FROM sync_enrollments WHERE vault_id = ? AND state IN ('offered','accepted') AND expires_at <= ? ORDER BY expires_at, enrollment_id`, vaultID, asOf.Format(time.RFC3339Nano))
+	if err != nil {
+		return nil, fmt.Errorf("list expired sync enrollments: %w", err)
+	}
+	var enrollmentIDs []string
+	for rows.Next() {
+		var enrollmentID string
+		if err := rows.Scan(&enrollmentID); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan expired sync enrollment: %w", err)
+		}
+		enrollmentIDs = append(enrollmentIDs, enrollmentID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("iterate expired sync enrollments: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close expired sync enrollment cursor: %w", err)
+	}
+	transitioned := make([]syncenrollment.Record, 0, len(enrollmentIDs))
+	for _, enrollmentID := range enrollmentIDs {
+		record, replay, err := s.transitionEnrollmentTerminal(ctx, vaultID, enrollmentID, syncenrollment.StateExpired, asOf)
+		if errors.Is(err, enrollmentstore.ErrConflict) || errors.Is(err, enrollmentstore.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !replay {
+			transitioned = append(transitioned, record)
+		}
+	}
+	return transitioned, nil
+}
+
+func (s *Store) transitionEnrollmentTerminal(ctx context.Context, vaultID, enrollmentID string, next syncenrollment.State, occurredAt time.Time) (syncenrollment.Record, bool, error) {
+	if next != syncenrollment.StateCanceled && next != syncenrollment.StateExpired {
+		return syncenrollment.Record{}, false, enrollmentstore.ErrInvalidCommand
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return syncenrollment.Record{}, false, fmt.Errorf("begin sync enrollment terminal transition: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	stored, response, found, err := s.getEnrollment(ctx, tx, vaultID, enrollmentID)
+	clear(response)
+	if err != nil {
+		return syncenrollment.Record{}, false, err
+	}
+	if !found {
+		return syncenrollment.Record{}, false, enrollmentstore.ErrNotFound
+	}
+	if stored.State == next {
+		return stored, true, nil
+	}
+	if !stored.CanCancel() || (next == syncenrollment.StateExpired && !stored.CanExpireAt(occurredAt)) || (next == syncenrollment.StateCanceled && !occurredAt.Before(stored.ExpiresAt)) {
+		return syncenrollment.Record{}, false, enrollmentstore.ErrConflict
+	}
+	if err := requireActiveVault(ctx, tx, vaultID); err != nil {
+		return syncenrollment.Record{}, false, err
+	}
+	previous := stored.State
+	stored.State = next
+	stored.UpdatedAt = occurredAt
+	if stored.Validate() != nil {
+		return syncenrollment.Record{}, false, enrollmentstore.ErrInvalidCommand
+	}
+	payload := enrollmentPayload(stored)
+	record, err := s.enrollmentEvent("sync.enrollment."+string(next), vaultID, payload, occurredAt)
+	if err != nil {
+		return syncenrollment.Record{}, false, err
+	}
+	if err := s.insertEvent(ctx, tx, record); err != nil {
+		return syncenrollment.Record{}, false, err
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE sync_enrollments SET state = ?, acceptance_envelope = NULL, updated_at = ?, last_event_id = ? WHERE vault_id = ? AND enrollment_id = ? AND state = ?`, string(next), payload.UpdatedAt, record.ID, vaultID, enrollmentID, string(previous))
+	if err != nil {
+		return syncenrollment.Record{}, false, fmt.Errorf("update sync enrollment terminal state: %w", err)
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return syncenrollment.Record{}, false, enrollmentstore.ErrConflict
+	}
+	if err := tx.Commit(); err != nil {
+		return syncenrollment.Record{}, false, fmt.Errorf("commit sync enrollment terminal transition: %w", err)
+	}
+	stored.LastEventID = record.ID
+	return stored, false, nil
 }
 
 func (s *Store) RecordEnrollmentAcceptance(ctx context.Context, input enrollmentstore.RecordAcceptanceInput) (syncenrollment.Record, []byte, bool, error) {
@@ -224,7 +358,7 @@ func (s *Store) getEnrollment(ctx context.Context, queryer enrollmentQueryer, va
 	if record.Validate() != nil {
 		return syncenrollment.Record{}, nil, false, enrollmentstore.ErrInvalidCommand
 	}
-	if record.Role == syncenrollment.RoleRecipient {
+	if record.Role == syncenrollment.RoleRecipient && record.State == syncenrollment.StateAccepted {
 		if len(encrypted) == 0 {
 			return syncenrollment.Record{}, nil, false, enrollmentstore.ErrResponseUnavailable
 		}

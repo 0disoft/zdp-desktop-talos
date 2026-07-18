@@ -248,6 +248,37 @@ func TestEnrollmentRejectsWrongSecretAndConflictingVaultKey(t *testing.T) {
 	}
 }
 
+func TestCanceledIssuerCannotCompleteOrRegisterLateTarget(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sourceCreator, _ := newEnrollmentTestCreator(t, filepath.Join(t.TempDir(), "source"))
+	targetCreator, _ := newEnrollmentTestCreator(t, filepath.Join(t.TempDir(), "target"))
+	source, err := sourceCreator.Create(ctx, CreateInput{RetentionDays: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	offer, err := source.CreateEnrollmentOffer(ctx, CreateEnrollmentOfferInput{ValidFor: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := targetCreator.AcceptEnrollmentOffer(ctx, AcceptEnrollmentOfferInput{Encoded: offer.Encoded, Secret: offer.Secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accepted.Session.Close()
+	canceled, err := source.CancelEnrollment(ctx, CancelEnrollmentInput{EnrollmentID: offer.EnrollmentID})
+	if err != nil || canceled.State != "canceled" {
+		t.Fatalf("canceled=%+v error=%v", canceled, err)
+	}
+	if _, err := source.CompleteEnrollment(ctx, CompleteEnrollmentInput{EncodedAcceptance: accepted.EncodedAcceptance, Secret: offer.Secret}); !errors.Is(err, ErrEnrollmentConflict) {
+		t.Fatalf("late completion error=%v", err)
+	}
+	if _, err := source.database.GetSyncDevice(ctx, source.Record.ID, accepted.TargetDeviceID); !errors.Is(err, syncstore.ErrDeviceNotFound) {
+		t.Fatalf("late target registration error=%v", err)
+	}
+}
+
 func newEnrollmentTestCreator(t *testing.T, databaseRoot string) (*Creator, *enrollmentKeyStore) {
 	t.Helper()
 	keys := &enrollmentKeyStore{values: map[keyvault.Reference][]byte{}}

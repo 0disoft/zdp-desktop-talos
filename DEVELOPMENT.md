@@ -5,7 +5,7 @@
 
 ## Current Phase
 
-The repository now proves the local MVP loop through schema 22: the renderer builds, desktop/worker/CLI binaries compile, Vault and encrypted state survive restart, Task/Decision/permission/execution/patch/memory flows are revisioned and evidence-bound, model egress is explicit, signed sync packs have durable export/import/replay journals, encrypted enrollment offer/acceptance establishes two-device Vault and signing trust, workspace identities survive path changes, and authority-bound device revocation propagates through imported packs. A provisioned signing-host run, native clean-install/N-1-upgrade evidence, upstream product-link promotion, enrollment cancellation/expiry, renderer sync controls, and explicit folder or Git exchange remain blockers rather than implied functionality.
+The repository now proves the local MVP loop through schema 23: the renderer builds, desktop/worker/CLI binaries compile, Vault and encrypted state survive restart, Task/Decision/permission/execution/patch/memory flows are revisioned and evidence-bound, model egress is explicit, signed sync packs have durable export/import/replay journals, encrypted enrollment offer/acceptance establishes two-device Vault and signing trust with terminal cancellation and restart-safe expiry, workspace identities survive path changes, and authority-bound device revocation propagates through imported packs. A provisioned signing-host run, native clean-install/N-1-upgrade evidence, upstream product-link promotion, renderer sync controls, and explicit folder or Git exchange remain blockers rather than implied functionality.
 
 ## Current Layout
 

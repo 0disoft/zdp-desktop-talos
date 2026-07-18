@@ -33,6 +33,8 @@ const (
 	StateOffered   State = "offered"
 	StateAccepted  State = "accepted"
 	StateCompleted State = "completed"
+	StateCanceled  State = "canceled"
+	StateExpired   State = "expired"
 )
 
 type Record struct {
@@ -67,10 +69,26 @@ func (r Record) Validate() error {
 		if strings.TrimSpace(r.PeerDeviceID) == "" || len(r.PeerDeviceID) > MaxDeviceIDBytes || !validHash(r.AcceptanceHash) {
 			return ErrInvalidRecord
 		}
+	case r.Role == RoleIssuer && (r.State == StateCanceled || r.State == StateExpired):
+		if r.PeerDeviceID != "" || r.AcceptanceHash != "" {
+			return ErrInvalidRecord
+		}
+	case r.Role == RoleRecipient && (r.State == StateCanceled || r.State == StateExpired):
+		if strings.TrimSpace(r.PeerDeviceID) == "" || len(r.PeerDeviceID) > MaxDeviceIDBytes || !validHash(r.AcceptanceHash) {
+			return ErrInvalidRecord
+		}
 	default:
 		return ErrInvalidRecord
 	}
 	return nil
+}
+
+func (r Record) CanCancel() bool {
+	return r.State == StateOffered || r.State == StateAccepted
+}
+
+func (r Record) CanExpireAt(now time.Time) bool {
+	return r.CanCancel() && !now.UTC().Before(r.ExpiresAt)
 }
 
 type Offer struct {

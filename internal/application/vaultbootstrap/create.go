@@ -178,6 +178,10 @@ type CompleteEnrollmentInput struct {
 	Secret            string
 }
 
+type CancelEnrollmentInput struct {
+	EnrollmentID string
+}
+
 type ImportSyncPackInput struct {
 	Encoded    []byte
 	DeviceID   string
@@ -322,6 +326,10 @@ func (s *Session) CompleteEnrollment(ctx context.Context, input CompleteEnrollme
 	if acceptance.VaultID != s.Record.ID {
 		return syncstate.Device{}, ErrEnrollmentConflict
 	}
+	now := time.Now().UTC()
+	if _, err := database.ExpireEnrollments(ctx, s.Record.ID, now); err != nil {
+		return syncstate.Device{}, err
+	}
 	stored, _, err := database.GetEnrollment(ctx, s.Record.ID, acceptance.EnrollmentID)
 	if err != nil || stored.Role != syncenrollment.RoleIssuer || stored.OfferHash != acceptance.OfferHash {
 		return syncstate.Device{}, ErrEnrollmentConflict
@@ -341,15 +349,16 @@ func (s *Session) CompleteEnrollment(ctx context.Context, input CompleteEnrollme
 	if acceptance.SourceDeviceID != local.Device.DeviceID {
 		return syncstate.Device{}, ErrEnrollmentConflict
 	}
-	now := time.Now().UTC()
 	if stored.State == syncenrollment.StateCompleted {
 		if stored.PeerDeviceID != acceptance.TargetDeviceID || stored.AcceptanceHash != acceptanceHash {
 			return syncstate.Device{}, ErrEnrollmentConflict
 		}
-	} else {
+	} else if stored.State == syncenrollment.StateOffered {
 		if err := enrollmentapp.RequireActiveAcceptance(acceptance, now); err != nil {
 			return syncstate.Device{}, err
 		}
+	} else {
+		return syncstate.Device{}, ErrEnrollmentConflict
 	}
 	target, err := ensureSyncDevice(ctx, database, s.Record.ID, acceptance.TargetDeviceID, acceptance.TargetPublicKey, acceptance.AcceptedAt, "sync-enrollment-target:"+acceptance.EnrollmentID)
 	if err != nil {
@@ -359,6 +368,25 @@ func (s *Session) CompleteEnrollment(ctx context.Context, input CompleteEnrollme
 		return syncstate.Device{}, err
 	}
 	return target, nil
+}
+
+func (s *Session) CancelEnrollment(ctx context.Context, input CancelEnrollmentInput) (syncenrollment.Record, error) {
+	database, err := s.enrollmentDatabase()
+	if err != nil {
+		return syncenrollment.Record{}, err
+	}
+	if ctx == nil || input.EnrollmentID == "" {
+		return syncenrollment.Record{}, ErrInvalidInput
+	}
+	now := time.Now().UTC()
+	if _, err := database.ExpireEnrollments(ctx, s.Record.ID, now); err != nil {
+		return syncenrollment.Record{}, err
+	}
+	record, _, err := database.CancelEnrollment(ctx, enrollmentstore.CancelInput{EnrollmentID: input.EnrollmentID, VaultID: s.Record.ID, OccurredAt: now})
+	if errors.Is(err, enrollmentstore.ErrConflict) {
+		return syncenrollment.Record{}, ErrEnrollmentConflict
+	}
+	return record, err
 }
 
 func (s *Session) ImportAndApplySyncPack(ctx context.Context, input ImportSyncPackInput) (syncpack.ApplyImportResult, error) {
