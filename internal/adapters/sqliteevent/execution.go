@@ -166,7 +166,11 @@ func (s *Store) PrepareAttempt(ctx context.Context, input executionstore.Prepare
 	if err != nil {
 		return executionstore.Prepared{}, err
 	}
-	taskRecord, err := taskFromEvent(taskEvent, pointer)
+	storedTask, err := taskFromEvent(taskEvent, pointer)
+	if err != nil {
+		return executionstore.Prepared{}, err
+	}
+	taskRecord, err := s.resolveTaskWorkspace(ctx, tx, storedTask)
 	if err != nil {
 		return executionstore.Prepared{}, err
 	}

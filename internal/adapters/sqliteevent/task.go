@@ -11,14 +11,16 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 )
 
 const (
-	taskContractCreatedEventType   = "task.contract.created"
-	taskContractRevisedEventType   = "task.contract.revised"
-	taskContractEventSchemaVersion = 1
+	taskContractCreatedEventType         = "task.contract.created"
+	taskContractRevisedEventType         = "task.contract.revised"
+	taskContractLegacyEventSchemaVersion = 1
+	taskContractEventSchemaVersion       = 1
 )
 
 type taskContractPayload struct {
@@ -76,6 +78,10 @@ func (s *Store) CreateTaskContract(ctx context.Context, input taskstore.CreateIn
 	if err := requireActiveVault(ctx, tx, input.VaultID); err != nil {
 		return taskstore.Created{}, err
 	}
+	mapping, err := s.ensureLocalWorkspaceMapping(ctx, tx, input.VaultID, input.WorkspaceRoot, input.BaselineCommit, occurredAt)
+	if err != nil {
+		return taskstore.Created{}, err
+	}
 
 	taskID, err := id.UUIDv7(occurredAt, s.random)
 	if err != nil {
@@ -93,8 +99,8 @@ func (s *Store) CreateTaskContract(ctx context.Context, input taskstore.CreateIn
 	if err := s.insertEvent(ctx, tx, eventRecord); err != nil {
 		return taskstore.Created{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`, taskID, input.VaultID, workspaceRootHash(input.WorkspaceRoot), input.BaselineCommit, string(task.StatusContracted), 1, payload.CreatedAt, payload.CreatedAt, eventRecord.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id, workspace_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, taskID, input.VaultID, workspaceRootHash(input.WorkspaceRoot), input.BaselineCommit, string(task.StatusContracted), 1, payload.CreatedAt, payload.CreatedAt, eventRecord.ID, mapping.WorkspaceID); err != nil {
 		return taskstore.Created{}, fmt.Errorf("insert task: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO task_contract_revisions(task_id, revision, baseline_commit, created_at, event_id)
@@ -107,7 +113,7 @@ func (s *Store) CreateTaskContract(ctx context.Context, input taskstore.CreateIn
 	if err := tx.Commit(); err != nil {
 		return taskstore.Created{}, fmt.Errorf("commit task contract: %w", err)
 	}
-	return taskCreatedFromPayload(input.VaultID, payload, eventRecord.ID)
+	return taskCreatedFromPayload(input.VaultID, payload, eventRecord.ID, mapping.WorkspaceID, mapping.LocalRoot)
 }
 
 func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseInput) (taskstore.Created, error) {
@@ -152,7 +158,11 @@ func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseIn
 	if err != nil {
 		return taskstore.Created{}, err
 	}
-	current, err := taskFromEvent(currentEvent, pointer)
+	storedCurrent, err := taskFromEvent(currentEvent, pointer)
+	if err != nil {
+		return taskstore.Created{}, err
+	}
+	current, err := s.resolveTaskWorkspace(ctx, tx, storedCurrent)
 	if err != nil {
 		return taskstore.Created{}, err
 	}
@@ -166,7 +176,7 @@ func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseIn
 		return taskstore.Created{}, taskstore.ErrInvalidCommand
 	}
 	payload := taskContractPayload{
-		TaskID: input.TaskID, Revision: nextRevision, WorkspaceRoot: current.WorkspaceRoot, BaselineCommit: current.BaselineCommit,
+		TaskID: input.TaskID, Revision: nextRevision, WorkspaceRoot: storedCurrent.WorkspaceRoot, BaselineCommit: current.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: append([]string(nil), input.AllowedPaths...), ForbiddenActions: append([]string(nil), input.ForbiddenActions...),
 		AcceptanceCriteria: append([]string(nil), input.AcceptanceCriteria...), VerificationCommands: verificationCommandsToPayload(input.VerificationCommands), Risk: input.Risk, CreatedAt: occurredAt.Format(time.RFC3339Nano),
 	}
@@ -197,7 +207,7 @@ func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseIn
 	if err := tx.Commit(); err != nil {
 		return taskstore.Created{}, fmt.Errorf("commit task revision: %w", err)
 	}
-	return taskResultFromPayload(input.VaultID, payload, eventRecord.ID, current.CreatedAt)
+	return taskResultFromPayload(input.VaultID, payload, eventRecord.ID, current.CreatedAt, current.WorkspaceID, current.WorkspaceRoot)
 }
 
 func (s *Store) GetTask(ctx context.Context, taskID string) (task.Record, error) {
@@ -212,7 +222,11 @@ func (s *Store) GetTask(ctx context.Context, taskID string) (task.Record, error)
 	if err != nil {
 		return task.Record{}, err
 	}
-	return taskFromEvent(record, pointer)
+	stored, err := taskFromEvent(record, pointer)
+	if err != nil {
+		return task.Record{}, err
+	}
+	return s.resolveTaskWorkspace(ctx, s.db, stored)
 }
 
 func (s *Store) GetTaskContract(ctx context.Context, taskID string, revision int) (task.ContractRevision, error) {
@@ -242,21 +256,25 @@ func (s *Store) taskResultFromEvent(ctx context.Context, tx *sql.Tx, record even
 	if err := json.Unmarshal(record.Payload, &payload); err != nil {
 		return taskstore.Created{}, fmt.Errorf("decode task contract event: %w", err)
 	}
-	var pointerEventID, taskCreatedAt string
+	var pointerEventID, taskCreatedAt, workspaceID string
 	if err := tx.QueryRowContext(ctx, `SELECT event_id FROM task_contract_revisions WHERE task_id = ? AND revision = ?`, payload.TaskID, payload.Revision).Scan(&pointerEventID); err != nil {
 		return taskstore.Created{}, fmt.Errorf("read replayed contract pointer: %w", err)
 	}
 	if pointerEventID != record.ID {
 		return taskstore.Created{}, errors.New("replayed contract pointer disagrees with event")
 	}
-	if err := tx.QueryRowContext(ctx, `SELECT created_at FROM tasks WHERE task_id = ?`, payload.TaskID).Scan(&taskCreatedAt); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT created_at, workspace_id FROM tasks WHERE task_id = ?`, payload.TaskID).Scan(&taskCreatedAt, &workspaceID); err != nil {
 		return taskstore.Created{}, fmt.Errorf("read replayed task creation time: %w", err)
 	}
 	createdAt, err := time.Parse(time.RFC3339Nano, taskCreatedAt)
 	if err != nil {
 		return taskstore.Created{}, fmt.Errorf("parse replayed task creation time: %w", err)
 	}
-	return taskResultFromPayload(record.VaultID, payload, record.ID, createdAt)
+	localRoot, err := s.resolveWorkspaceRoot(ctx, tx, record.VaultID, workspaceID)
+	if err != nil {
+		return taskstore.Created{}, err
+	}
+	return taskResultFromPayload(record.VaultID, payload, record.ID, createdAt, workspaceID, localRoot)
 }
 
 func (s *Store) taskEvent(vaultID string, payload taskContractPayload, occurredAt time.Time) (event.Record, error) {
@@ -271,21 +289,21 @@ func (s *Store) taskEventOfType(vaultID, eventType string, payload taskContractP
 	return s.newEventRecord(vaultID, eventType, taskContractEventSchemaVersion, event.SensitivityPrivate, encoded, occurredAt)
 }
 
-func taskCreatedFromPayload(vaultID string, payload taskContractPayload, eventID string) (taskstore.Created, error) {
+func taskCreatedFromPayload(vaultID string, payload taskContractPayload, eventID, workspaceID, workspaceRoot string) (taskstore.Created, error) {
 	createdAt, err := time.Parse(time.RFC3339Nano, payload.CreatedAt)
 	if err != nil {
 		return taskstore.Created{}, err
 	}
-	return taskResultFromPayload(vaultID, payload, eventID, createdAt)
+	return taskResultFromPayload(vaultID, payload, eventID, createdAt, workspaceID, workspaceRoot)
 }
 
-func taskResultFromPayload(vaultID string, payload taskContractPayload, eventID string, taskCreatedAt time.Time) (taskstore.Created, error) {
+func taskResultFromPayload(vaultID string, payload taskContractPayload, eventID string, taskCreatedAt time.Time, workspaceID, workspaceRoot string) (taskstore.Created, error) {
 	revisionAt, err := time.Parse(time.RFC3339Nano, payload.CreatedAt)
 	if err != nil {
 		return taskstore.Created{}, err
 	}
 	result := taskstore.Created{
-		Task:     task.Record{ID: payload.TaskID, VaultID: vaultID, WorkspaceRoot: payload.WorkspaceRoot, BaselineCommit: payload.BaselineCommit, Status: task.StatusContracted, CurrentRevision: payload.Revision, CreatedAt: taskCreatedAt, UpdatedAt: revisionAt, LastEventID: eventID},
+		Task:     task.Record{ID: payload.TaskID, VaultID: vaultID, WorkspaceID: workspaceID, WorkspaceRoot: workspaceRoot, BaselineCommit: payload.BaselineCommit, Status: task.StatusContracted, CurrentRevision: payload.Revision, CreatedAt: taskCreatedAt, UpdatedAt: revisionAt, LastEventID: eventID},
 		Contract: task.ContractRevision{TaskID: payload.TaskID, Revision: payload.Revision, BaselineCommit: payload.BaselineCommit, Goal: payload.Goal, AllowedPaths: payload.AllowedPaths, ForbiddenActions: payload.ForbiddenActions, AcceptanceCriteria: payload.AcceptanceCriteria, VerificationCommands: verificationCommandsFromPayload(payload.VerificationCommands), Risk: payload.Risk, CreatedAt: revisionAt, EventID: eventID},
 	}
 	if err := result.Task.Validate(); err != nil {
@@ -299,17 +317,17 @@ func taskResultFromPayload(vaultID string, payload taskContractPayload, eventID 
 
 const taskSelect = `SELECT task_id, vault_id, workspace_root_hash, baseline_commit,
 	COALESCE((SELECT status FROM task_outcomes WHERE task_outcomes.task_id = tasks.task_id), status),
-	current_revision, created_at, updated_at, last_event_id FROM tasks`
+	current_revision, created_at, updated_at, last_event_id, workspace_id FROM tasks`
 const taskContractSelect = `SELECT task_id, revision, baseline_commit, created_at, event_id FROM task_contract_revisions`
 
 type taskPointer struct {
-	taskID, vaultID, workspaceRootHash, baselineCommit, status, createdAt, updatedAt, lastEventID string
-	currentRevision                                                                               int
+	taskID, vaultID, workspaceRootHash, baselineCommit, status, createdAt, updatedAt, lastEventID, workspaceID string
+	currentRevision                                                                                            int
 }
 
 func scanTaskPointer(row scanner) (taskPointer, error) {
 	var result taskPointer
-	if err := row.Scan(&result.taskID, &result.vaultID, &result.workspaceRootHash, &result.baselineCommit, &result.status, &result.currentRevision, &result.createdAt, &result.updatedAt, &result.lastEventID); err != nil {
+	if err := row.Scan(&result.taskID, &result.vaultID, &result.workspaceRootHash, &result.baselineCommit, &result.status, &result.currentRevision, &result.createdAt, &result.updatedAt, &result.lastEventID, &result.workspaceID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return taskPointer{}, taskstore.ErrNotFound
 		}
@@ -341,11 +359,27 @@ func taskFromEvent(record event.Record, pointer taskPointer) (task.Record, error
 	if payload.TaskID != pointer.taskID || payload.BaselineCommit != pointer.baselineCommit || payload.Revision != pointer.currentRevision || payload.CreatedAt != expectedEventTime || workspaceRootHash(payload.WorkspaceRoot) != pointer.workspaceRootHash || record.ID != pointer.lastEventID {
 		return task.Record{}, errors.New("task event and pointer disagree")
 	}
-	result := task.Record{ID: pointer.taskID, VaultID: pointer.vaultID, WorkspaceRoot: payload.WorkspaceRoot, BaselineCommit: pointer.baselineCommit, Status: task.Status(pointer.status), CurrentRevision: pointer.currentRevision, CreatedAt: createdAt, UpdatedAt: updatedAt, LastEventID: pointer.lastEventID}
+	workspaceID := pointer.workspaceID
+	if workspaceID == "" {
+		workspaceID = workspacemapping.ID(pointer.vaultID, pointer.workspaceRootHash)
+	}
+	result := task.Record{ID: pointer.taskID, VaultID: pointer.vaultID, WorkspaceID: workspaceID, WorkspaceRoot: payload.WorkspaceRoot, BaselineCommit: pointer.baselineCommit, Status: task.Status(pointer.status), CurrentRevision: pointer.currentRevision, CreatedAt: createdAt, UpdatedAt: updatedAt, LastEventID: pointer.lastEventID}
 	if err := result.Validate(); err != nil {
 		return task.Record{}, fmt.Errorf("validate stored task: %w", err)
 	}
 	return result, nil
+}
+
+func (s *Store) resolveTaskWorkspace(ctx context.Context, queryer workspaceMappingQueryer, stored task.Record) (task.Record, error) {
+	localRoot, err := s.resolveWorkspaceRoot(ctx, queryer, stored.VaultID, stored.WorkspaceID)
+	if err != nil {
+		return task.Record{}, err
+	}
+	stored.WorkspaceRoot = localRoot
+	if err := stored.Validate(); err != nil {
+		return task.Record{}, fmt.Errorf("validate mapped task: %w", err)
+	}
+	return stored, nil
 }
 
 func workspaceRootHash(root string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(root))) }

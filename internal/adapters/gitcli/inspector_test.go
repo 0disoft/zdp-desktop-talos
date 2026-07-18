@@ -85,6 +85,17 @@ func TestInspectorReadsCleanDirtyAndDetachedRepository(t *testing.T) {
 	if clean.Root != canonicalRoot || clean.Dirty || clean.Detached || clean.HeadRef == "" {
 		t.Fatalf("clean=%+v", clean)
 	}
+	contains, err := inspector.ContainsCommit(context.Background(), clean.Root, clean.BaselineCommit)
+	if err != nil || !contains {
+		t.Fatalf("contains baseline=%v error=%v", contains, err)
+	}
+	contains, err = inspector.ContainsCommit(context.Background(), clean.Root, strings.Repeat("f", 40))
+	if err != nil || contains {
+		t.Fatalf("contains missing=%v error=%v", contains, err)
+	}
+	if _, err := inspector.ContainsCommit(context.Background(), clean.Root, "HEAD"); !errors.Is(err, repository.ErrInvalidCommit) {
+		t.Fatalf("invalid commit error=%v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, "tracked.txt"), []byte("changed\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

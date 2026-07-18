@@ -77,7 +77,11 @@ func (s *Store) CreatePermissionRequest(ctx context.Context, input executionstor
 	if err != nil {
 		return permission.Request{}, err
 	}
-	taskRecord, err := taskFromEvent(taskEvent, pointer)
+	storedTask, err := taskFromEvent(taskEvent, pointer)
+	if err != nil {
+		return permission.Request{}, executionstore.ErrConflict
+	}
+	taskRecord, err := s.resolveTaskWorkspace(ctx, tx, storedTask)
 	if err != nil || taskRecord.WorkspaceRoot != input.Intent.WorkspaceRoot {
 		return permission.Request{}, executionstore.ErrConflict
 	}

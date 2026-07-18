@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 19
+const currentSchemaVersion = 20
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -490,6 +490,28 @@ var migrations = []migration{
 			`CREATE INDEX sync_enrollments_vault_state_idx ON sync_enrollments(vault_id, state, expires_at, enrollment_id)`,
 		},
 	},
+	{
+		version: 20,
+		statements: []string{
+			`ALTER TABLE tasks ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''`,
+			`CREATE TABLE workspace_mappings (
+				workspace_id TEXT PRIMARY KEY CHECK (length(workspace_id) = 77),
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				source_workspace_hash TEXT NOT NULL CHECK (length(source_workspace_hash) = 64),
+				local_root_hash TEXT NOT NULL CHECK (length(local_root_hash) = 64),
+				verified_baseline TEXT NOT NULL CHECK (length(verified_baseline) BETWEEN 40 AND 64),
+				state TEXT NOT NULL CHECK (state IN ('active','revoked')),
+				revision INTEGER NOT NULL CHECK (revision > 0),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				created_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				UNIQUE(vault_id, source_workspace_hash)
+			) STRICT`,
+			`CREATE UNIQUE INDEX workspace_mappings_active_local_idx ON workspace_mappings(vault_id, local_root_hash) WHERE state = 'active'`,
+			`CREATE INDEX workspace_mappings_state_idx ON workspace_mappings(vault_id, state, workspace_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -524,7 +546,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT idempotency_key, event_id, request_hash FROM idempotency_keys LIMIT 0`,
 		`SELECT vault_id, revision, status, retention_days, created_at, updated_at, last_event_id FROM vault_states LIMIT 0`,
 		`SELECT artifact_id, vault_id, schema_version, sensitivity, content_type, size_bytes, content_hash, ciphertext_hash, storage_name, staging_name, state, created_at FROM artifacts LIMIT 0`,
-		`SELECT task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id FROM tasks LIMIT 0`,
+		`SELECT task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id, workspace_id FROM tasks LIMIT 0`,
 		`SELECT task_id, revision, baseline_commit, created_at, event_id FROM task_contract_revisions LIMIT 0`,
 		`SELECT decision_id, vault_id, task_id, question_revision, category, state, expected_repository_revision, created_at, updated_at, question_event_id, last_event_id FROM decisions LIMIT 0`,
 		`SELECT answer_id, decision_id, question_revision, expected_repository_revision, answer_hash, created_at, event_id FROM decision_answers LIMIT 0`,
@@ -547,6 +569,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT pack_id, vault_id, device_id, device_seq, event_id, event_hash, state, reason_code, recorded_at FROM sync_replay_items LIMIT 0`,
 		`SELECT pack_id, vault_id, device_id, sequence_start, sequence_end, event_count, applied_count, conflicted_count, quarantined_count, completed_at, event_id FROM sync_replay_batches LIMIT 0`,
 		`SELECT enrollment_id, vault_id, role, state, peer_device_id, offer_hash, acceptance_hash, acceptance_envelope, expires_at, created_at, updated_at, created_event_id, last_event_id FROM sync_enrollments LIMIT 0`,
+		`SELECT workspace_id, vault_id, source_workspace_hash, local_root_hash, verified_baseline, state, revision, created_at, updated_at, created_event_id, last_event_id FROM workspace_mappings LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

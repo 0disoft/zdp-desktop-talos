@@ -4,16 +4,21 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapicatalog"
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/localvaultdb"
 	enrollmentapp "github.com/0disoft/zdp-desktop-talos/internal/application/syncenrollment"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/workspaceremap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/workspacestore"
 )
 
 func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVaults(t *testing.T) {
@@ -26,8 +31,7 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 		t.Fatal(err)
 	}
 	defer sourceSession.Close()
-	workspace := filepath.Join(t.TempDir(), "repo")
-	baseline := strings.Repeat("a", 40)
+	workspace, targetWorkspace, baseline := enrollmentWorkspacePair(t)
 	createdTask, err := sourceSession.CreateTaskContract(ctx, CreateTaskContractInput{WorkspaceRoot: workspace, BaselineCommit: baseline, Goal: "establish a synced task", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the task replays on the enrolled device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "source-task"})
 	if err != nil {
 		t.Fatal(err)
@@ -66,11 +70,30 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 	if err != nil || toTarget.Replay.Batch.AppliedCount < 1 {
 		t.Fatalf("target replay=%+v error=%v", toTarget, err)
 	}
+	if _, err := accepted.Session.database.GetTask(ctx, createdTask.Task.ID); !errors.Is(err, workspacestore.ErrMappingRequired) {
+		t.Fatalf("unmapped target task error=%v", err)
+	}
+	mappingStore, ok := accepted.Session.database.(workspacestore.Store)
+	if !ok {
+		t.Fatal("target database does not implement workspace mapping")
+	}
+	inspector, err := gitcli.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapper, err := workspaceremap.New(mappingStore, inspector, inspector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapped, replayed, err := mapper.Map(ctx, workspaceremap.MapInput{VaultID: accepted.Session.Record.ID, TaskID: createdTask.Task.ID, LocalPath: targetWorkspace, ExpectedRevision: 0, IdempotencyKey: "target-workspace-map"})
+	if err != nil || replayed || mapped.LocalRoot != targetWorkspace || mapped.VerifiedBaseline != baseline {
+		t.Fatalf("mapped=%+v replayed=%v error=%v", mapped, replayed, err)
+	}
 	targetTask, err := accepted.Session.database.GetTask(ctx, createdTask.Task.ID)
-	if err != nil || targetTask.CurrentRevision != 1 || targetTask.WorkspaceRoot != workspace {
+	if err != nil || targetTask.CurrentRevision != 1 || targetTask.WorkspaceRoot != targetWorkspace {
 		t.Fatalf("target task=%+v error=%v", targetTask, err)
 	}
-	if _, err := accepted.Session.ReviseTaskContract(ctx, ReviseTaskContractInput{TaskID: targetTask.ID, ExpectedRevision: 1, WorkspaceRoot: workspace, BaselineCommit: baseline, Goal: "return the synced revision", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the revision replays on the source device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "target-revision"}); err != nil {
+	if _, err := accepted.Session.ReviseTaskContract(ctx, ReviseTaskContractInput{TaskID: targetTask.ID, ExpectedRevision: 1, WorkspaceRoot: targetWorkspace, BaselineCommit: baseline, Goal: "return the synced revision", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the revision replays on the source device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "target-revision"}); err != nil {
 		t.Fatal(err)
 	}
 	targetPack, err := accepted.Session.ExportNextSyncPack(ctx, 64)
@@ -98,6 +121,42 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 	if !replayedAcceptance.Replay || !bytes.Equal(replayedAcceptance.EncodedAcceptance, accepted.EncodedAcceptance) || replayedAcceptance.TargetDeviceID != accepted.TargetDeviceID {
 		t.Fatalf("acceptance replay=%+v", replayedAcceptance)
 	}
+}
+
+func enrollmentWorkspacePair(t *testing.T) (string, string, string) {
+	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("system Git is unavailable")
+	}
+	root := t.TempDir()
+	source := filepath.Join(root, "source-repository")
+	target := filepath.Join(root, "target-repository")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runEnrollmentGit(t, git, source, "init")
+	runEnrollmentGit(t, git, source, "config", "user.email", "talos-sync@example.invalid")
+	runEnrollmentGit(t, git, source, "config", "user.name", "Talos Sync Test")
+	if err := os.WriteFile(filepath.Join(source, "README.md"), []byte("workspace mapping\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runEnrollmentGit(t, git, source, "add", "README.md")
+	runEnrollmentGit(t, git, source, "commit", "-m", "baseline")
+	baseline := strings.TrimSpace(runEnrollmentGit(t, git, source, "rev-parse", "HEAD^{commit}"))
+	runEnrollmentGit(t, git, root, "clone", source, target)
+	return source, target, baseline
+}
+
+func runEnrollmentGit(t *testing.T, executable, directory string, args ...string) string {
+	t.Helper()
+	command := exec.Command(executable, append([]string{"-C", directory}, args...)...)
+	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+	return string(output)
 }
 
 func TestEnrollmentRejectsWrongSecretAndConflictingVaultKey(t *testing.T) {

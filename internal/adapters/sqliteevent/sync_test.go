@@ -26,6 +26,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/workspacestore"
 )
 
 func TestSyncDeviceAndValidatedPackJournalAreDurableAndFailClosed(t *testing.T) {
@@ -221,7 +222,7 @@ func TestSchema15MigratesToDurableSyncState(t *testing.T) {
 	if version != currentSchemaVersion {
 		t.Fatalf("schema version=%d", version)
 	}
-	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches", "sync_enrollments"} {
+	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches", "sync_enrollments", "workspace_mappings"} {
 		var name string
 		if err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name); err != nil || name != table {
 			t.Fatalf("table %s name=%q error=%v", table, name, err)
@@ -331,8 +332,19 @@ func TestValidatedSyncReplayAppliesCanonicalStateAndQuarantinesUnsafeEvents(t *t
 	if err != nil || storedReplay.Batch != result.Batch || len(storedReplay.Items) != len(result.Items) {
 		t.Fatalf("storedReplay=%+v error=%v", storedReplay, err)
 	}
+	if _, err := target.GetTask(ctx, created.Task.ID); !errors.Is(err, workspacestore.ErrMappingRequired) {
+		t.Fatalf("unmapped imported task error=%v", err)
+	}
+	requirement, err := target.GetTaskWorkspace(ctx, vaultID, created.Task.ID)
+	if err != nil || requirement.Mapped {
+		t.Fatalf("workspace requirement=%+v error=%v", requirement, err)
+	}
+	targetRoot := filepath.Join(t.TempDir(), "target-repository")
+	if _, _, err := target.BindWorkspaceMapping(ctx, workspacestore.BindInput{WorkspaceID: requirement.WorkspaceID, VaultID: vaultID, SourceWorkspaceHash: requirement.SourceWorkspaceHash, LocalRoot: targetRoot, VerifiedBaseline: baseline, ExpectedRevision: 0, OccurredAt: now.Add(11 * time.Second), IdempotencyKey: "target-workspace-map"}); err != nil {
+		t.Fatal(err)
+	}
 	targetTask, err := target.GetTask(ctx, created.Task.ID)
-	if err != nil || targetTask.CurrentRevision != 2 || targetTask.LastEventID != revised.Contract.EventID {
+	if err != nil || targetTask.CurrentRevision != 2 || targetTask.LastEventID != revised.Contract.EventID || targetTask.WorkspaceRoot != targetRoot {
 		t.Fatalf("targetTask=%+v error=%v", targetTask, err)
 	}
 	targetDecision, err := target.GetDecision(ctx, question.Decision.ID)
@@ -343,7 +355,7 @@ func TestValidatedSyncReplayAppliesCanonicalStateAndQuarantinesUnsafeEvents(t *t
 	if err != nil || targetMemory.State != memory.StateApproved || targetMemory.Revision != 2 || targetMemory.LastEventID != approved.LastEventID {
 		t.Fatalf("targetMemory=%+v error=%v", targetMemory, err)
 	}
-	if _, _, err := target.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: vaultID, DeviceID: "source-device", Limit: 32, OccurredAt: now.Add(11 * time.Second)}); !errors.Is(err, syncstore.ErrNoExportableEvents) {
+	if _, _, err := target.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: vaultID, DeviceID: "source-device", Limit: 32, OccurredAt: now.Add(12 * time.Second)}); !errors.Is(err, syncstore.ErrNoExportableEvents) {
 		t.Fatalf("imported events were selected for re-export: %v", err)
 	}
 }

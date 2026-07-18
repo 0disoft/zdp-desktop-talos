@@ -68,6 +68,9 @@ func (s *Store) initialize(ctx context.Context) error {
 	if err := applyMigrations(ctx, s.db); err != nil {
 		return err
 	}
+	if err := s.ReconcileWorkspaceMappings(ctx); err != nil {
+		return err
+	}
 	if err := ensureOwnedDirectory(s.blobRoot); err != nil {
 		return err
 	}

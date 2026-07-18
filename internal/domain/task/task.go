@@ -23,6 +23,7 @@ const (
 var (
 	ErrInvalidRecord        = errors.New("invalid task record")
 	commitPattern           = regexp.MustCompile(`^[0-9a-f]{40,64}$`)
+	workspaceIDPattern      = regexp.MustCompile(`^workspace-v1-[0-9a-f]{64}$`)
 	verificationRulePattern = regexp.MustCompile(`^[a-z][a-z0-9.-]{0,63}$`)
 )
 
@@ -45,6 +46,7 @@ const (
 type Record struct {
 	ID              string
 	VaultID         string
+	WorkspaceID     string
 	WorkspaceRoot   string
 	BaselineCommit  string
 	Status          Status
@@ -87,7 +89,7 @@ func (c VerificationCommand) Normalize() (VerificationCommand, error) {
 }
 
 func (r Record) Validate() error {
-	if r.ID == "" || r.VaultID == "" || !filepath.IsAbs(r.WorkspaceRoot) || !commitPattern.MatchString(r.BaselineCommit) {
+	if r.ID == "" || r.VaultID == "" || (r.WorkspaceID != "" && !workspaceIDPattern.MatchString(r.WorkspaceID)) || !filepath.IsAbs(r.WorkspaceRoot) || !commitPattern.MatchString(r.BaselineCommit) {
 		return fmt.Errorf("%w: identity, workspace root, and baseline are required", ErrInvalidRecord)
 	}
 	if (r.Status != StatusContracted && r.Status != StatusCompleted && r.Status != StatusDiscarded) || r.CurrentRevision < 1 || r.CreatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) || r.LastEventID == "" {

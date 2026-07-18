@@ -20,6 +20,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
@@ -230,7 +231,9 @@ func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record ev
 		return syncstate.ReplayQuarantined, "payload_invalid", nil
 	}
 	if record.Type == taskContractCreatedEventType {
-		created, err := taskCreatedFromPayload(record.VaultID, payload, record.ID)
+		sourceHash := workspaceRootHash(payload.WorkspaceRoot)
+		workspaceID := workspacemapping.ID(record.VaultID, sourceHash)
+		created, err := taskCreatedFromPayload(record.VaultID, payload, record.ID, workspaceID, payload.WorkspaceRoot)
 		if err != nil || payload.Revision != 1 || record.Sensitivity != event.SensitivityPrivate {
 			return syncstate.ReplayQuarantined, "payload_invalid", nil
 		}
@@ -239,7 +242,7 @@ func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record ev
 		} else if !errors.Is(err, taskstore.ErrNotFound) {
 			return "", "", err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?)`, created.Task.ID, created.Task.VaultID, workspaceRootHash(created.Task.WorkspaceRoot), created.Task.BaselineCommit, string(task.StatusContracted), payload.CreatedAt, payload.CreatedAt, record.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id, workspace_id) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, created.Task.ID, created.Task.VaultID, sourceHash, created.Task.BaselineCommit, string(task.StatusContracted), payload.CreatedAt, payload.CreatedAt, record.ID, workspaceID); err != nil {
 			return "", "", err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO task_contract_revisions(task_id, revision, baseline_commit, created_at, event_id) VALUES(?, 1, ?, ?, ?)`, created.Task.ID, created.Task.BaselineCommit, payload.CreatedAt, record.ID); err != nil {
@@ -265,7 +268,7 @@ func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record ev
 	if current.Status != task.StatusContracted || payload.Revision != pointer.currentRevision+1 || payload.BaselineCommit != current.BaselineCommit || payload.WorkspaceRoot != current.WorkspaceRoot || payloadTime.Before(current.UpdatedAt) {
 		return syncstate.ReplayConflicted, "aggregate_revision_conflict", nil
 	}
-	created, err := taskResultFromPayload(record.VaultID, payload, record.ID, current.CreatedAt)
+	created, err := taskResultFromPayload(record.VaultID, payload, record.ID, current.CreatedAt, current.WorkspaceID, payload.WorkspaceRoot)
 	if err != nil || record.Sensitivity != event.SensitivityPrivate {
 		return syncstate.ReplayQuarantined, "payload_invalid", nil
 	}

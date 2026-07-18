@@ -8,6 +8,7 @@
 | AccountLink | device-local Vault membership and encrypted references to ZDP-owned account, workspace, and consent facts |
 | Device | signing identity, sync sequence, revocation |
 | Workspace | repository location and policy |
+| WorkspaceMapping | stable synced workspace identity and one device-local verified repository root |
 | RepositorySnapshot | baseline commit, dirty state, toolchain facts |
 | Task | user goal and lifecycle |
 | TaskContractRevision | immutable scope, capabilities, checks, completion rules |
@@ -38,6 +39,8 @@
 - Task Contract revision updates require the current expected revision; concurrent incompatible updates never use last-write-wins;
 - Task creation and its first encrypted contract revision commit atomically; materialized contract pointers never duplicate private contract bodies;
 - repository snapshots use a canonical worktree root, an exact commit baseline, bounded porcelain-v2 changes, and a capture time;
+- synced Tasks carry a Vault-bound stable workspace identity; every device must explicitly bind that identity to a canonical local Git root containing the immutable baseline before repository execution;
+- workspace mapping paths remain in encrypted device-local events, never sync packs or plaintext materialized rows; revocation makes dependent Task reads and execution fail closed;
 - stale Decision revisions cannot resolve the current question;
 - Decision questions and answers remain encrypted; equivalent answers converge and incompatible answers move the Decision to `conflicted` without overwriting evidence;
 - duplicate commands and events produce at most one side effect;
