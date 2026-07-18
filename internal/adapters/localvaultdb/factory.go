@@ -2,13 +2,16 @@ package localvaultdb
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
@@ -17,7 +20,9 @@ import (
 )
 
 type Factory struct {
-	root string
+	root   string
+	now    func() time.Time
+	random io.Reader
 }
 
 type database struct {
@@ -39,7 +44,7 @@ func New(root string) (*Factory, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve Vault database root: %w", err)
 	}
-	return &Factory{root: filepath.Clean(absolute)}, nil
+	return &Factory{root: filepath.Clean(absolute), now: func() time.Time { return time.Now().UTC() }, random: rand.Reader}, nil
 }
 
 func (f *Factory) Create(ctx context.Context, vaultID, keyID string, key []byte) (vaultdb.Database, error) {
