@@ -434,6 +434,90 @@ h1 {
   cursor: pointer;
 }
 
+.memory-card {
+  grid-column: span 2;
+}
+
+.memory-toolbar,
+.memory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.memory-toolbar button,
+.memory-actions button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(111, 231, 186, 0.32);
+  border-radius: 10px;
+  color: #08100d;
+  font-weight: 750;
+  background: #6fe7ba;
+  cursor: pointer;
+}
+
+.memory-toolbar button.secondary,
+.memory-actions button.secondary {
+  color: #d7deea;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: transparent;
+}
+
+.memory-actions button.danger {
+  color: #fff4f2;
+  border-color: rgba(255, 112, 98, 0.55);
+  background: #9e2f29;
+}
+
+.memory-toolbar button:disabled,
+.memory-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.decision-item .memory-provenance {
+  color: #8fd7bc;
+}
+
+.decision-item .memory-terms {
+  overflow-wrap: anywhere;
+  color: #95a9c8;
+}
+
+.applied-memory-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.applied-memory-list h3,
+.applied-memory-list p {
+  margin: 0;
+}
+
+.applied-memory-list h3 {
+  font-size: 0.86rem;
+  color: #d7deea;
+}
+
+.applied-memory-list section {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(122, 162, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(31, 52, 91, 0.16);
+}
+
+.applied-memory-list small {
+  color: #92a9cc;
+  line-height: 1.5;
+}
+
 .patch-warning {
   color: #ffbd75;
 }
@@ -634,6 +718,10 @@ h1 {
   .status-grid,
   .boundary {
     grid-template-columns: 1fr;
+  }
+
+  .memory-card {
+    grid-column: auto;
   }
 
   .boundary {

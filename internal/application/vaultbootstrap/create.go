@@ -156,6 +156,8 @@ type AccountDatabase interface {
 }
 
 type MemoryDatabase interface {
+	taskstore.Store
+	decisionstore.Store
 	memorystore.Store
 }
 

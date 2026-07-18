@@ -4,7 +4,10 @@ import (
 	"errors"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/contextassembly"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/memorycompile"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/memorykernel"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchcommand"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
@@ -13,6 +16,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
@@ -45,6 +49,36 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, memorycompile.ErrSensitiveSource):
+		mapped.Code = "MEMORY_SECRET_REJECTED"
+		mapped.Message = "비밀정보로 보이는 내용이 있어 기억 후보를 만들지 않았습니다."
+	case errors.Is(err, memorycompile.ErrInvalidRequest), errors.Is(err, memorycompile.ErrInvalidSource):
+		mapped.Code = "MEMORY_COMPILATION_INVALID"
+		mapped.Message = "현재 Task와 Decision 출처에서 기억 후보를 안전하게 만들 수 없습니다."
+	case errors.Is(err, contextassembly.ErrInvalidRequest):
+		mapped.Code = "MEMORY_CONTEXT_INVALID"
+		mapped.Message = "현재 Task에 적용할 기억 범위를 확인해 주세요."
+	case errors.Is(err, memorykernel.ErrReviewRequired):
+		mapped.Code = "MEMORY_REVIEW_REQUIRED"
+		mapped.Message = "기억 후보의 승인, 거절 또는 격리 결과를 선택해 주세요."
+	case errors.Is(err, memorykernel.ErrInvalidRequest), errors.Is(err, memorystore.ErrInvalidCommand):
+		mapped.Code = "MEMORY_REQUEST_INVALID"
+		mapped.Message = "기억 후보와 검토 요청을 확인해 주세요."
+	case errors.Is(err, memorystore.ErrRevisionConflict):
+		mapped.Code = "MEMORY_REVISION_CONFLICT"
+		mapped.Message = "기억 후보가 다른 검토에서 변경되었습니다. 최신 상태를 다시 확인해 주세요."
+	case errors.Is(err, memorystore.ErrTransitionRejected):
+		mapped.Code = "MEMORY_TRANSITION_REJECTED"
+		mapped.Message = "현재 상태에서는 요청한 기억 검토 결과를 적용할 수 없습니다."
+	case errors.Is(err, memorystore.ErrEvidenceNotFound):
+		mapped.Code = "MEMORY_EVIDENCE_NOT_FOUND"
+		mapped.Message = "기억 후보의 Vault 출처 이벤트를 확인할 수 없습니다."
+	case errors.Is(err, memorystore.ErrIdempotencyConflict), errors.Is(err, memorystore.ErrIdempotencyUnverified):
+		mapped.Code = "MEMORY_REQUEST_CONFLICT"
+		mapped.Message = "같은 요청 식별자가 다른 기억 작업에 사용되었습니다."
+	case errors.Is(err, memorystore.ErrNotFound):
+		mapped.Code = "MEMORY_NOT_FOUND"
+		mapped.Message = "요청한 기억 후보를 찾을 수 없습니다."
 	case errors.Is(err, errPatchCommandUnavailable):
 		mapped.Code = "PATCH_COMMAND_UNAVAILABLE"
 		mapped.Message = "이 기기에서 패치를 안전하게 처리할 수 없습니다."

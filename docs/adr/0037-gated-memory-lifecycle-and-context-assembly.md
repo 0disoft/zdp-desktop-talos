@@ -20,7 +20,7 @@ An encrypted event ledger is not a memory system. Replaying raw task events into
 
 ## Consequences
 
-Approved memory can change a later plan without becoming execution authority. Rejected or stale knowledge cannot leak through the active-context query, and cross-Vault evidence cannot manufacture provenance. Context selection stays deterministic and bounded without a vector index. Production extraction quality, automatic stable-promotion policy, memory review UI, projection, sync conflict handling, and deletion UX remain later work.
+Approved memory can change a later plan without becoming execution authority. Rejected or stale knowledge cannot leak through the active-context query, and cross-Vault evidence cannot manufacture provenance. Context selection stays deterministic and bounded without a vector index. ADR 0038 adds deterministic answered-Decision extraction and the explicit review/explanation surface; broader extraction quality, automatic stable-promotion policy, projection, sync conflict handling, and deletion UX remain later work.
 
 ## Verification
 

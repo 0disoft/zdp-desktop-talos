@@ -19,6 +19,7 @@
   import { executeVerification, type ExecutionStatus } from './lib/api/execution';
   import { getTaskReview, type PatchReview } from './lib/api/review';
   import { applyPatch, discardPatch } from './lib/api/patch';
+  import { compileTaskMemories, explainTaskMemory, listMemoryCandidates, reviewMemory, type AppliedMemory, type MemoryItem, type MemoryReviewOutcome } from './lib/api/memory';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -46,6 +47,9 @@
   let execution = $state<ExecutionStatus | null>(null);
   let patchReview = $state<PatchReview | null>(null);
   let discardConfirmation = $state(false);
+  let memoryCandidates = $state<MemoryItem[]>([]);
+  let appliedMemories = $state<AppliedMemory[]>([]);
+  let memoryEligible = $state(0);
 
   onMount(async () => {
     try {
@@ -206,7 +210,7 @@
         task = result.task;
         execution = null;
         editingTask = false;
-        await Promise.all([refreshDecisions(), refreshPermissions(), refreshPatchReview()]);
+        await Promise.all([refreshDecisions(), refreshPermissions(), refreshPatchReview(), refreshMemories()]);
       }
     } catch {
       latestError = localError('TASK_REQUEST_FAILED', 'Task Contract를 저장하지 못했습니다.');
@@ -320,8 +324,49 @@
     } finally { loading = false; }
   }
 
+  async function refreshMemories() {
+    if (!task || vault.state !== 'unlocked') { memoryCandidates = []; appliedMemories = []; return; }
+    try {
+      const [candidateResult, contextResult] = await Promise.all([listMemoryCandidates(), explainTaskMemory(task.task_id)]);
+      if (candidateResult.error) latestError = candidateResult.error;
+      else memoryCandidates = candidateResult.memories;
+      if (contextResult.error) latestError = contextResult.error;
+      else appliedMemories = contextResult.items;
+    } catch {
+      latestError = localError('MEMORY_REQUEST_FAILED', '기억 검토 상태를 불러오지 못했습니다.');
+    }
+  }
+
+  async function handleMemoryCompile() {
+    if (!task || vault.state !== 'unlocked') return;
+    loading = true; latestError = null;
+    try {
+      const result = await compileTaskMemories(task.task_id);
+      if (result.error) latestError = result.error;
+      else {
+        memoryEligible = result.eligible;
+        await refreshMemories();
+      }
+    } catch {
+      latestError = localError('MEMORY_COMPILATION_FAILED', 'Decision에서 기억 후보를 만들지 못했습니다.');
+    } finally { loading = false; }
+  }
+
+  async function handleMemoryReview(item: MemoryItem, outcome: MemoryReviewOutcome) {
+    loading = true; latestError = null;
+    const reasons: Record<MemoryReviewOutcome, string> = { approved: '현재 프로젝트 규칙으로 승인함', rejected: '지속적으로 적용할 기억이 아님', quarantined: '출처 또는 내용에 보안 검토가 필요함' };
+    try {
+      const result = await reviewMemory(item.memory_id, item.revision, outcome, reasons[outcome]);
+      if (result.error) latestError = result.error;
+      else await refreshMemories();
+    } catch {
+      latestError = localError('MEMORY_REVIEW_FAILED', '기억 검토 결과를 저장하지 못했습니다.');
+    } finally { loading = false; }
+  }
+
   function clearPrivateTaskState() {
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
+    memoryCandidates = []; appliedMemories = []; memoryEligible = 0;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
@@ -581,6 +626,48 @@
           </section>
         {:else}
           <p class="decision-empty">현재 대기 중인 질문이 없습니다.</p>
+        {/each}
+      </div>
+    </article>
+
+    <article class="status-card memory-card">
+      <div class="status-heading">
+        <span class:unlocked={memoryCandidates.length > 0} class="status-dot clear" aria-hidden="true"></span>
+        <h2>기억 검토</h2>
+      </div>
+      <strong>{memoryCandidates.length}개 후보</strong>
+      <p>{memoryEligible > 0 ? `최근 확인한 Decision ${memoryEligible}개` : '답변된 Decision만 검토 후보가 됩니다.'}</p>
+      <div class="memory-toolbar">
+        <button type="button" onclick={handleMemoryCompile} disabled={loading || !task || !decisions.some((item) => item.state === 'answered')}>Decision에서 후보 만들기</button>
+        <button type="button" class="secondary" onclick={refreshMemories} disabled={loading || !task}>새로고침</button>
+      </div>
+      <div class="decision-list">
+        {#each memoryCandidates as item (item.memory_id)}
+          <section class="decision-item">
+            <div class="decision-meta"><span>{item.kind}</span><span>{item.scope}</span><span>신뢰도 {item.confidence}</span><span>rev {item.revision}</span></div>
+            <h3>{item.statement}</h3>
+            <p>{item.rationale}</p>
+            <p class="memory-provenance">출처 {item.evidence_event_ids.length}개 · {item.source_actor}</p>
+            {#if item.goal_terms.length > 0}<p class="memory-terms">적용 단어: {item.goal_terms.join(', ')}</p>{/if}
+            <div class="memory-actions">
+              <button type="button" onclick={() => handleMemoryReview(item, 'approved')} disabled={loading}>승인</button>
+              <button type="button" class="secondary" onclick={() => handleMemoryReview(item, 'rejected')} disabled={loading}>거절</button>
+              <button type="button" class="danger" onclick={() => handleMemoryReview(item, 'quarantined')} disabled={loading}>격리</button>
+            </div>
+          </section>
+        {:else}
+          <p class="decision-empty">검토할 기억 후보가 없습니다.</p>
+        {/each}
+      </div>
+      <div class="applied-memory-list">
+        <h3>현재 Task에 적용되는 기억</h3>
+        {#each appliedMemories as item (item.memory_id)}
+          <section>
+            <p>{item.statement}</p>
+            <small>{item.reason} · rev {item.revision}</small>
+          </section>
+        {:else}
+          <p class="decision-empty">현재 Task에 선택된 기억이 없습니다.</p>
         {/each}
       </div>
     </article>

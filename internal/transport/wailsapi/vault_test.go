@@ -10,6 +10,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/accountlink"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/patchaction"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
@@ -20,6 +21,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -211,6 +213,9 @@ type serviceDatabase struct {
 	decisionList   []decisionstore.Result
 	taskCreated    taskstore.Created
 	taskErr        error
+	memoryInputs   []memorystore.CreateCandidateInput
+	memoryRecords  map[string]memory.Record
+	memoryKeys     map[string]string
 }
 
 func (d *serviceDatabase) CreateVault(_ context.Context, input vaultstore.CreateInput) (vault.Record, error) {
@@ -282,8 +287,77 @@ func (d *serviceDatabase) GetTask(_ context.Context, taskID string) (task.Record
 	}
 	return task.Record{}, taskstore.ErrNotFound
 }
-func (*serviceDatabase) GetTaskContract(context.Context, string, int) (task.ContractRevision, error) {
+func (d *serviceDatabase) GetTaskContract(_ context.Context, taskID string, revision int) (task.ContractRevision, error) {
+	if d.taskCreated.Contract.TaskID == taskID && d.taskCreated.Contract.Revision == revision {
+		return d.taskCreated.Contract, nil
+	}
 	return task.ContractRevision{}, taskstore.ErrNotFound
+}
+func (d *serviceDatabase) CreateMemoryCandidate(_ context.Context, input memorystore.CreateCandidateInput) (memory.Record, error) {
+	if d.memoryRecords == nil {
+		d.memoryRecords = map[string]memory.Record{}
+		d.memoryKeys = map[string]string{}
+	}
+	if memoryID, exists := d.memoryKeys[input.IdempotencyKey]; exists {
+		return d.memoryRecords[memoryID], nil
+	}
+	d.memoryInputs = append(d.memoryInputs, input)
+	memoryID := "memory-" + string(rune('0'+len(d.memoryInputs)))
+	record := memory.Record{ID: memoryID, VaultID: input.VaultID, Kind: input.Kind, State: memory.StateCandidate, Scope: input.Scope, Statement: input.Statement, Rationale: input.Rationale, Applicability: input.Applicability, EvidenceEventIDs: append([]string(nil), input.EvidenceEventIDs...), SourceActor: input.SourceActor, Confidence: input.Confidence, Sensitivity: input.Sensitivity, Revision: 1, CreatedAt: input.OccurredAt, UpdatedAt: input.OccurredAt, CreatedEventID: "memory-created-event", LastEventID: "memory-created-event"}
+	d.memoryRecords[memoryID] = record
+	d.memoryKeys[input.IdempotencyKey] = memoryID
+	return record, nil
+}
+func (d *serviceDatabase) TransitionMemory(_ context.Context, input memorystore.TransitionInput) (memory.Record, error) {
+	record, exists := d.memoryRecords[input.MemoryID]
+	if !exists || record.VaultID != input.VaultID {
+		return memory.Record{}, memorystore.ErrNotFound
+	}
+	if record.Revision != input.ExpectedRevision {
+		return memory.Record{}, memorystore.ErrRevisionConflict
+	}
+	if !memory.CanTransition(record.State, input.NextState) {
+		return memory.Record{}, memorystore.ErrTransitionRejected
+	}
+	if input.OccurredAt.IsZero() {
+		input.OccurredAt = record.UpdatedAt.Add(time.Nanosecond)
+	}
+	record.State = input.NextState
+	record.Revision++
+	record.UpdatedAt = input.OccurredAt
+	record.ReviewedAt = input.OccurredAt
+	record.LastEventID = "memory-review-event"
+	d.memoryRecords[input.MemoryID] = record
+	return record, nil
+}
+func (d *serviceDatabase) GetMemory(_ context.Context, vaultID, memoryID string) (memory.Record, error) {
+	record, exists := d.memoryRecords[memoryID]
+	if !exists || record.VaultID != vaultID {
+		return memory.Record{}, memorystore.ErrNotFound
+	}
+	return record, nil
+}
+func (d *serviceDatabase) ListMemoryCandidates(_ context.Context, vaultID string, limit int) ([]memory.Record, error) {
+	result := make([]memory.Record, 0, limit)
+	for _, record := range d.memoryRecords {
+		if record.VaultID == vaultID && record.State == memory.StateCandidate && len(result) < limit {
+			result = append(result, record)
+		}
+	}
+	return result, nil
+}
+func (d *serviceDatabase) ListActiveMemories(_ context.Context, input memorystore.ListActiveInput) ([]memory.Record, error) {
+	result := make([]memory.Record, 0, input.Limit)
+	for _, record := range d.memoryRecords {
+		if record.VaultID != input.VaultID || (record.State != memory.StateApproved && record.State != memory.StateStable) || len(result) >= input.Limit {
+			continue
+		}
+		if record.Scope.Kind == memory.ScopeWorkspace && record.Scope.WorkspaceRoot != input.WorkspaceRoot {
+			continue
+		}
+		result = append(result, record)
+	}
+	return result, nil
 }
 func (*serviceDatabase) SavePermissionGrant(context.Context, executionstore.SaveGrantInput) (permission.Grant, error) {
 	return permission.Grant{}, executionstore.ErrNotFound
