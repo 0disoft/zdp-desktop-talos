@@ -135,6 +135,7 @@ try {
     $desktopPath = Join-Path $binaryRoot 'talos-desktop.exe'
     $workerPath = Join-Path $binaryRoot 'talos-worker.exe'
     $cliPath = Join-Path $binaryRoot 'talosctl.exe'
+    $releaseProbePath = Join-Path $binaryRoot 'talos-release-probe.exe'
     Push-Location $repositoryRoot
     try {
         Invoke-Native -Executable 'go' -Arguments @(
@@ -147,12 +148,15 @@ try {
         Invoke-Native -Executable 'go' -Arguments @(
             'build', '-trimpath', '-buildvcs=false', '-o', $cliPath, './cmd/talosctl'
         )
+        Invoke-Native -Executable 'go' -Arguments @(
+            'build', '-trimpath', '-buildvcs=false', '-o', $releaseProbePath, './cmd/talos-release-probe'
+        )
     } finally {
         Pop-Location
     }
 
     if ($RequireSignature) {
-        foreach ($binary in @($desktopPath, $workerPath, $cliPath)) {
+        foreach ($binary in @($desktopPath, $workerPath, $cliPath, $releaseProbePath)) {
             & $signScript -Path $binary
         }
     }
@@ -176,16 +180,18 @@ try {
     $publishedDesktopPath = Join-Path $artifactRoot 'talos-desktop.exe'
     $publishedWorkerPath = Join-Path $artifactRoot 'talos-worker.exe'
     $publishedCliPath = Join-Path $artifactRoot 'talosctl.exe'
+    $publishedReleaseProbePath = Join-Path $artifactRoot 'talos-release-probe.exe'
     Copy-Item -LiteralPath $desktopPath -Destination $publishedDesktopPath
     Copy-Item -LiteralPath $workerPath -Destination $publishedWorkerPath
     Copy-Item -LiteralPath $cliPath -Destination $publishedCliPath
+    Copy-Item -LiteralPath $releaseProbePath -Destination $publishedReleaseProbePath
 
     $gitCommit = (& git -C $repositoryRoot rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0 -or $gitCommit -notmatch '^[a-f0-9]{40}$') {
         throw 'Unable to resolve the source commit for the package receipt.'
     }
 
-    $artifacts = foreach ($artifact in @($publishedDesktopPath, $publishedWorkerPath, $publishedCliPath, $installerPath)) {
+    $artifacts = foreach ($artifact in @($publishedDesktopPath, $publishedWorkerPath, $publishedCliPath, $publishedReleaseProbePath, $installerPath)) {
         $signature = Get-AuthenticodeSignature -LiteralPath $artifact
         [ordered]@{
             name = [IO.Path]::GetFileName($artifact)
@@ -202,6 +208,7 @@ try {
         architecture = $Architecture
         source_commit = $gitCommit
         signature_required = [bool]$RequireSignature
+        release_probe_schema = 'talos.release-probe/1'
         artifacts = @($artifacts)
     }
     [IO.File]::WriteAllText(

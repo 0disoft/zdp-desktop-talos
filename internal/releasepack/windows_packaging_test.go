@@ -79,6 +79,26 @@ func TestWindowsPackageRequiresCleanSourceProvenance(t *testing.T) {
 	}
 }
 
+func TestWindowsPackagePublishesSignedReleaseProbeOutsideInstaller(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	packager := readFile(t, filepath.Join(root, "packaging", "windows", "package.ps1"))
+	for _, expected := range []string{
+		"./cmd/talos-release-probe",
+		"talos-release-probe.exe",
+		"release_probe_schema = 'talos.release-probe/1'",
+		"$desktopPath, $workerPath, $cliPath, $releaseProbePath",
+	} {
+		if !strings.Contains(packager, expected) {
+			t.Errorf("package.ps1 is missing release-probe contract %q", expected)
+		}
+	}
+	project := readFile(t, filepath.Join(root, "packaging", "windows", "project.nsi"))
+	if strings.Contains(project, "talos-release-probe") {
+		t.Fatal("release probe must not be installed on user machines")
+	}
+}
+
 func TestWindowsPackagingVersionIsSynchronized(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
