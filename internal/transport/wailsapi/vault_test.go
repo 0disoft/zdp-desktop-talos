@@ -30,6 +30,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/version"
 )
 
 func TestVaultServiceCreatesThenLocksSession(t *testing.T) {
@@ -165,7 +166,7 @@ func TestVaultServiceCreatesBackupAndRunsIsolatedPreflight(t *testing.T) {
 	if backup.Error != nil || backup.Receipt == nil || backup.Receipt.Schema != vaultbackup.ReceiptSchema || backup.Receipt.Path != `C:\Backups\vault.talos-backup` || backup.Receipt.EventCount != 7 {
 		t.Fatalf("backup = %+v", backup)
 	}
-	if backups.createInput.VaultID != created.Vault.VaultID || backups.createInput.ApplicationVersion != "0.31.0" || !allZero(backups.createInput.Key) {
+	if backups.createInput.VaultID != created.Vault.VaultID || backups.createInput.ApplicationVersion != version.Application || !allZero(backups.createInput.Key) {
 		t.Fatalf("backup input was not bounded or cleared: %+v", backups.createInput)
 	}
 
@@ -173,7 +174,7 @@ func TestVaultServiceCreatesBackupAndRunsIsolatedPreflight(t *testing.T) {
 	if preflight.Error != nil || preflight.Preflight == nil || preflight.Preflight.Schema != vaultbackup.PreflightSchema || preflight.Preflight.TargetSchemaVersion != 23 || preflight.Preflight.MigrationRequired {
 		t.Fatalf("preflight = %+v", preflight)
 	}
-	if backups.preflightInput.VaultID != created.Vault.VaultID || backups.preflightInput.ApplicationVersion != "0.31.0" || !allZero(backups.preflightInput.Key) {
+	if backups.preflightInput.VaultID != created.Vault.VaultID || backups.preflightInput.ApplicationVersion != version.Application || !allZero(backups.preflightInput.Key) {
 		t.Fatalf("preflight input was not bounded or cleared: %+v", backups.preflightInput)
 	}
 }
@@ -272,7 +273,7 @@ func (s *serviceBackupStore) PreflightBackup(_ context.Context, input vaultbacku
 	s.preflightInput = input
 	return vaultbackup.Preflight{
 		Schema: vaultbackup.PreflightSchema, BackupID: "00000000-0000-7000-8000-0000000000e1", VaultID: input.VaultID,
-		Path: input.Source, SourceApplicationVersion: "0.31.0", TargetApplicationVersion: input.ApplicationVersion,
+		Path: input.Source, SourceApplicationVersion: input.ApplicationVersion, TargetApplicationVersion: input.ApplicationVersion,
 		SourceSchemaVersion: 23, TargetSchemaVersion: 23, CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC),
 		VerifiedAt: time.Date(2026, 7, 19, 4, 6, 6, 0, time.UTC), EncryptedSizeBytes: 4096,
 		CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DatabaseSizeBytes: 2048,

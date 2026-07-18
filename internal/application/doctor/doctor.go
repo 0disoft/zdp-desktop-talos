@@ -70,6 +70,14 @@ func Run(ctx context.Context, workerPath string) Report {
 		report.Checks = append(report.Checks, check)
 	}
 
+	if check, err := backupCheck(ctx); err != nil {
+		report.Ready = false
+		report.ProductionBlockers = append(report.ProductionBlockers, "the encrypted Vault backup self-test failed")
+		report.Checks = append(report.Checks, Check{Name: "vault_backup", Status: "failed", Details: map[string]any{"error": err.Error()}})
+	} else {
+		report.Checks = append(report.Checks, check)
+	}
+
 	if workerPath == "" {
 		workerPath = defaultWorkerPath()
 	}

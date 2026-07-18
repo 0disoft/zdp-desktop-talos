@@ -1,7 +1,7 @@
 {
   "tool": "ssealed",
   "version": "0.6.11",
-  "generatedAt": "2026-07-18T16:05:12.980Z",
+  "generatedAt": "2026-07-18T16:17:20.442Z",
   "scope": "general",
   "profile": "desktop-app",
   "addons": [
@@ -815,13 +815,13 @@
     },
     {
       "path": "docs/ops/backup-and-restore.md",
-      "checksum": "sha256:38e7d4ef701d12d144eb5c3a096a23e5000fc811ee18653804b67c94920f2764",
+      "checksum": "sha256:19c5e7ea77f39cfd8b471c722f1d7d5784295799c7b2d38351295f760fd405cf",
       "kind": "document",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:17ff99a5bfe876ab524eeac5fd35be40e915bf6284cb68d34d61b9b73fa7e506",
-      "acceptedChecksum": "sha256:38e7d4ef701d12d144eb5c3a096a23e5000fc811ee18653804b67c94920f2764",
+      "acceptedChecksum": "sha256:19c5e7ea77f39cfd8b471c722f1d7d5784295799c7b2d38351295f760fd405cf",
       "generatedChecksum": "sha256:17ff99a5bfe876ab524eeac5fd35be40e915bf6284cb68d34d61b9b73fa7e506"
     },
     {
@@ -1002,13 +1002,13 @@
     },
     {
       "path": "Taskfile.yml",
-      "checksum": "sha256:1d01aba9d48ba9bd3f5d624ff4b6068acdb67b9a23e3186219f61507d887c0ef",
+      "checksum": "sha256:08b9163af2426c4b3fcde6328a7d7b5da7c396df8be21af7da063276101e68a0",
       "kind": "runner",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608",
-      "acceptedChecksum": "sha256:1d01aba9d48ba9bd3f5d624ff4b6068acdb67b9a23e3186219f61507d887c0ef",
+      "acceptedChecksum": "sha256:08b9163af2426c4b3fcde6328a7d7b5da7c396df8be21af7da063276101e68a0",
       "generatedChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608"
     },
     {
