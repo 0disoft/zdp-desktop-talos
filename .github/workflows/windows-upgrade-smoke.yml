@@ -40,13 +40,31 @@ jobs:
     timeout-minutes: 20
     env:
       CI: "true"
+      TALOS_UPGRADE_SMOKE_EPHEMERAL: "true"
       TALOS_EXPECTED_SIGNER_SHA1: ${{ vars.TALOS_EXPECTED_SIGNER_SHA1 }}
     steps:
-      - name: Check out verification script
+      - name: Check out trusted verifier source
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           clean: true
           persist-credentials: false
+
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Resolve trusted signing runs
+        id: runs
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          bun tools/windows-upgrade-runs.ts
+          --repository $env:GITHUB_REPOSITORY
+          --old-run-id "${{ inputs.old_run_id }}"
+          --new-run-id "${{ inputs.new_run_id }}"
+          --verifier-commit $env:GITHUB_SHA
 
       - name: Download signed N-1 package
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -64,11 +82,28 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ inputs.new_run_id }}
 
-      - name: Run upgrade retention smoke test
+      - name: Run signed real-Vault upgrade smoke test
+        id: upgrade
         shell: pwsh
-        run: |
-          $oldInstallers = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'talos-old') -Filter '*-setup.exe' -File -Recurse)
-          $newInstallers = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'talos-new') -Filter '*-setup.exe' -File -Recurse)
-          if ($oldInstallers.Count -ne 1) { throw "Expected exactly one old installer, found $($oldInstallers.Count)." }
-          if ($newInstallers.Count -ne 1) { throw "Expected exactly one new installer, found $($newInstallers.Count)." }
-          ./packaging/windows/upgrade-smoke.ps1 -OldInstaller $oldInstallers[0].FullName -NewInstaller $newInstallers[0].FullName
+        run: >-
+          bun tools/windows-upgrade-smoke.ts
+          --old-package-root (Join-Path $env:RUNNER_TEMP 'talos-old')
+          --new-package-root (Join-Path $env:RUNNER_TEMP 'talos-new')
+          --old-run-id "${{ inputs.old_run_id }}"
+          --new-run-id "${{ inputs.new_run_id }}"
+          --old-source-commit "${{ steps.runs.outputs.old_source_commit }}"
+          --new-source-commit "${{ steps.runs.outputs.new_source_commit }}"
+          --verifier-commit "${{ steps.runs.outputs.verifier_commit }}"
+          --expected-signer-thumbprint $env:TALOS_EXPECTED_SIGNER_SHA1
+          --evidence (Join-Path $env:RUNNER_TEMP 'talos-windows-upgrade-evidence.json')
+
+      - name: Upload bounded upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: talos-windows-upgrade-evidence-${{ inputs.new_run_id }}
+          path: ${{ runner.temp }}/talos-windows-upgrade-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 0
+          include-hidden-files: false

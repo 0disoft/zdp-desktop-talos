@@ -43,6 +43,7 @@ func TestWindowsCIHasNoSigningAuthority(t *testing.T) {
 		"runs-on: windows-2025",
 		"permissions:\n  contents: read",
 		"bun install --frozen-lockfile --ignore-scripts",
+		"bun test tools/windows-upgrade-contract.test.ts tools/windows-upgrade-runs.test.ts tools/windows-upgrade-smoke.test.ts",
 		"go test ./...",
 	} {
 		if !strings.Contains(workflow, required) {
@@ -104,9 +105,15 @@ func TestWindowsUpgradeRunsWithoutSigningKey(t *testing.T) {
 		"- talos-upgrade-smoke",
 		"actions: read",
 		"TALOS_EXPECTED_SIGNER_SHA1",
+		"TALOS_UPGRADE_SMOKE_EPHEMERAL",
+		"oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
 		"run-id: ${{ inputs.old_run_id }}",
 		"run-id: ${{ inputs.new_run_id }}",
-		"upgrade-smoke.ps1",
+		"tools/windows-upgrade-runs.ts",
+		"tools/windows-upgrade-smoke.ts",
+		"talos-windows-upgrade-evidence",
+		"if-no-files-found: error",
+		"retention-days: 90",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("windows-upgrade-smoke.yml is missing %q", required)
@@ -117,6 +124,7 @@ func TestWindowsUpgradeRunsWithoutSigningKey(t *testing.T) {
 		"TALOS_SIGN_CERTIFICATE_SHA1",
 		"pull_request_target",
 		"continue-on-error",
+		"upgrade-smoke.ps1",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("windows-upgrade-smoke.yml contains forbidden behavior %q", forbidden)
@@ -183,14 +191,84 @@ func TestSignedArtifactVerificationPinsCommitAndPublisher(t *testing.T) {
 		}
 	}
 
-	upgrade := readFile(t, filepath.Join(root, "packaging", "windows", "upgrade-smoke.ps1"))
+	upgrade := readFile(t, filepath.Join(root, "tools", "windows-upgrade-smoke.ts"))
 	for _, required := range []string{
-		"TALOS_EXPECTED_SIGNER_SHA1",
-		"SignerCertificate.Thumbprint",
-		"unexpected publisher",
+		"TALOS_UPGRADE_SMOKE_EPHEMERAL",
+		"verify-package.ps1",
+		"ExpectedSignerThumbprint",
+		"verifyInstalledBinaries",
+		"runProbe",
+		"RELEASE_PROBE_FAILED",
+		"direct_rollback_read_verified",
+		"upgradeEvidenceSchema",
 	} {
 		if !strings.Contains(upgrade, required) {
-			t.Errorf("upgrade-smoke.ps1 is missing %q", required)
+			t.Errorf("windows-upgrade-smoke.ts is missing %q", required)
 		}
+	}
+	for _, forbidden := range []string{
+		"preserve-me.txt",
+		"vault-data-must-survive-upgrade",
+		"Remove-Item",
+		"TALOS_SIGN_CERTIFICATE_SHA1",
+	} {
+		if strings.Contains(upgrade, forbidden) {
+			t.Errorf("windows-upgrade-smoke.ts contains forbidden behavior %q", forbidden)
+		}
+	}
+
+	runResolver := readFile(t, filepath.Join(root, "tools", "windows-upgrade-runs.ts"))
+	for _, required := range []string{
+		".github/workflows/windows-signing.yml",
+		"workflow_dispatch",
+		"head_branch",
+		"conclusion",
+		"old-to-new",
+		"new-to-verifier",
+	} {
+		if !strings.Contains(runResolver, required) {
+			t.Errorf("windows-upgrade-runs.ts is missing %q", required)
+		}
+	}
+}
+
+func TestWindowsUpgradeEvidenceContractIsStrictAndPathFree(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	schemaContent := readFile(t, filepath.Join(root, "contracts", "jsonschema", "release", "v1", "windows-upgrade-evidence.schema.json"))
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(schemaContent), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema["$schema"] != "https://json-schema.org/draft/2020-12/schema" || schema["additionalProperties"] != false {
+		t.Fatal("Windows upgrade evidence schema must use draft 2020-12 and reject unknown top-level fields")
+	}
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("Windows upgrade evidence schema properties are missing")
+	}
+	for _, forbidden := range []string{"local_path", "install_root", "package_root", "runner_temp"} {
+		if _, found := properties[forbidden]; found {
+			t.Errorf("Windows upgrade evidence schema exposes local path field %q", forbidden)
+		}
+	}
+
+	validContent := readFile(t, filepath.Join(root, "contracts", "fixtures", "release", "v1", "valid-windows-upgrade-evidence.json"))
+	var valid map[string]any
+	if err := json.Unmarshal([]byte(validContent), &valid); err != nil {
+		t.Fatal(err)
+	}
+	if valid["schema"] != "talos.windows-upgrade-evidence/1" || valid["status"] != "passed" {
+		t.Fatalf("unexpected valid Windows upgrade evidence fixture: %+v", valid)
+	}
+	for _, forbidden := range []string{"local_path", "install_root", "package_root", "runner_temp"} {
+		if strings.Contains(validContent, forbidden) {
+			t.Errorf("valid Windows upgrade evidence fixture contains forbidden local field %q", forbidden)
+		}
+	}
+
+	invalidContent := readFile(t, filepath.Join(root, "contracts", "fixtures", "release", "v1", "invalid-windows-upgrade-evidence-local-path.json"))
+	if !strings.Contains(invalidContent, `"local_path"`) {
+		t.Fatal("invalid Windows upgrade evidence fixture does not exercise local-path rejection")
 	}
 }

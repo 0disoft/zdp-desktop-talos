@@ -1,0 +1,11 @@
+{
+  "schema": "talos.windows-upgrade-evidence/1",
+  "status": "failed",
+  "architecture": "amd64",
+  "verifier_commit": "cccccccccccccccccccccccccccccccccccccccc",
+  "old_run_id": "101",
+  "new_run_id": "202",
+  "phases": [{ "name": "guard", "status": "passed" }],
+  "failure": { "stage": "package-verification", "code": "PACKAGE_SIGNATURE_INVALID" },
+  "local_path": "C:\\Users\\runner\\AppData\\Local\\0disoft\\Talos Agent"
+}

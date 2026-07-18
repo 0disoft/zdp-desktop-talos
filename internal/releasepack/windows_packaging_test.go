@@ -17,7 +17,6 @@ func TestWindowsPackagingPowerShellParses(t *testing.T) {
 	scripts := []string{
 		"package.ps1",
 		"sign-artifact.ps1",
-		"upgrade-smoke.ps1",
 		"verify-package.ps1",
 		"verify-signing-host.ps1",
 	}

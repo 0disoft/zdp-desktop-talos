@@ -14,8 +14,12 @@ tasks:
     cmds:
       - bun run check
 
+  release-tools:test:
+    cmds:
+      - bun test tools/windows-upgrade-contract.test.ts tools/windows-upgrade-runs.test.ts tools/windows-upgrade-smoke.test.ts
+
   test:
-    deps: [typecheck]
+    deps: [typecheck, release-tools:test]
     cmds:
       - go test ./...
 
@@ -56,4 +60,4 @@ tasks:
   windows:package:
     summary: Build a Windows installer on a provisioned signing host
     cmds:
-      - powershell.exe -NoProfile -NonInteractive -File packaging/windows/package.ps1 -Version 0.33.0 -RequireSignature
+      - powershell.exe -NoProfile -NonInteractive -File packaging/windows/package.ps1 -Version 0.34.0 -RequireSignature

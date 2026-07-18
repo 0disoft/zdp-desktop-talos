@@ -25,9 +25,11 @@ The workflow has read-only repository permission, does not persist checkout cred
 
 ## Upgrade Runner
 
-Do not install release candidates on the signing host. Register a different disposable Windows runner with the `talos-upgrade-smoke` label. Its current-user profile must be throwaway and contain WebView2 but no signing key. `Windows Upgrade Smoke` downloads two already-signed workflow artifacts by run ID, verifies that their Authenticode signatures are valid and match `TALOS_EXPECTED_SIGNER_SHA1`, performs the N-1 upgrade, verifies Vault retention, uninstalls, and then discards the runner profile.
+Do not install release candidates on the signing host. Register a different disposable Windows runner with the `talos-upgrade-smoke` label. Its current-user profile must be throwaway and contain WebView2 but no signing key or pre-existing Talos installation/data. `Windows Upgrade Smoke` installs pinned Bun, resolves both supplied run IDs as successful manual `main` executions of the signing workflow, verifies old-to-new-to-current-verifier commit ancestry, downloads complete package artifacts, and checks all receipt hashes and Authenticode signatures against `TALOS_EXPECTED_SIGNER_SHA1`.
 
-An upgrade-smoke pass proves installer and Vault-retention behavior. It does not prove database downgrade compatibility or authorize automatic updates.
+The signed package-only probe creates and backs up a real encrypted Vault with the old release, opens and mutates it with the candidate, proves candidate uninstall retention, then requires the reinstalled old probe to read the candidate revision before exact Vault purge. The workflow uploads a path-free `talos.windows-upgrade-evidence/1` artifact and the runner profile is discarded. A pass proves only the exercised signed version pair; it does not authorize automatic updates or cover versions that do not publish the probe.
+
+Both workflows retain their uploaded package or evidence artifact for 90 days. Schedule the candidate N-1 run before the baseline expires. Do not keep signed packages, Vault test data, or the signing key in a persistent runner workspace as an informal archive.
 
 ## References
 

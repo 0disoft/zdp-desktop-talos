@@ -1,0 +1,41 @@
+{
+  "schema": "talos.windows-upgrade-evidence/1",
+  "status": "passed",
+  "architecture": "amd64",
+  "verifier_commit": "cccccccccccccccccccccccccccccccccccccccc",
+  "old_run_id": "101",
+  "new_run_id": "202",
+  "old_package": {
+    "version": "0.33.0",
+    "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "receipt_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "new_package": {
+    "version": "0.34.0",
+    "source_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "receipt_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "vault": {
+    "id": "019f7a00-0000-7000-8000-000000000001",
+    "final_revision": 2,
+    "final_retention_days": 45,
+    "backup_id": "019f7a00-0000-7000-8000-000000000002",
+    "backup_ciphertext_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "backup_source_schema": 23,
+    "backup_target_schema": 23,
+    "uninstall_retention_verified": true,
+    "direct_rollback_read_verified": true,
+    "purged": true
+  },
+  "phases": [
+    { "name": "guard", "status": "passed" },
+    { "name": "package-verification", "status": "passed" },
+    { "name": "old-install", "status": "passed", "application_version": "0.33.0" },
+    { "name": "old-vault", "status": "passed", "application_version": "0.33.0", "revision": 1, "retention_days": 30 },
+    { "name": "new-install", "status": "passed", "application_version": "0.34.0" },
+    { "name": "new-vault", "status": "passed", "application_version": "0.34.0", "revision": 2, "retention_days": 45 },
+    { "name": "uninstall-retention", "status": "passed", "revision": 2, "retention_days": 45 },
+    { "name": "rollback", "status": "passed", "application_version": "0.33.0", "revision": 2, "retention_days": 45 },
+    { "name": "purge", "status": "passed", "revision": 2 }
+  ]
+}

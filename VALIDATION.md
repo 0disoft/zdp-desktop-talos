@@ -39,4 +39,4 @@ The Taskfile defines repository-local commands. Agents still execute them only t
 
 ## Repository Shape
 
-Desktop and CLI validation cover Go tests, Svelte diagnostics/build, encrypted storage restart, IPC framing, worker handshake, and binary compilation. Installer signing and packaged WebView startup remain release-only manual gates.
+Desktop and CLI validation cover Go tests, Svelte diagnostics/build, Bun-tested Windows release tooling, encrypted storage restart, IPC framing, worker handshake, and binary compilation. Installer signing, installed-package execution, and packaged WebView startup remain release-only manual gates.

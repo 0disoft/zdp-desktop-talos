@@ -65,5 +65,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0056-encrypted-vault-backup-preflight.md`: SQLite online snapshot, chunk-authenticated archive, no-clobber publication, and isolated migration rehearsal
 - `0057-journaled-live-vault-restore.md`: authenticated staging, protected restore journal, crash-resumable generation swap, and verified rollback
 - `0058-signed-update-preparation-gate.md`: exact-byte signed manifests, protected path-free preparation, repeat authorization, and disabled installer execution
+- `0059-signed-real-vault-n-minus-one-evidence.md`: trusted signing-run ancestry, signed package-only release probe, real encrypted Vault upgrade, uninstall retention, and direct rollback-read evidence
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

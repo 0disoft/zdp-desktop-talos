@@ -7,7 +7,7 @@ on:
         description: Exact Talos application version to package
         required: true
         type: string
-        default: 0.33.0
+        default: 0.34.0
 
 permissions:
   contents: read
@@ -66,6 +66,6 @@ jobs:
           name: talos-windows-${{ inputs.version }}
           path: .artifacts/windows/${{ inputs.version }}/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 90
           compression-level: 0
           include-hidden-files: false
