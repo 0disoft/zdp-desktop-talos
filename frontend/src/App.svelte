@@ -23,6 +23,7 @@
   import { getModelProviderStatus, proposePlan, type ModelProviderStatus, type PlanProposal } from './lib/api/plan';
   import { previewMemoryProjection, type ProjectionPreview } from './lib/api/projection';
   import AccountBoundary from './features/account/AccountBoundary.svelte';
+  import SyncWorkspace from './features/sync/SyncWorkspace.svelte';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -912,4 +913,5 @@
   </section>
 
   <AccountBoundary vaultState={vault.state} vaultID={vault.vault_id ?? ''} disabled={loading} onerror={(error) => latestError = error} />
+  <SyncWorkspace vaultState={vault.state} vaultID={vault.vault_id ?? ''} disabled={loading} onerror={(error) => latestError = error} onvaultchange={(status) => { vault = status; retentionDays = status.retention_days ?? retentionDays; selectedVaultID = status.vault_id ?? selectedVaultID; }} />
 </main>

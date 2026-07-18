@@ -139,6 +139,41 @@ func (s *Store) GetSyncReplay(ctx context.Context, vaultID, packID string) (sync
 	return result, nil
 }
 
+func (s *Store) ListSyncReplays(ctx context.Context, vaultID string, limit int) ([]syncstate.ReplayResult, error) {
+	if vaultID == "" || limit < 1 || limit > 200 {
+		return nil, syncstore.ErrInvalidCommand
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT pack_id FROM sync_replay_batches WHERE vault_id = ? ORDER BY completed_at DESC, pack_id LIMIT ?`, vaultID, limit)
+	if err != nil {
+		return nil, err
+	}
+	var packIDs []string
+	for rows.Next() {
+		var packID string
+		if err := rows.Scan(&packID); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		packIDs = append(packIDs, packID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	results := make([]syncstate.ReplayResult, 0, len(packIDs))
+	for _, packID := range packIDs {
+		result, err := s.GetSyncReplay(ctx, vaultID, packID)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
 func (s *Store) getSyncReplay(ctx context.Context, queryer syncReadQueryer, vaultID, packID string) (syncstate.ReplayResult, bool, error) {
 	var batch syncstate.ReplayBatch
 	var sequenceStart, sequenceEnd int64

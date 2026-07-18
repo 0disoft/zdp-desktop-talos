@@ -35,9 +35,15 @@ type RevokeInput struct {
 	IdempotencyKey   string
 }
 
+type TaskWorkspace struct {
+	TaskID      string
+	Requirement workspacemapping.Requirement
+}
+
 type Store interface {
 	GetTaskWorkspace(context.Context, string, string) (workspacemapping.Requirement, error)
 	GetWorkspaceMapping(context.Context, string, string) (workspacemapping.Record, error)
+	ListTaskWorkspaces(context.Context, string, int) ([]TaskWorkspace, error)
 	BindWorkspaceMapping(context.Context, BindInput) (workspacemapping.Record, bool, error)
 	RevokeWorkspaceMapping(context.Context, RevokeInput) (workspacemapping.Record, bool, error)
 }

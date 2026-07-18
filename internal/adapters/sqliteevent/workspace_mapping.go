@@ -71,6 +71,41 @@ func (s *Store) GetWorkspaceMapping(ctx context.Context, vaultID, workspaceID st
 	return s.workspaceMappingFromPointer(ctx, s.db, pointer)
 }
 
+func (s *Store) ListTaskWorkspaces(ctx context.Context, vaultID string, limit int) ([]workspacestore.TaskWorkspace, error) {
+	if vaultID == "" || limit < 1 || limit > 200 {
+		return nil, workspacestore.ErrInvalidCommand
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT task_id FROM tasks WHERE vault_id = ? ORDER BY created_at DESC, task_id LIMIT ?`, vaultID, limit)
+	if err != nil {
+		return nil, err
+	}
+	var taskIDs []string
+	for rows.Next() {
+		var taskID string
+		if err := rows.Scan(&taskID); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		taskIDs = append(taskIDs, taskID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	requirements := make([]workspacestore.TaskWorkspace, 0, len(taskIDs))
+	for _, taskID := range taskIDs {
+		requirement, err := s.GetTaskWorkspace(ctx, vaultID, taskID)
+		if err != nil {
+			return nil, err
+		}
+		requirements = append(requirements, workspacestore.TaskWorkspace{TaskID: taskID, Requirement: requirement})
+	}
+	return requirements, nil
+}
+
 func (s *Store) BindWorkspaceMapping(ctx context.Context, input workspacestore.BindInput) (workspacemapping.Record, bool, error) {
 	localRoot, localRootHash, err := normalizedWorkspaceRoot(input.LocalRoot)
 	if err != nil || input.WorkspaceID != workspacemapping.ID(input.VaultID, input.SourceWorkspaceHash) || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || input.ExpectedRevision < 0 {

@@ -50,7 +50,7 @@ func (s *Service) ExportNext(ctx context.Context, vaultID string, limit int) (Re
 	if s == nil || ctx == nil || vaultID == "" || limit < 1 || limit > syncpack.MaxEventsPerPack {
 		return Result{}, ErrInvalidRequest
 	}
-	identity, err := s.identity.Ensure(ctx, vaultID)
+	identity, err := s.identity.Current(ctx, vaultID)
 	if err != nil {
 		return Result{}, err
 	}

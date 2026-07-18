@@ -48,6 +48,10 @@ func (s *workspaceStoreFake) GetWorkspaceMapping(context.Context, string, string
 	return workspacemapping.Record{}, workspacestore.ErrNotFound
 }
 
+func (s *workspaceStoreFake) ListTaskWorkspaces(context.Context, string, int) ([]workspacestore.TaskWorkspace, error) {
+	return []workspacestore.TaskWorkspace{{TaskID: "task", Requirement: s.requirement}}, nil
+}
+
 func (s *workspaceStoreFake) BindWorkspaceMapping(_ context.Context, input workspacestore.BindInput) (workspacemapping.Record, bool, error) {
 	s.bound = input
 	return workspacemapping.Record{WorkspaceID: input.WorkspaceID, VaultID: input.VaultID, SourceWorkspaceHash: input.SourceWorkspaceHash, LocalRoot: input.LocalRoot, VerifiedBaseline: input.VerifiedBaseline}, false, nil

@@ -199,6 +199,41 @@ func (s *Store) GetSyncDevice(ctx context.Context, vaultID, deviceID string) (sy
 	return pointer, nil
 }
 
+func (s *Store) ListSyncDevices(ctx context.Context, vaultID string, limit int) ([]syncstate.Device, error) {
+	if vaultID == "" || limit < 1 || limit > 200 {
+		return nil, syncstore.ErrInvalidCommand
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT device_id FROM sync_devices WHERE vault_id = ? ORDER BY created_at, device_id LIMIT ?`, vaultID, limit)
+	if err != nil {
+		return nil, err
+	}
+	var deviceIDs []string
+	for rows.Next() {
+		var deviceID string
+		if err := rows.Scan(&deviceID); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		deviceIDs = append(deviceIDs, deviceID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	devices := make([]syncstate.Device, 0, len(deviceIDs))
+	for _, deviceID := range deviceIDs {
+		device, err := s.GetSyncDevice(ctx, vaultID, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		devices = append(devices, device)
+	}
+	return devices, nil
+}
+
 func (s *Store) RecordValidatedSyncPack(ctx context.Context, input syncstore.RecordPackInput) (syncstate.PackReceipt, bool, error) {
 	if input.ReceivedAt.IsZero() {
 		input.ReceivedAt = s.now()

@@ -44,6 +44,18 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := exporter.ExportNext(ctx, "vault-e2e", 32); !errors.Is(err, syncidentity.ErrNotInitialized) {
+		t.Fatalf("export before explicit initialization error=%v", err)
+	}
+	identity, err := syncidentity.New(keys, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := identity.Ensure(ctx, "vault-e2e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(local.PrivateKey)
 	first, err := exporter.ExportNext(ctx, "vault-e2e", 32)
 	if err != nil || first.Batch.SequenceStart != 1 || first.Batch.SequenceEnd != 1 || first.Manifest.DeviceID == "" || len(first.Encoded) == 0 {
 		t.Fatalf("first=%+v error=%v", first, err)

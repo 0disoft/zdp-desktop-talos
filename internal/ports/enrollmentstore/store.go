@@ -56,4 +56,5 @@ type Store interface {
 	CancelEnrollment(context.Context, CancelInput) (syncenrollment.Record, bool, error)
 	ExpireEnrollments(context.Context, string, time.Time) ([]syncenrollment.Record, error)
 	GetEnrollment(context.Context, string, string) (syncenrollment.Record, []byte, error)
+	ListEnrollments(context.Context, string, int) ([]syncenrollment.Record, error)
 }

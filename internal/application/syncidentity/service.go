@@ -22,6 +22,7 @@ const SigningKeyID = "sync-device-ed25519-v1"
 
 var (
 	ErrInvalidRequest = errors.New("invalid sync identity request")
+	ErrNotInitialized = errors.New("sync device identity is not initialized")
 	ErrKeyInvalid     = errors.New("sync device signing key is invalid")
 	ErrDeviceRevoked  = errors.New("local sync device is revoked")
 )
@@ -53,11 +54,7 @@ func (s *Service) Ensure(ctx context.Context, vaultID string) (Identity, error) 
 	if err != nil {
 		return Identity{}, err
 	}
-	publicKey, ok := privateKey.Public().(ed25519.PublicKey)
-	if !ok || len(publicKey) != ed25519.PublicKeySize {
-		clear(privateKey)
-		return Identity{}, ErrKeyInvalid
-	}
+	publicKey := privateKey.Public().(ed25519.PublicKey)
 	deviceID := DeviceID(publicKey)
 	device, err := s.store.GetSyncDevice(ctx, vaultID, deviceID)
 	if errors.Is(err, syncstore.ErrDeviceNotFound) {
@@ -70,6 +67,41 @@ func (s *Service) Ensure(ctx context.Context, vaultID string) (Identity, error) 
 		clear(privateKey)
 		return Identity{}, err
 	}
+	return validatedIdentity(device, privateKey, publicKey)
+}
+
+// Current loads the existing local identity without creating a key or device
+// membership. Queries must use Current so observing sync status never mutates
+// Vault state.
+func (s *Service) Current(ctx context.Context, vaultID string) (Identity, error) {
+	if s == nil || s.keys == nil || s.store == nil || ctx == nil || strings.TrimSpace(vaultID) == "" {
+		return Identity{}, ErrInvalidRequest
+	}
+	stored, err := s.keys.Get(ctx, keyvault.Reference{VaultID: vaultID, KeyID: SigningKeyID})
+	if errors.Is(err, keyvault.ErrNotFound) {
+		return Identity{}, ErrNotInitialized
+	}
+	if err != nil {
+		return Identity{}, err
+	}
+	privateKey, err := validatePrivateKey(stored)
+	if err != nil {
+		return Identity{}, err
+	}
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	device, err := s.store.GetSyncDevice(ctx, vaultID, DeviceID(publicKey))
+	if errors.Is(err, syncstore.ErrDeviceNotFound) {
+		clear(privateKey)
+		return Identity{}, ErrNotInitialized
+	}
+	if err != nil {
+		clear(privateKey)
+		return Identity{}, err
+	}
+	return validatedIdentity(device, privateKey, publicKey)
+}
+
+func validatedIdentity(device syncstate.Device, privateKey ed25519.PrivateKey, publicKey ed25519.PublicKey) (Identity, error) {
 	if device.State != syncstate.DeviceActive {
 		clear(privateKey)
 		return Identity{}, ErrDeviceRevoked

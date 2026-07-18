@@ -328,6 +328,42 @@ func (s *Store) GetEnrollment(ctx context.Context, vaultID, enrollmentID string)
 	return record, response, nil
 }
 
+func (s *Store) ListEnrollments(ctx context.Context, vaultID string, limit int) ([]syncenrollment.Record, error) {
+	if vaultID == "" || limit < 1 || limit > 200 {
+		return nil, enrollmentstore.ErrInvalidCommand
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT enrollment_id FROM sync_enrollments WHERE vault_id = ? ORDER BY updated_at DESC, enrollment_id LIMIT ?`, vaultID, limit)
+	if err != nil {
+		return nil, err
+	}
+	var enrollmentIDs []string
+	for rows.Next() {
+		var enrollmentID string
+		if err := rows.Scan(&enrollmentID); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		enrollmentIDs = append(enrollmentIDs, enrollmentID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	records := make([]syncenrollment.Record, 0, len(enrollmentIDs))
+	for _, enrollmentID := range enrollmentIDs {
+		record, response, err := s.GetEnrollment(ctx, vaultID, enrollmentID)
+		clear(response)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, nil
+}
+
 type enrollmentQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }

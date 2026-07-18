@@ -60,5 +60,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0051-signed-cross-device-revocation.md`: authority-bound portable revocation, unknown-device tombstones, and fail-closed late registration
 - `0052-terminal-enrollment-lifecycle.md`: schema-23 cancellation and expiry, restart reconciliation, response erasure, and pre-registration completion guards
 - `0053-atomic-folder-pack-exchange.md`: hashed path layout, bounded reads, no-clobber atomic publication, and two-Vault folder replay
+- `0054-explicit-renderer-sync-control-plane.md`: side-effect-free overview, explicit device initialization, bounded Wails use cases, and decimal sequence DTOs
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

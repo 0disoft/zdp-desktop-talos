@@ -15,6 +15,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/syncexport"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/syncidentity"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/syncpack"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/workspaceremap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
@@ -23,6 +24,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/id"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
@@ -33,12 +35,14 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/workspacestore"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/redaction"
 )
 
@@ -214,6 +218,34 @@ type ImportedSyncPackFile struct {
 	Result syncpack.ApplyImportResult
 }
 
+type SyncSnapshot struct {
+	Initialized bool
+	LocalDevice syncstate.Device
+	Devices     []syncstate.Device
+	Enrollments []syncenrollment.Record
+	Replays     []syncstate.ReplayResult
+	Workspaces  []workspacestore.TaskWorkspace
+}
+
+type RevokeSyncDeviceInput struct {
+	DeviceID         string
+	ExpectedRevision int
+	RequestID        string
+}
+
+type MapTaskWorkspaceInput struct {
+	TaskID           string
+	LocalPath        string
+	ExpectedRevision int
+	RequestID        string
+}
+
+type RevokeTaskWorkspaceInput struct {
+	WorkspaceID      string
+	ExpectedRevision int
+	RequestID        string
+}
+
 type Session struct {
 	Record   vault.Record
 	database vaultdb.Database
@@ -252,6 +284,11 @@ type EnrollmentDatabase interface {
 	syncstore.Store
 	syncstore.ReplayStore
 	enrollmentstore.Store
+}
+
+type SyncControlDatabase interface {
+	EnrollmentDatabase
+	workspacestore.Store
 }
 
 func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {
@@ -308,6 +345,23 @@ func (s *Session) ExportNextSyncPack(ctx context.Context, limit int) (syncexport
 	return exporter.ExportNext(ctx, s.Record.ID, limit)
 }
 
+func (s *Session) InitializeSync(ctx context.Context) (syncstate.Device, error) {
+	database, err := s.enrollmentDatabase()
+	if err != nil || s.keys == nil || ctx == nil {
+		return syncstate.Device{}, ErrNotOpen
+	}
+	identity, err := syncidentity.New(s.keys, database)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	local, err := identity.Ensure(ctx, s.Record.ID)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	clear(local.PrivateKey)
+	return local.Device, nil
+}
+
 func (s *Session) CreateEnrollmentOffer(ctx context.Context, input CreateEnrollmentOfferInput) (EnrollmentOffer, error) {
 	database, err := s.enrollmentDatabase()
 	if err != nil || s.keys == nil || ctx == nil {
@@ -317,7 +371,7 @@ func (s *Session) CreateEnrollmentOffer(ctx context.Context, input CreateEnrollm
 	if err != nil {
 		return EnrollmentOffer{}, err
 	}
-	local, err := identity.Ensure(ctx, s.Record.ID)
+	local, err := identity.Current(ctx, s.Record.ID)
 	if err != nil {
 		return EnrollmentOffer{}, err
 	}
@@ -367,7 +421,7 @@ func (s *Session) CompleteEnrollment(ctx context.Context, input CompleteEnrollme
 	if err != nil {
 		return syncstate.Device{}, err
 	}
-	local, err := identity.Ensure(ctx, s.Record.ID)
+	local, err := identity.Current(ctx, s.Record.ID)
 	if err != nil {
 		return syncstate.Device{}, err
 	}
@@ -474,6 +528,96 @@ func (s *Session) ImportSyncPacksFromFolder(ctx context.Context, exchange syncex
 		results = append(results, ImportedSyncPackFile{File: pack.StoredPack, Result: applied})
 	}
 	return results, nil
+}
+
+func (s *Session) GetSyncSnapshot(ctx context.Context) (SyncSnapshot, error) {
+	if s == nil || s.database == nil || s.keys == nil || ctx == nil {
+		return SyncSnapshot{}, ErrNotOpen
+	}
+	database, ok := s.database.(SyncControlDatabase)
+	if !ok {
+		return SyncSnapshot{}, ErrEnrollmentUnsupported
+	}
+	identity, err := syncidentity.New(s.keys, database)
+	if err != nil {
+		return SyncSnapshot{}, err
+	}
+	local, err := identity.Current(ctx, s.Record.ID)
+	initialized := err == nil
+	if err != nil && !errors.Is(err, syncidentity.ErrNotInitialized) {
+		return SyncSnapshot{}, err
+	}
+	if initialized {
+		clear(local.PrivateKey)
+	}
+	devices, err := database.ListSyncDevices(ctx, s.Record.ID, 100)
+	if err != nil {
+		return SyncSnapshot{}, err
+	}
+	enrollments, err := database.ListEnrollments(ctx, s.Record.ID, 100)
+	if err != nil {
+		return SyncSnapshot{}, err
+	}
+	replays, err := database.ListSyncReplays(ctx, s.Record.ID, 50)
+	if err != nil {
+		return SyncSnapshot{}, err
+	}
+	workspaces, err := database.ListTaskWorkspaces(ctx, s.Record.ID, 100)
+	if err != nil {
+		return SyncSnapshot{}, err
+	}
+	return SyncSnapshot{Initialized: initialized, LocalDevice: local.Device, Devices: devices, Enrollments: enrollments, Replays: replays, Workspaces: workspaces}, nil
+}
+
+func (s *Session) RevokeSyncDevice(ctx context.Context, input RevokeSyncDeviceInput) (syncstate.Device, error) {
+	if strings.TrimSpace(input.DeviceID) == "" || input.ExpectedRevision < 1 || strings.TrimSpace(input.RequestID) == "" {
+		return syncstate.Device{}, ErrInvalidInput
+	}
+	database, err := s.enrollmentDatabase()
+	if err != nil || s.keys == nil || ctx == nil {
+		return syncstate.Device{}, ErrNotOpen
+	}
+	identity, err := syncidentity.New(s.keys, database)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	local, err := identity.Current(ctx, s.Record.ID)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	clear(local.PrivateKey)
+	if local.Device.DeviceID == input.DeviceID {
+		return syncstate.Device{}, ErrInvalidInput
+	}
+	return database.RevokeSyncDevice(ctx, syncstore.RevokeDeviceInput{VaultID: s.Record.ID, AuthorityDeviceID: local.Device.DeviceID, DeviceID: input.DeviceID, ExpectedRevision: input.ExpectedRevision, OccurredAt: time.Now().UTC(), IdempotencyKey: "sync-device-revoke:" + strings.TrimSpace(input.RequestID)})
+}
+
+func (s *Session) MapTaskWorkspace(ctx context.Context, inspector repository.Inspector, verifier repository.BaselineVerifier, input MapTaskWorkspaceInput) (workspacemapping.Record, error) {
+	if s == nil || s.database == nil || ctx == nil || inspector == nil || verifier == nil || strings.TrimSpace(input.TaskID) == "" || strings.TrimSpace(input.LocalPath) == "" || input.ExpectedRevision < 0 || strings.TrimSpace(input.RequestID) == "" {
+		return workspacemapping.Record{}, ErrInvalidInput
+	}
+	store, ok := s.database.(workspacestore.Store)
+	if !ok {
+		return workspacemapping.Record{}, ErrEnrollmentUnsupported
+	}
+	mapper, err := workspaceremap.New(store, inspector, verifier)
+	if err != nil {
+		return workspacemapping.Record{}, err
+	}
+	record, _, err := mapper.Map(ctx, workspaceremap.MapInput{VaultID: s.Record.ID, TaskID: strings.TrimSpace(input.TaskID), LocalPath: strings.TrimSpace(input.LocalPath), ExpectedRevision: input.ExpectedRevision, OccurredAt: time.Now().UTC(), IdempotencyKey: "workspace-map:" + strings.TrimSpace(input.RequestID)})
+	return record, err
+}
+
+func (s *Session) RevokeTaskWorkspace(ctx context.Context, input RevokeTaskWorkspaceInput) (workspacemapping.Record, error) {
+	if s == nil || s.database == nil || ctx == nil || strings.TrimSpace(input.WorkspaceID) == "" || input.ExpectedRevision < 1 || strings.TrimSpace(input.RequestID) == "" {
+		return workspacemapping.Record{}, ErrInvalidInput
+	}
+	store, ok := s.database.(workspacestore.Store)
+	if !ok {
+		return workspacemapping.Record{}, ErrEnrollmentUnsupported
+	}
+	record, _, err := store.RevokeWorkspaceMapping(ctx, workspacestore.RevokeInput{WorkspaceID: strings.TrimSpace(input.WorkspaceID), VaultID: s.Record.ID, ExpectedRevision: input.ExpectedRevision, OccurredAt: time.Now().UTC(), IdempotencyKey: "workspace-revoke:" + strings.TrimSpace(input.RequestID)})
+	return record, err
 }
 
 func (s *Session) enrollmentDatabase() (EnrollmentDatabase, error) {

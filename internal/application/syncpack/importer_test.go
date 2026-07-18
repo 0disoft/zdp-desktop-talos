@@ -65,6 +65,10 @@ func (s *importStore) GetSyncDevice(context.Context, string, string) (syncstate.
 	return s.device, nil
 }
 
+func (s *importStore) ListSyncDevices(context.Context, string, int) ([]syncstate.Device, error) {
+	return []syncstate.Device{s.device}, nil
+}
+
 func (s *importStore) RecordValidatedSyncPack(_ context.Context, input syncstore.RecordPackInput) (syncstate.PackReceipt, bool, error) {
 	s.recordCalls++
 	return syncstate.PackReceipt{PackID: input.PackID, VaultID: input.VaultID, DeviceID: input.DeviceID, SequenceStart: input.SequenceStart, SequenceEnd: input.SequenceEnd, EventCount: input.EventCount, CiphertextHash: input.CiphertextHash, State: syncstate.PackValidated, ReceivedAt: input.ReceivedAt, LastEventID: "pack-event"}, false, nil
@@ -103,4 +107,8 @@ func (s *importStore) ApplyValidatedSyncPack(_ context.Context, input syncstore.
 
 func (s *importStore) GetSyncReplay(context.Context, string, string) (syncstate.ReplayResult, error) {
 	panic("not used")
+}
+
+func (s *importStore) ListSyncReplays(context.Context, string, int) ([]syncstate.ReplayResult, error) {
+	return nil, nil
 }

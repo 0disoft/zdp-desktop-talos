@@ -13,21 +13,30 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchcommand"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncenrollment"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncexport"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncidentity"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncpack"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/workspaceremap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountidentity"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/enrollmentstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelprovider"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncexchange"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/workerruntime"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/workspacestore"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
 )
@@ -247,6 +256,72 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, vaultbootstrap.ErrNotOpen):
 		mapped.Code = "VAULT_NOT_OPEN"
 		mapped.Message = "Task Contract를 저장하려면 Vault를 먼저 열어 주세요."
+	case errors.Is(err, syncexchange.ErrUnsafePath):
+		mapped.Code = "SYNC_FOLDER_PATH_UNSAFE"
+		mapped.Message = "동기화 폴더가 파일 또는 링크를 포함해 안전하게 사용할 수 없습니다."
+	case errors.Is(err, syncexchange.ErrPackConflict):
+		mapped.Code = "SYNC_FOLDER_PACK_CONFLICT"
+		mapped.Message = "같은 동기화 파일 이름에 다른 내용이 있습니다. 기존 파일을 덮어쓰지 않았습니다."
+	case errors.Is(err, syncexchange.ErrReadLimit):
+		mapped.Code = "SYNC_FOLDER_LIMIT_EXCEEDED"
+		mapped.Message = "동기화 폴더의 파일 수 또는 크기가 안전한 처리 한도를 넘었습니다."
+	case errors.Is(err, syncexchange.ErrInvalidRequest):
+		mapped.Code = "SYNC_FOLDER_REQUEST_INVALID"
+		mapped.Message = "동기화 폴더와 요청값을 확인해 주세요."
+	case errors.Is(err, syncstore.ErrNoExportableEvents):
+		mapped.Code = "SYNC_NOTHING_TO_EXPORT"
+		mapped.Message = "새로 내보낼 동기화 변경이 없습니다."
+	case errors.Is(err, syncexport.ErrSecretFindings):
+		mapped.Code = "SYNC_SECRET_FINDINGS"
+		mapped.Message = "비밀정보로 보이는 내용이 있어 동기화 pack을 만들지 않았습니다."
+	case errors.Is(err, syncidentity.ErrNotInitialized):
+		mapped.Code = "SYNC_NOT_INITIALIZED"
+		mapped.Message = "이 Vault에서 기기 동기화를 먼저 시작해 주세요."
+	case errors.Is(err, syncidentity.ErrDeviceRevoked), errors.Is(err, syncstore.ErrDeviceRevoked):
+		mapped.Code = "SYNC_DEVICE_REVOKED"
+		mapped.Message = "폐기된 기기는 동기화 pack을 보내거나 받을 수 없습니다."
+	case errors.Is(err, syncstore.ErrDeviceNotFound):
+		mapped.Code = "SYNC_DEVICE_NOT_FOUND"
+		mapped.Message = "현재 Vault에서 요청한 기기를 찾을 수 없습니다."
+	case errors.Is(err, syncstore.ErrRevisionConflict):
+		mapped.Code = "SYNC_DEVICE_REVISION_CONFLICT"
+		mapped.Message = "기기 상태가 바뀌었습니다. 최신 상태를 다시 확인해 주세요."
+	case errors.Is(err, syncstore.ErrSequenceConflict):
+		mapped.Code = "SYNC_SEQUENCE_CONFLICT"
+		mapped.Message = "동기화 pack 순서가 비어 있거나 겹칩니다. 앞선 pack부터 가져와 주세요."
+	case errors.Is(err, syncstore.ErrPackConflict), errors.Is(err, syncstore.ErrReplayConflict):
+		mapped.Code = "SYNC_PACK_CONFLICT"
+		mapped.Message = "동기화 pack이 현재 Vault의 검증 기록과 맞지 않습니다."
+	case errors.Is(err, syncpack.ErrSignatureInvalid), errors.Is(err, syncpack.ErrHashMismatch):
+		mapped.Code = "SYNC_PACK_INTEGRITY_INVALID"
+		mapped.Message = "동기화 pack의 서명 또는 암호문 해시를 검증할 수 없습니다."
+	case errors.Is(err, syncpack.ErrInvalidPack), errors.Is(err, syncpack.ErrSequenceInvalid), errors.Is(err, syncstore.ErrInvalidCommand):
+		mapped.Code = "SYNC_PACK_INVALID"
+		mapped.Message = "동기화 pack 형식과 순서를 확인해 주세요."
+	case errors.Is(err, syncenrollment.ErrInvalidPackage), errors.Is(err, syncenrollment.ErrInvalidSecret), errors.Is(err, syncenrollment.ErrSignatureInvalid), errors.Is(err, syncenrollment.ErrExpired), errors.Is(err, enrollmentstore.ErrInvalidCommand):
+		mapped.Code = "SYNC_ENROLLMENT_INVALID"
+		mapped.Message = "기기 가입 패키지와 만료 시간을 확인해 주세요."
+	case errors.Is(err, vaultbootstrap.ErrEnrollmentConflict), errors.Is(err, enrollmentstore.ErrConflict):
+		mapped.Code = "SYNC_ENROLLMENT_CONFLICT"
+		mapped.Message = "기기 가입 상태가 이미 변경됐거나 패키지가 현재 Vault와 맞지 않습니다."
+	case errors.Is(err, enrollmentstore.ErrNotFound):
+		mapped.Code = "SYNC_ENROLLMENT_NOT_FOUND"
+		mapped.Message = "요청한 기기 가입 기록을 찾을 수 없습니다."
+	case errors.Is(err, workspaceremap.ErrBaselineNotFound):
+		mapped.Code = "SYNC_WORKSPACE_BASELINE_MISSING"
+		mapped.Message = "선택한 저장소에 동기화 Task의 기준 커밋이 없습니다."
+	case errors.Is(err, workspaceremap.ErrInvalidRequest), errors.Is(err, workspacestore.ErrInvalidCommand):
+		mapped.Code = "SYNC_WORKSPACE_REQUEST_INVALID"
+		mapped.Message = "Task와 로컬 저장소 연결 요청을 확인해 주세요."
+	case errors.Is(err, workspacestore.ErrRevisionConflict):
+		mapped.Code = "SYNC_WORKSPACE_REVISION_CONFLICT"
+		mapped.Message = "로컬 저장소 연결 상태가 바뀌었습니다. 최신 상태를 다시 확인해 주세요."
+	case errors.Is(err, workspacestore.ErrConflict):
+		mapped.Code = "SYNC_WORKSPACE_CONFLICT"
+		mapped.Message = "로컬 저장소 연결이 현재 Task 기준점과 충돌합니다."
+	case errors.Is(err, workspacestore.ErrNotFound), errors.Is(err, workspacestore.ErrMappingRequired):
+		mapped.Code = "SYNC_WORKSPACE_MAPPING_REQUIRED"
+		mapped.Message = "이 기기에서 사용할 로컬 Git 저장소를 연결해 주세요."
 	case errors.Is(err, taskstore.ErrInvalidCommand):
 		mapped.Code = "TASK_CONTRACT_INVALID"
 		mapped.Message = "Task Contract의 목표, 범위, 완료 조건을 확인해 주세요."

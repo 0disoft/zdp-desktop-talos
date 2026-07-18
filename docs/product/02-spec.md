@@ -39,7 +39,7 @@ Unlinking removes active account references from the current device-local member
 - current-revision test, type, lint, security, and diff evidence;
 - memory lifecycle: candidate, approved, stable, stale, rejected, quarantined, superseded, deprecated, with optional user-selected validity periods and explicit same-scope replacement links;
 - Markdown/YAML/JSONL projections that can be regenerated;
-- optional manual encrypted Git export/import after redaction and secret scanning.
+- optional explicit device initialization, enrollment, and manual encrypted folder or Git export/import after redaction and secret scanning.
 
 ## Completion Rules
 

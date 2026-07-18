@@ -96,6 +96,7 @@ type Store interface {
 	RegisterSyncDevice(context.Context, RegisterDeviceInput) (syncstate.Device, error)
 	RevokeSyncDevice(context.Context, RevokeDeviceInput) (syncstate.Device, error)
 	GetSyncDevice(context.Context, string, string) (syncstate.Device, error)
+	ListSyncDevices(context.Context, string, int) ([]syncstate.Device, error)
 	RecordValidatedSyncPack(context.Context, RecordPackInput) (syncstate.PackReceipt, bool, error)
 	GetValidatedSyncPack(context.Context, string, string) (syncstate.PackReceipt, []byte, error)
 	PrepareSyncExport(context.Context, PrepareExportInput) (PreparedExport, bool, error)
@@ -106,4 +107,5 @@ type Store interface {
 type ReplayStore interface {
 	ApplyValidatedSyncPack(context.Context, ApplyReplayInput) (syncstate.ReplayResult, bool, error)
 	GetSyncReplay(context.Context, string, string) (syncstate.ReplayResult, error)
+	ListSyncReplays(context.Context, string, int) ([]syncstate.ReplayResult, error)
 }

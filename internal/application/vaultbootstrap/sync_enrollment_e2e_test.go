@@ -40,6 +40,7 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 		t.Fatal(err)
 	}
 	defer sourceSession.Close()
+	initializeEnrollmentSource(t, ctx, sourceSession)
 	workspace, targetWorkspace, baseline := enrollmentWorkspacePair(t)
 	createdTask, err := sourceSession.CreateTaskContract(ctx, CreateTaskContractInput{WorkspaceRoot: workspace, BaselineCommit: baseline, Goal: "establish a synced task", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the task replays on the enrolled device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "source-task"})
 	if err != nil {
@@ -228,6 +229,7 @@ func TestEnrollmentRejectsWrongSecretAndConflictingVaultKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
+	initializeEnrollmentSource(t, ctx, source)
 	offer, err := source.CreateEnrollmentOffer(ctx, CreateEnrollmentOfferInput{ValidFor: time.Hour})
 	if err != nil {
 		t.Fatal(err)
@@ -259,6 +261,7 @@ func TestCanceledIssuerCannotCompleteOrRegisterLateTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
+	initializeEnrollmentSource(t, ctx, source)
 	offer, err := source.CreateEnrollmentOffer(ctx, CreateEnrollmentOfferInput{ValidFor: time.Hour})
 	if err != nil {
 		t.Fatal(err)
@@ -290,6 +293,7 @@ func TestFolderExchangeTransfersAndIdempotentlyReplaysEnrolledPack(t *testing.T)
 		t.Fatal(err)
 	}
 	defer source.Close()
+	initializeEnrollmentSource(t, ctx, source)
 	workspace, _, baseline := enrollmentWorkspacePair(t)
 	created, err := source.CreateTaskContract(ctx, CreateTaskContractInput{WorkspaceRoot: workspace, BaselineCommit: baseline, Goal: "exchange a folder pack", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the target imports the immutable pack"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "folder-task"})
 	if err != nil {
@@ -343,6 +347,14 @@ func newEnrollmentTestCreator(t *testing.T, databaseRoot string) (*Creator, *enr
 		t.Fatal(err)
 	}
 	return creator, keys
+}
+
+func initializeEnrollmentSource(t *testing.T, ctx context.Context, session *Session) {
+	t.Helper()
+	device, err := session.InitializeSync(ctx)
+	if err != nil || device.DeviceID == "" || device.State != syncstate.DeviceActive {
+		t.Fatalf("initialize source device=%+v error=%v", device, err)
+	}
 }
 
 type enrollmentKeyStore struct{ values map[keyvault.Reference][]byte }

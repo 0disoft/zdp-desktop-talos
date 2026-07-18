@@ -464,6 +464,9 @@ func (*fakeDatabase) RevokeSyncDevice(context.Context, syncstore.RevokeDeviceInp
 func (*fakeDatabase) GetSyncDevice(context.Context, string, string) (syncstate.Device, error) {
 	return syncstate.Device{}, syncstore.ErrDeviceNotFound
 }
+func (*fakeDatabase) ListSyncDevices(context.Context, string, int) ([]syncstate.Device, error) {
+	return nil, nil
+}
 func (*fakeDatabase) RecordValidatedSyncPack(context.Context, syncstore.RecordPackInput) (syncstate.PackReceipt, bool, error) {
 	return syncstate.PackReceipt{}, false, syncstore.ErrPackConflict
 }

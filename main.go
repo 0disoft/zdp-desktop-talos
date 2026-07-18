@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/folderexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
 	"github.com/0disoft/zdp-desktop-talos/internal/bootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/transport/wailsapi"
@@ -53,6 +54,12 @@ func main() {
 	planService := wailsapi.NewPlanService(vaultService, workspaceService, bootstrap.NewEnvironmentModelFactory(executionFactory))
 	reviewService := wailsapi.NewPatchReviewService(vaultService, executionFactory, executionInitializationError)
 	patchService := wailsapi.NewPatchService(vaultService, executionFactory, executionInitializationError)
+	var syncService *wailsapi.SyncService
+	if inspectorErr == nil {
+		syncService = wailsapi.NewSyncService(vaultService, folderexchange.New(), inspector, inspector)
+	} else {
+		syncService = wailsapi.NewSyncService(vaultService, folderexchange.New(), nil, nil)
+	}
 	var window *application.WebviewWindow
 	if singleInstance != nil {
 		singleInstance.OnSecondInstanceLaunch = func(application.SecondInstanceData) {
@@ -80,6 +87,7 @@ func main() {
 			application.NewService(executionService),
 			application.NewService(reviewService),
 			application.NewService(patchService),
+			application.NewService(syncService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
