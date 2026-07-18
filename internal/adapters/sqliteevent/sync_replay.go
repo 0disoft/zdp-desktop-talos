@@ -3,8 +3,10 @@ package sqliteevent
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,6 +38,7 @@ var syncableEventSchemas = map[string]int{
 	memoryCandidateCreatedEventType: memoryEventSchemaVersion,
 	memoryStateChangedEventType:     memoryEventSchemaVersion,
 	memorySnapshotEventType:         memoryEventSchemaVersion,
+	syncDeviceRevocationEventType:   syncDeviceRevocationSchemaVersion,
 }
 
 type syncReplayPayload struct {
@@ -198,10 +201,10 @@ func (s *Store) replayOneEvent(ctx context.Context, tx *sql.Tx, input syncstore.
 	if _, err := tx.ExecContext(ctx, `INSERT INTO sync_event_origins(event_id, vault_id, device_id, device_seq, origin_kind) VALUES(?, ?, ?, ?, 'imported')`, candidate.Record.ID, input.VaultID, input.DeviceID, candidate.DeviceSeq); err != nil {
 		return "", "", fmt.Errorf("insert imported event origin: %w", err)
 	}
-	return s.materializeReplayEvent(ctx, tx, candidate.Record)
+	return s.materializeReplayEvent(ctx, tx, input.DeviceID, candidate.Record)
 }
 
-func (s *Store) materializeReplayEvent(ctx context.Context, tx *sql.Tx, record event.Record) (syncstate.ReplayState, string, error) {
+func (s *Store) materializeReplayEvent(ctx context.Context, tx *sql.Tx, sourceDeviceID string, record event.Record) (syncstate.ReplayState, string, error) {
 	expectedSchema, known := syncableEventSchemas[record.Type]
 	if !known {
 		return syncstate.ReplayQuarantined, "event_type_not_syncable", nil
@@ -216,9 +219,63 @@ func (s *Store) materializeReplayEvent(ctx context.Context, tx *sql.Tx, record e
 		return s.materializeDecisionReplay(ctx, tx, record)
 	case memoryCandidateCreatedEventType, memoryStateChangedEventType, memorySnapshotEventType:
 		return s.materializeMemoryReplay(ctx, tx, record)
+	case syncDeviceRevocationEventType:
+		return s.materializeSyncDeviceRevocation(ctx, tx, sourceDeviceID, record)
 	default:
 		return syncstate.ReplayQuarantined, "event_type_not_syncable", nil
 	}
+}
+
+func (s *Store) materializeSyncDeviceRevocation(ctx context.Context, tx *sql.Tx, sourceDeviceID string, record event.Record) (syncstate.ReplayState, string, error) {
+	var payload syncDeviceRevocationPayload
+	if decodeReplayPayload(record.Payload, &payload) != nil || record.Sensitivity != event.SensitivityPrivate || payload.AuthorityDeviceID != sourceDeviceID || payload.TargetDeviceID == "" || len(payload.TargetDeviceID) > syncstate.MaxDeviceIDLength || payload.ExpectedTargetRevision < 1 {
+		return syncstate.ReplayQuarantined, "payload_invalid", nil
+	}
+	publicKey, err := base64.RawStdEncoding.DecodeString(payload.TargetPublicKey)
+	if err != nil || len(publicKey) != ed25519.PublicKeySize {
+		return syncstate.ReplayQuarantined, "payload_invalid", nil
+	}
+	revokedAt, err := time.Parse(time.RFC3339Nano, payload.RevokedAt)
+	if err != nil || !revokedAt.Equal(record.OccurredAt) {
+		return syncstate.ReplayQuarantined, "payload_invalid", nil
+	}
+	authority, exists, err := getSyncDevicePointer(ctx, tx, record.VaultID, sourceDeviceID)
+	if err != nil {
+		return "", "", err
+	}
+	if !exists || authority.State != syncstate.DeviceActive {
+		return syncstate.ReplayQuarantined, "authority_revoked", nil
+	}
+	target, exists, err := getSyncDevicePointer(ctx, tx, record.VaultID, payload.TargetDeviceID)
+	if err != nil {
+		return "", "", err
+	}
+	if !exists {
+		if payload.ExpectedTargetRevision != 1 {
+			return syncstate.ReplayQuarantined, "dependency_missing", nil
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO sync_devices(vault_id, device_id, public_key, state, revision, next_sequence, created_at, updated_at, last_event_id) VALUES(?, ?, ?, 'revoked', 2, 1, ?, ?, ?)`, record.VaultID, payload.TargetDeviceID, publicKey, payload.RevokedAt, payload.RevokedAt, record.ID); err != nil {
+			return "", "", err
+		}
+		return syncstate.ReplayApplied, "revocation_tombstone_created", nil
+	}
+	if !bytes.Equal(target.PublicKey, publicKey) {
+		return syncstate.ReplayConflicted, "device_key_conflict", nil
+	}
+	if target.State == syncstate.DeviceRevoked {
+		return syncstate.ReplayApplied, "equivalent_revocation", nil
+	}
+	if target.Revision != payload.ExpectedTargetRevision || revokedAt.Before(target.UpdatedAt) {
+		return syncstate.ReplayConflicted, "aggregate_revision_conflict", nil
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE sync_devices SET state = 'revoked', revision = ?, updated_at = ?, last_event_id = ? WHERE vault_id = ? AND device_id = ? AND state = 'active' AND revision = ?`, target.Revision+1, payload.RevokedAt, record.ID, record.VaultID, target.DeviceID, target.Revision)
+	if err != nil {
+		return "", "", err
+	}
+	if rows, _ := result.RowsAffected(); rows != 1 {
+		return "", "", syncstore.ErrReplayConflict
+	}
+	return syncstate.ReplayApplied, "device_revoked", nil
 }
 
 func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record event.Record) (syncstate.ReplayState, string, error) {

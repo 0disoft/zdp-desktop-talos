@@ -18,7 +18,11 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 )
 
-const syncStateEventSchemaVersion = 1
+const (
+	syncStateEventSchemaVersion       = 1
+	syncDeviceRevocationEventType     = "sync.device.revocation.created"
+	syncDeviceRevocationSchemaVersion = 1
+)
 
 type syncDevicePayload struct {
 	VaultID      string                `json:"vault_id"`
@@ -41,6 +45,14 @@ type syncPackPayload struct {
 	CiphertextHash string `json:"ciphertext_hash"`
 	State          string `json:"state"`
 	ReceivedAt     string `json:"received_at"`
+}
+
+type syncDeviceRevocationPayload struct {
+	AuthorityDeviceID      string `json:"authority_device_id"`
+	TargetDeviceID         string `json:"target_device_id"`
+	TargetPublicKey        string `json:"target_public_key"`
+	ExpectedTargetRevision int    `json:"expected_target_revision"`
+	RevokedAt              string `json:"revoked_at"`
 }
 
 func (s *Store) RegisterSyncDevice(ctx context.Context, input syncstore.RegisterDeviceInput) (syncstate.Device, error) {
@@ -94,7 +106,7 @@ func (s *Store) RegisterSyncDevice(ctx context.Context, input syncstore.Register
 }
 
 func (s *Store) RevokeSyncDevice(ctx context.Context, input syncstore.RevokeDeviceInput) (syncstate.Device, error) {
-	if input.VaultID == "" || input.DeviceID == "" || input.ExpectedRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+	if input.VaultID == "" || input.AuthorityDeviceID == "" || input.DeviceID == "" || input.ExpectedRevision < 1 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
 		return syncstate.Device{}, syncstore.ErrInvalidCommand
 	}
 	occurredAt := normalizedTime(input.OccurredAt, s.now)
@@ -112,7 +124,28 @@ func (s *Store) RevokeSyncDevice(ctx context.Context, input syncstore.RevokeDevi
 		return syncstate.Device{}, mapSyncIdempotencyError(err)
 	}
 	if found {
-		return syncDeviceFromEvent(existingEvent)
+		var payload syncDeviceRevocationPayload
+		if existingEvent.Type != syncDeviceRevocationEventType || existingEvent.SchemaVersion != syncDeviceRevocationSchemaVersion || json.Unmarshal(existingEvent.Payload, &payload) != nil || payload.TargetDeviceID != input.DeviceID {
+			return syncstate.Device{}, syncstore.ErrIdempotencyConflict
+		}
+		device, exists, err := getSyncDevicePointer(ctx, tx, input.VaultID, input.DeviceID)
+		if err != nil || !exists {
+			if err == nil {
+				err = syncstore.ErrDeviceNotFound
+			}
+			return syncstate.Device{}, err
+		}
+		return device, nil
+	}
+	authority, authorityExists, err := getSyncDevicePointer(ctx, tx, input.VaultID, input.AuthorityDeviceID)
+	if err != nil {
+		return syncstate.Device{}, err
+	}
+	if !authorityExists {
+		return syncstate.Device{}, syncstore.ErrDeviceNotFound
+	}
+	if authority.State != syncstate.DeviceActive || occurredAt.Before(authority.UpdatedAt) {
+		return syncstate.Device{}, syncstore.ErrDeviceRevoked
 	}
 	pointer, exists, err := getSyncDevicePointer(ctx, tx, input.VaultID, input.DeviceID)
 	if err != nil {
@@ -124,15 +157,18 @@ func (s *Store) RevokeSyncDevice(ctx context.Context, input syncstore.RevokeDevi
 	if pointer.State != syncstate.DeviceActive || pointer.Revision != input.ExpectedRevision {
 		return syncstate.Device{}, syncstore.ErrRevisionConflict
 	}
-	payload := syncDevicePayload{VaultID: pointer.VaultID, DeviceID: pointer.DeviceID, PublicKey: base64.RawStdEncoding.EncodeToString(pointer.PublicKey), State: syncstate.DeviceRevoked, Revision: pointer.Revision + 1, NextSequence: pointer.NextSequence, CreatedAt: pointer.CreatedAt.Format(time.RFC3339Nano), UpdatedAt: occurredAt.Format(time.RFC3339Nano)}
-	record, err := s.syncEvent("sync.device.revoked", input.VaultID, payload, occurredAt)
+	if occurredAt.Before(pointer.UpdatedAt) {
+		return syncstate.Device{}, syncstore.ErrInvalidCommand
+	}
+	payload := syncDeviceRevocationPayload{AuthorityDeviceID: input.AuthorityDeviceID, TargetDeviceID: pointer.DeviceID, TargetPublicKey: base64.RawStdEncoding.EncodeToString(pointer.PublicKey), ExpectedTargetRevision: pointer.Revision, RevokedAt: occurredAt.Format(time.RFC3339Nano)}
+	record, err := s.syncEvent(syncDeviceRevocationEventType, input.VaultID, payload, occurredAt)
 	if err != nil {
 		return syncstate.Device{}, err
 	}
 	if err := s.insertEvent(ctx, tx, record); err != nil {
 		return syncstate.Device{}, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE sync_devices SET state = 'revoked', revision = ?, updated_at = ?, last_event_id = ? WHERE vault_id = ? AND device_id = ? AND state = 'active' AND revision = ?`, payload.Revision, payload.UpdatedAt, record.ID, input.VaultID, input.DeviceID, input.ExpectedRevision)
+	result, err := tx.ExecContext(ctx, `UPDATE sync_devices SET state = 'revoked', revision = ?, updated_at = ?, last_event_id = ? WHERE vault_id = ? AND device_id = ? AND state = 'active' AND revision = ?`, pointer.Revision+1, payload.RevokedAt, record.ID, input.VaultID, input.DeviceID, input.ExpectedRevision)
 	if err != nil {
 		return syncstate.Device{}, err
 	}
@@ -145,7 +181,11 @@ func (s *Store) RevokeSyncDevice(ctx context.Context, input syncstore.RevokeDevi
 	if err := tx.Commit(); err != nil {
 		return syncstate.Device{}, err
 	}
-	return syncDeviceFromPayload(payload, record.ID)
+	pointer.State = syncstate.DeviceRevoked
+	pointer.Revision++
+	pointer.UpdatedAt = occurredAt
+	pointer.LastEventID = record.ID
+	return pointer, nil
 }
 
 func (s *Store) GetSyncDevice(ctx context.Context, vaultID, deviceID string) (syncstate.Device, error) {

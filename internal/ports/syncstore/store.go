@@ -34,11 +34,12 @@ type RegisterDeviceInput struct {
 }
 
 type RevokeDeviceInput struct {
-	VaultID          string
-	DeviceID         string
-	ExpectedRevision int
-	OccurredAt       time.Time
-	IdempotencyKey   string
+	VaultID           string
+	AuthorityDeviceID string
+	DeviceID          string
+	ExpectedRevision  int
+	OccurredAt        time.Time
+	IdempotencyKey    string
 }
 
 type RecordPackInput struct {

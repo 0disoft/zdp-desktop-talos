@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -107,7 +108,7 @@ func TestSyncDeviceAndValidatedPackJournalAreDurableAndFailClosed(t *testing.T) 
 	if err != nil || !bytes.Equal(restoredPack, encodedMarker) {
 		t.Fatalf("restored pack=%q error=%v", restoredPack, err)
 	}
-	revoked, err := reopened.RevokeSyncDevice(ctx, syncstore.RevokeDeviceInput{VaultID: "vault-sync", DeviceID: "device-a", ExpectedRevision: 1, OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "revoke-device-a"})
+	revoked, err := reopened.RevokeSyncDevice(ctx, syncstore.RevokeDeviceInput{VaultID: "vault-sync", AuthorityDeviceID: "device-a", DeviceID: "device-a", ExpectedRevision: 1, OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "revoke-device-a"})
 	if err != nil || revoked.State != syncstate.DeviceRevoked || revoked.Revision != 2 {
 		t.Fatalf("revoked=%+v error=%v", revoked, err)
 	}
@@ -117,6 +118,54 @@ func TestSyncDeviceAndValidatedPackJournalAreDurableAndFailClosed(t *testing.T) 
 	next.SequenceStart, next.SequenceEnd, next.EventCount = 3, 3, 1
 	if _, _, err := reopened.RecordValidatedSyncPack(ctx, next); !errors.Is(err, syncstore.ErrDeviceRevoked) {
 		t.Fatalf("revoked device pack error=%v", err)
+	}
+}
+
+func TestPortableRevocationCreatesUnknownDeviceTombstone(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 9, 0, 0, 0, time.UTC)
+	store := openTestStore(t, filepath.Join(t.TempDir(), "revocation-tombstone.db"))
+	defer store.Close()
+	vaultID := "vault-revocation"
+	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: vaultID, RetentionDays: 30, OccurredAt: now, IdempotencyKey: "vault"}); err != nil {
+		t.Fatal(err)
+	}
+	authorityPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RegisterSyncDevice(ctx, syncstore.RegisterDeviceInput{VaultID: vaultID, DeviceID: "authority-device", PublicKey: authorityPublic, OccurredAt: now.Add(time.Second), IdempotencyKey: "authority"}); err != nil {
+		t.Fatal(err)
+	}
+	targetPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := syncDeviceRevocationPayload{AuthorityDeviceID: "authority-device", TargetDeviceID: "unknown-target", TargetPublicKey: base64.RawStdEncoding.EncodeToString(targetPublic), ExpectedTargetRevision: 1, RevokedAt: now.Add(2 * time.Second).Format(time.RFC3339Nano)}
+	record, err := store.syncEvent(syncDeviceRevocationEventType, vaultID, payload, now.Add(2*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.insertEvent(ctx, tx, record); err != nil {
+		t.Fatal(err)
+	}
+	state, reason, err := store.materializeSyncDeviceRevocation(ctx, tx, "authority-device", record)
+	if err != nil || state != syncstate.ReplayApplied || reason != "revocation_tombstone_created" {
+		t.Fatalf("state=%q reason=%q error=%v", state, reason, err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	tombstone, err := store.GetSyncDevice(ctx, vaultID, "unknown-target")
+	if err != nil || tombstone.State != syncstate.DeviceRevoked || tombstone.Revision != 2 || !bytes.Equal(tombstone.PublicKey, targetPublic) {
+		t.Fatalf("tombstone=%+v error=%v", tombstone, err)
+	}
+	if _, err := store.RegisterSyncDevice(ctx, syncstore.RegisterDeviceInput{VaultID: vaultID, DeviceID: "unknown-target", PublicKey: targetPublic, OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "late-register"}); !errors.Is(err, syncstore.ErrDeviceExists) {
+		t.Fatalf("late registration error=%v", err)
 	}
 }
 

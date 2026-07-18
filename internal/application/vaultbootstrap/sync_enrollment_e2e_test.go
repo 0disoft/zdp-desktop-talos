@@ -16,13 +16,16 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/localvaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/contextassembly"
 	enrollmentapp "github.com/0disoft/zdp-desktop-talos/internal/application/syncenrollment"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncidentity"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/workspaceremap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorycontext"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/workspacestore"
 )
 
@@ -155,6 +158,26 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 	defer replayedAcceptance.Session.Close()
 	if !replayedAcceptance.Replay || !bytes.Equal(replayedAcceptance.EncodedAcceptance, accepted.EncodedAcceptance) || replayedAcceptance.TargetDeviceID != accepted.TargetDeviceID {
 		t.Fatalf("acceptance replay=%+v", replayedAcceptance)
+	}
+
+	revoked, err := sourceSession.database.RevokeSyncDevice(ctx, syncstore.RevokeDeviceInput{VaultID: sourceSession.Record.ID, AuthorityDeviceID: accepted.SourceDeviceID, DeviceID: accepted.TargetDeviceID, ExpectedRevision: 1, IdempotencyKey: "revoke-target-device"})
+	if err != nil || revoked.State != syncstate.DeviceRevoked {
+		t.Fatalf("revoked=%+v error=%v", revoked, err)
+	}
+	revocationPack, err := sourceSession.ExportNextSyncPack(ctx, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revocationReplay, err := accepted.Session.ImportAndApplySyncPack(ctx, ImportSyncPackInput{Encoded: revocationPack.Encoded, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
+	if err != nil || revocationReplay.Replay.Batch.AppliedCount != 1 {
+		t.Fatalf("revocation replay=%+v error=%v", revocationReplay, err)
+	}
+	targetIdentity, err := accepted.Session.database.GetSyncDevice(ctx, accepted.Session.Record.ID, accepted.TargetDeviceID)
+	if err != nil || targetIdentity.State != syncstate.DeviceRevoked {
+		t.Fatalf("target identity=%+v error=%v", targetIdentity, err)
+	}
+	if _, err := accepted.Session.ExportNextSyncPack(ctx, 64); !errors.Is(err, syncidentity.ErrDeviceRevoked) {
+		t.Fatalf("revoked device export error=%v", err)
 	}
 }
 
