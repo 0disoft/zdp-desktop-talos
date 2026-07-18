@@ -50,6 +50,10 @@ type Executor interface {
 	Execute(context.Context, executionruntime.Request) (executionruntime.Result, error)
 }
 
+type Proposer interface {
+	Propose(context.Context, Request) (Result, error)
+}
+
 type Policy struct {
 	ProviderKey         string
 	ModelKey            string
@@ -98,6 +102,7 @@ type Request struct {
 type State string
 
 const (
+	StateProposed       State = "proposed"
 	StateCompleted      State = "completed"
 	StateReviewRequired State = "review_required"
 	StateFailed         State = "failed"
@@ -147,6 +152,37 @@ func New(store Store, provider modelprovider.Provider, scanner secretscanner.Sca
 }
 
 func (s *Service) Run(ctx context.Context, request Request) (Result, error) {
+	result, err := s.Propose(ctx, request)
+	if err != nil {
+		return result, err
+	}
+	result.State = StateCompleted
+	result.Executions = make([]executionruntime.Result, 0, len(result.Plan.Steps))
+	for _, step := range result.Plan.Steps {
+		executionResult, executeErr := s.executor.Execute(ctx, executionruntime.Request{
+			TaskID: request.TaskID, CommandIndex: step.Tool.CommandIndex,
+			IdempotencyKey: toolIdempotencyKey(request.IdempotencyKey, step.Tool.ID),
+		})
+		result.Executions = append(result.Executions, executionResult)
+		if executeErr != nil {
+			result.State = StateFailed
+			return result, errors.Join(ErrExecutionIncomplete, executeErr)
+		}
+		if executionResult.Outcome == permission.OutcomeRequireReview {
+			result.State = StateReviewRequired
+			return result, nil
+		}
+		if executionResult.Evidence == nil {
+			result.State = StateFailed
+			return result, ErrExecutionIncomplete
+		}
+	}
+	return result, nil
+}
+
+// Propose performs the bounded model-egress path and returns a validated plan
+// without granting it execution authority.
+func (s *Service) Propose(ctx context.Context, request Request) (Result, error) {
 	if ctx == nil || strings.TrimSpace(request.TaskID) == "" || !planning.ValidOpaqueID(request.RequestID) || strings.TrimSpace(request.IdempotencyKey) == "" || len(request.IdempotencyKey) > 96 || len(request.Context) > s.policy.MaxContextItems {
 		return Result{}, ErrInvalidRequest
 	}
@@ -254,27 +290,7 @@ func (s *Service) Run(ctx context.Context, request Request) (Result, error) {
 		return Result{State: StateFailed, Plan: response.Plan, Receipt: receipt}, errors.Join(ErrReceiptFailed, err)
 	}
 
-	result := Result{State: StateCompleted, Plan: response.Plan, Receipt: receipt, Executions: make([]executionruntime.Result, 0, len(response.Plan.Steps)), MemoryContext: memoryResult}
-	for _, step := range response.Plan.Steps {
-		executionResult, executeErr := s.executor.Execute(ctx, executionruntime.Request{
-			TaskID: record.ID, CommandIndex: step.Tool.CommandIndex,
-			IdempotencyKey: toolIdempotencyKey(request.IdempotencyKey, step.Tool.ID),
-		})
-		result.Executions = append(result.Executions, executionResult)
-		if executeErr != nil {
-			result.State = StateFailed
-			return result, errors.Join(ErrExecutionIncomplete, executeErr)
-		}
-		if executionResult.Outcome == permission.OutcomeRequireReview {
-			result.State = StateReviewRequired
-			return result, nil
-		}
-		if executionResult.Evidence == nil {
-			result.State = StateFailed
-			return result, ErrExecutionIncomplete
-		}
-	}
-	return result, nil
+	return Result{State: StateProposed, Plan: response.Plan, Receipt: receipt, MemoryContext: memoryResult}, nil
 }
 
 func (s *Service) contextBlocks(ctx context.Context, record task.Record, contract task.ContractRevision, items []ContextItem) ([]modelprovider.ContextBlock, int, error) {

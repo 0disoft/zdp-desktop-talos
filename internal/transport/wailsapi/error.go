@@ -8,6 +8,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/memorycompile"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/memorykernel"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/modelruntime"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchcommand"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
@@ -17,6 +18,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelprovider"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
@@ -49,6 +51,39 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, errModelConsentRequired):
+		mapped.Code = "MODEL_EGRESS_CONSENT_REQUIRED"
+		mapped.Message = "현재 Workspace와 모델에 대한 외부 전송 내용을 확인해 주세요."
+	case errors.Is(err, errModelConfigurationChanged):
+		mapped.Code = "MODEL_CONFIGURATION_CHANGED"
+		mapped.Message = "모델 또는 Workspace 기준점이 바뀌었습니다. 전송 내용을 다시 확인해 주세요."
+	case errors.Is(err, errModelUnavailable), errors.Is(err, modelprovider.ErrUnavailable):
+		mapped.Code = "MODEL_PROVIDER_UNAVAILABLE"
+		mapped.Message = "모델 제공자 설정 또는 연결을 사용할 수 없습니다. 로컬 기능은 계속 사용할 수 있습니다."
+		mapped.Retryable = true
+	case errors.Is(err, modelprovider.ErrRateLimited):
+		mapped.Code = "MODEL_PROVIDER_RATE_LIMITED"
+		mapped.Message = "모델 제공자의 사용량 제한에 도달했습니다. 나중에 다시 시도해 주세요."
+		mapped.Retryable = true
+	case errors.Is(err, modelprovider.ErrTimeout):
+		mapped.Code = "MODEL_PROVIDER_TIMEOUT"
+		mapped.Message = "모델 응답 시간이 초과되었습니다. 전송 기록은 실패 상태로 남겼습니다."
+		mapped.Retryable = true
+	case errors.Is(err, modelruntime.ErrEgressBlocked):
+		mapped.Code = "MODEL_EGRESS_BLOCKED"
+		mapped.Message = "민감도 또는 크기 제한 때문에 모델로 내용을 보내지 않았습니다."
+	case errors.Is(err, modelruntime.ErrPlanRejected), errors.Is(err, modelprovider.ErrInvalidResponse):
+		mapped.Code = "MODEL_PLAN_REJECTED"
+		mapped.Message = "모델 응답이 Task Contract의 계획 형식을 만족하지 않아 실행하지 않았습니다."
+	case errors.Is(err, modelruntime.ErrReceiptFailed):
+		mapped.Code = "MODEL_RECEIPT_FAILED"
+		mapped.Message = "외부 전송 기록을 안전하게 저장하지 못해 모델 요청을 완료하지 않았습니다."
+	case errors.Is(err, modelruntime.ErrMemoryContextFailed):
+		mapped.Code = "MODEL_MEMORY_CONTEXT_FAILED"
+		mapped.Message = "현재 Task에 적용할 기억을 안전하게 조립하지 못했습니다."
+	case errors.Is(err, modelruntime.ErrInvalidRequest):
+		mapped.Code = "MODEL_REQUEST_INVALID"
+		mapped.Message = "Task, Workspace 또는 모델 전송 요청을 다시 확인해 주세요."
 	case errors.Is(err, memorycompile.ErrSensitiveSource):
 		mapped.Code = "MEMORY_SECRET_REJECTED"
 		mapped.Message = "비밀정보로 보이는 내용이 있어 기억 후보를 만들지 않았습니다."

@@ -21,6 +21,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -161,6 +162,12 @@ type MemoryDatabase interface {
 	memorystore.Store
 }
 
+type PlanningDatabase interface {
+	ExecutionDatabase
+	memorystore.Store
+	modelstore.Store
+}
+
 func (s *Session) ExecutionDatabase() (ExecutionDatabase, error) {
 	if s == nil || s.database == nil {
 		return nil, ErrNotOpen
@@ -187,6 +194,17 @@ func (s *Session) MemoryDatabase() (MemoryDatabase, error) {
 		return nil, ErrNotOpen
 	}
 	database, ok := s.database.(MemoryDatabase)
+	if !ok {
+		return nil, ErrNotOpen
+	}
+	return database, nil
+}
+
+func (s *Session) PlanningDatabase() (PlanningDatabase, error) {
+	if s == nil || s.database == nil {
+		return nil, ErrNotOpen
+	}
+	database, ok := s.database.(PlanningDatabase)
 	if !ok {
 		return nil, ErrNotOpen
 	}

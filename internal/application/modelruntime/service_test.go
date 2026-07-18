@@ -46,6 +46,22 @@ func TestFixtureProviderCompletesBoundedFakeRepositoryScenario(t *testing.T) {
 	}
 }
 
+func TestProposeReturnsValidatedPlanWithoutExecutingIt(t *testing.T) {
+	service, store, executor := newFixture(t)
+	result, err := service.Propose(context.Background(), Request{
+		TaskID: store.record.ID, RequestID: "request-proposal", IdempotencyKey: "model-proposal-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != StateProposed || result.Receipt.Status != planning.EgressCompleted || len(result.Plan.Steps) != 1 {
+		t.Fatalf("result=%+v", result)
+	}
+	if len(result.Executions) != 0 || len(executor.requests) != 0 {
+		t.Fatalf("proposal executed tools: result=%+v requests=%+v", result.Executions, executor.requests)
+	}
+}
+
 func TestRuntimeStopsAtDurablePermissionReview(t *testing.T) {
 	service, store, executor := newFixture(t)
 	executor.result = executionruntime.Result{Outcome: permission.OutcomeRequireReview}

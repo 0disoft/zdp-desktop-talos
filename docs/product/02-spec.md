@@ -23,7 +23,7 @@ Unlinking removes active account references from the current device-local member
 3. Open one local Git repository and inspect its state.
 4. Create and confirm a versioned Task Contract.
 5. Assemble scoped approved memories and repository context.
-6. Plan and execute permitted steps in a task worktree.
+6. Review a disclosed provider/model plan proposal, then explicitly execute permitted steps in a task worktree.
 7. Queue blocking, quality, and follow-up decisions with reason, risk, safe default, and blocked scope.
 8. Verify the current diff and present patch evidence.
 9. Apply or discard the patch explicitly.

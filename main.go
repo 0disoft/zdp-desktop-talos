@@ -50,6 +50,7 @@ func main() {
 		}
 	}
 	executionService := wailsapi.NewExecutionService(vaultService, executionFactory, executionInitializationError)
+	planService := wailsapi.NewPlanService(vaultService, workspaceService, bootstrap.NewEnvironmentModelFactory(executionFactory))
 	reviewService := wailsapi.NewPatchReviewService(vaultService, executionFactory, executionInitializationError)
 	patchService := wailsapi.NewPatchService(vaultService, executionFactory, executionInitializationError)
 	var window *application.WebviewWindow
@@ -72,6 +73,7 @@ func main() {
 			application.NewService(wailsapi.NewTaskService(vaultService, workspaceService)),
 			application.NewService(wailsapi.NewDecisionService(vaultService, workspaceService)),
 			application.NewService(wailsapi.NewMemoryService(vaultService, workspaceService)),
+			application.NewService(planService),
 			application.NewService(wailsapi.NewPermissionService(vaultService)),
 			application.NewService(executionService),
 			application.NewService(reviewService),

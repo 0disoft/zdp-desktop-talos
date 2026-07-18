@@ -20,6 +20,7 @@
   import { getTaskReview, type PatchReview } from './lib/api/review';
   import { applyPatch, discardPatch } from './lib/api/patch';
   import { compileTaskMemories, explainTaskMemory, listMemoryCandidates, reviewMemory, type AppliedMemory, type MemoryItem, type MemoryReviewOutcome } from './lib/api/memory';
+  import { getModelProviderStatus, proposePlan, type ModelProviderStatus, type PlanProposal } from './lib/api/plan';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -50,11 +51,20 @@
   let memoryCandidates = $state<MemoryItem[]>([]);
   let appliedMemories = $state<AppliedMemory[]>([]);
   let memoryEligible = $state(0);
+  let modelProvider = $state<ModelProviderStatus>({ provider_key: 'openai-responses', credential_name: 'OPENAI_API_KEY', ready: false, reason_code: 'MODEL_PROVIDER_UNAVAILABLE' });
+  let modelConsent = $state(false);
+  let planProposal = $state<PlanProposal | null>(null);
 
   onMount(async () => {
     try {
+      const providerStatus = getModelProviderStatus();
       const [status, catalog] = await Promise.all([getVaultStatus(), listVaults()]);
       vault = status;
+      try {
+        modelProvider = await providerStatus;
+      } catch {
+        modelProvider = { provider_key: 'openai-responses', credential_name: 'OPENAI_API_KEY', ready: false, reason_code: 'MODEL_PROVIDER_UNAVAILABLE' };
+      }
       if (status.state === 'unlocked') retentionDays = status.retention_days ?? retentionDays;
       if (catalog.error) {
         latestError = catalog.error;
@@ -172,6 +182,8 @@
       if (result.error) latestError = result.error;
       else if (result.workspace) {
         workspace = result.workspace;
+        modelConsent = false;
+        planProposal = null;
         if (workspace.state === 'open') workspacePath = workspace.root ?? workspacePath;
       }
     } catch {
@@ -209,6 +221,8 @@
       } else if (result.task) {
         task = result.task;
         execution = null;
+        modelConsent = false;
+        planProposal = null;
         editingTask = false;
         await Promise.all([refreshDecisions(), refreshPermissions(), refreshPatchReview(), refreshMemories()]);
       }
@@ -282,11 +296,11 @@
     } finally { loading = false; }
   }
 
-  async function handleExecution() {
+  async function handleExecution(commandIndex = 0) {
     if (!task || vault.state !== 'unlocked') return;
     loading = true; latestError = null;
     try {
-      const result = await executeVerification(task.task_id);
+      const result = await executeVerification(task.task_id, commandIndex);
       if (result.error) latestError = result.error;
       else if (result.execution) {
         execution = result.execution;
@@ -296,6 +310,44 @@
     } catch {
       latestError = localError('EXECUTION_REQUEST_FAILED', '검증 실행 상태를 확인하지 못했습니다.');
     } finally { loading = false; }
+  }
+
+  async function handlePlanProposal() {
+    if (!task || vault.state !== 'unlocked' || workspace.state !== 'open' || !workspace.root || !workspace.baseline_commit || !modelProvider.ready || !modelProvider.model_key || !modelConsent) return;
+    loading = true; latestError = null;
+    try {
+      const result = await proposePlan({
+        taskID: task.task_id,
+        providerKey: modelProvider.provider_key,
+        modelKey: modelProvider.model_key,
+        workspaceRoot: workspace.root,
+        baselineCommit: workspace.baseline_commit,
+        contractRevision: task.revision,
+      });
+      if (result.error) {
+        latestError = result.error;
+        if (result.error.code === 'MODEL_CONFIGURATION_CHANGED') {
+          modelConsent = false;
+          planProposal = null;
+          modelProvider = await getModelProviderStatus();
+        }
+      } else {
+        planProposal = result.proposal ?? null;
+        modelConsent = false;
+      }
+    } catch {
+      latestError = localError('MODEL_REQUEST_FAILED', '모델 계획 요청 상태를 확인하지 못했습니다. 로컬 기능은 계속 사용할 수 있습니다.');
+    } finally { loading = false; }
+  }
+
+  function modelStatusMessage(status: ModelProviderStatus): string {
+    switch (status.reason_code) {
+      case 'MODEL_NAME_UNCONFIGURED': return 'TALOS_OPENAI_MODEL을 설정하면 계획 제안을 사용할 수 있습니다.';
+      case 'MODEL_CREDENTIAL_UNAVAILABLE': return `${status.credential_name}을 안전한 환경에 설정해 주세요.`;
+      case 'MODEL_EXECUTION_UNAVAILABLE': return '로컬 실행기가 준비되지 않아 계획 제안을 비활성화했습니다.';
+      case 'MODEL_CONFIGURATION_INVALID': return '설정한 모델 이름을 확인해 주세요.';
+      default: return '모델 계획은 설정 전까지 꺼져 있습니다.';
+    }
   }
 
   async function handleDecisionAnswer(item: DecisionItem, optionID = '') {
@@ -366,7 +418,7 @@
 
   function clearPrivateTaskState() {
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
-    memoryCandidates = []; appliedMemories = []; memoryEligible = 0;
+    memoryCandidates = []; appliedMemories = []; memoryEligible = 0; modelConsent = false; planProposal = null;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
@@ -528,6 +580,45 @@
       {/if}
     </article>
 
+    <article class="status-card plan-card">
+      <div class="status-heading">
+        <span class:unlocked={planProposal?.state === 'proposed'} class:error={!modelProvider.ready} class="status-dot waiting" aria-hidden="true"></span>
+        <h2>계획 제안</h2>
+      </div>
+      <strong>{planProposal ? '검토 대기' : modelProvider.ready ? `${modelProvider.provider_key} · ${modelProvider.model_key}` : '설정 필요'}</strong>
+      {#if !modelProvider.ready}
+        <p>{modelStatusMessage(modelProvider)}</p>
+      {:else if !planProposal}
+        <p>Task Contract와 현재 Task에 적용된 승인 기억만 {modelProvider.provider_key}의 {modelProvider.model_key}로 보냅니다. 저장소 파일, 터미널 로그와 비밀값은 포함하지 않습니다.</p>
+        <label class="egress-consent">
+          <input type="checkbox" bind:checked={modelConsent} disabled={loading || !task || task.status !== 'contracted' || workspace.state !== 'open'} />
+          <span>현재 Workspace · baseline · revision 기준의 외부 전송을 확인했습니다.</span>
+        </label>
+        <button type="button" onclick={handlePlanProposal} disabled={loading || !modelConsent || !task || task.status !== 'contracted' || workspace.state !== 'open'}>계획 요청</button>
+        <small>키는 {modelProvider.credential_name}에서 호출 순간에만 읽으며 화면과 Vault에 저장하지 않습니다.</small>
+      {:else}
+        <p>{planProposal.summary}</p>
+        <div class="plan-steps">
+          {#each planProposal.steps as step (step.id)}
+            <section>
+              <div><strong>{step.purpose}</strong><span>검증 #{step.command_index + 1}</span></div>
+              <button type="button" class="secondary" onclick={() => handleExecution(step.command_index)} disabled={loading || !task || task.status !== 'contracted'}>이 검증 실행</button>
+            </section>
+          {/each}
+        </div>
+        {#if planProposal.memories.length > 0}
+          <div class="plan-memories">
+            <h3>계획에 전달된 기억</h3>
+            {#each planProposal.memories as item (`${item.memory_id}:${item.revision}`)}
+              <p>{item.statement}<small>{item.reason}</small></p>
+            {/each}
+          </div>
+        {/if}
+        <small>전송 기록 {planProposal.receipt.receipt_id} · 입력 {planProposal.receipt.input_tokens} · 출력 {planProposal.receipt.output_tokens} tokens · 가림 {planProposal.receipt.redaction_count}건</small>
+        <button type="button" class="secondary" onclick={() => (planProposal = null)} disabled={loading}>계획 닫기</button>
+      {/if}
+    </article>
+
     <article class="status-card">
       <div class="status-heading">
         <span class:unlocked={execution?.state === 'succeeded'} class:error={execution === null && latestError?.code.startsWith('EXECUTION_')} class="status-dot waiting" aria-hidden="true"></span>
@@ -535,7 +626,7 @@
       </div>
       <strong>{execution?.state === 'succeeded' ? '통과' : execution?.state === 'review_required' ? '권한 확인 대기' : '실행 대기'}</strong>
       <p>{execution?.state === 'succeeded' ? `revision ${execution.contract_revision} · ${execution.worktree_state_hash.slice(0, 12)} · ${execution.replayed ? '저장된 증거' : '새 증거'}` : execution?.state === 'review_required' ? '아래 Permission Review에서 실행 범위를 선택해 주세요.' : 'Task Contract에 확정한 첫 번째 검증 명령을 실행합니다.'}</p>
-      <button type="button" onclick={handleExecution} disabled={loading || vault.state !== 'unlocked' || !task || task.status !== 'contracted' || editingTask}>
+      <button type="button" onclick={() => handleExecution()} disabled={loading || vault.state !== 'unlocked' || !task || task.status !== 'contracted' || editingTask}>
         {execution?.state === 'review_required' ? '승인 후 다시 실행' : execution?.state === 'succeeded' ? '다시 검증' : '검증 시작'}
       </button>
     </article>

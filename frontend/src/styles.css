@@ -438,6 +438,119 @@ h1 {
   grid-column: span 2;
 }
 
+.plan-card {
+  display: grid;
+  grid-column: span 2;
+  gap: 14px;
+}
+
+.plan-card .status-heading,
+.plan-card > p,
+.plan-card > strong {
+  margin-bottom: 0;
+}
+
+.egress-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #c7d0df;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.egress-consent input {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  accent-color: #6fe7ba;
+}
+
+.plan-card > button,
+.plan-steps button {
+  min-height: 38px;
+  width: fit-content;
+  padding: 0 14px;
+  border: 1px solid rgba(111, 231, 186, 0.32);
+  border-radius: 10px;
+  color: #08100d;
+  font-weight: 750;
+  background: #6fe7ba;
+  cursor: pointer;
+}
+
+.plan-card button.secondary {
+  color: #d7deea;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: transparent;
+}
+
+.plan-card button:disabled,
+.egress-consent input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.plan-card > small,
+.plan-memories small {
+  color: #92a9cc;
+  line-height: 1.5;
+}
+
+.plan-steps {
+  display: grid;
+  gap: 10px;
+}
+
+.plan-steps section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(122, 162, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(31, 52, 91, 0.16);
+}
+
+.plan-steps section > div {
+  display: grid;
+  gap: 4px;
+}
+
+.plan-steps strong {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.plan-steps span {
+  color: #8792a4;
+  font-size: 0.74rem;
+}
+
+.plan-memories {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.plan-memories h3,
+.plan-memories p {
+  margin: 0;
+}
+
+.plan-memories h3 {
+  color: #d7deea;
+  font-size: 0.86rem;
+}
+
+.plan-memories p {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-left: 2px solid rgba(111, 231, 186, 0.5);
+}
+
 .memory-toolbar,
 .memory-actions {
   display: flex;
@@ -721,6 +834,10 @@ h1 {
   }
 
   .memory-card {
+    grid-column: auto;
+  }
+
+  .plan-card {
     grid-column: auto;
   }
 
