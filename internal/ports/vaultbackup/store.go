@@ -11,6 +11,7 @@ const (
 	ManifestSchema  = "talos.vault-backup-manifest/1"
 	ReceiptSchema   = "talos.vault-backup-receipt/1"
 	PreflightSchema = "talos.vault-backup-preflight/1"
+	RestoreSchema   = "talos.vault-backup-restore/1"
 )
 
 var (
@@ -21,6 +22,9 @@ var (
 	ErrWrongVault         = errors.New("Vault backup belongs to another Vault")
 	ErrUnsupportedFormat  = errors.New("Vault backup format is unsupported")
 	ErrMigrationPreflight = errors.New("Vault backup migration preflight failed")
+	ErrRestorePending     = errors.New("Vault restore is already pending")
+	ErrRestoreIncomplete  = errors.New("Vault restore could not establish a valid generation")
+	ErrRestoreRolledBack  = errors.New("Vault restore failed and the original generation was recovered")
 )
 
 type CreateInput struct {
@@ -37,6 +41,23 @@ type PreflightInput struct {
 	KeyID              string
 	Key                []byte
 	Source             string
+	ApplicationVersion string
+}
+
+type StageRestoreInput struct {
+	VaultID                  string
+	KeyID                    string
+	Key                      []byte
+	Source                   string
+	ApplicationVersion       string
+	ExpectedBackupID         string
+	ExpectedCiphertextSHA256 string
+}
+
+type ReconcileRestoreInput struct {
+	VaultID            string
+	KeyID              string
+	Key                []byte
 	ApplicationVersion string
 }
 
@@ -80,6 +101,7 @@ type Preflight struct {
 	VaultID                  string    `json:"vault_id"`
 	Path                     string    `json:"path"`
 	SourceApplicationVersion string    `json:"source_application_version"`
+	MinimumRestoreVersion    string    `json:"minimum_restore_version"`
 	TargetApplicationVersion string    `json:"target_application_version"`
 	SourceSchemaVersion      int       `json:"source_schema_version"`
 	TargetSchemaVersion      int       `json:"target_schema_version"`
@@ -93,7 +115,36 @@ type Preflight struct {
 	EventCount               int       `json:"event_count"`
 }
 
+type RestoreState string
+
+const (
+	RestoreStateRestored   RestoreState = "restored"
+	RestoreStateRolledBack RestoreState = "rolled_back"
+)
+
+type Restore struct {
+	Schema                   string       `json:"schema"`
+	State                    RestoreState `json:"state"`
+	BackupID                 string       `json:"backup_id"`
+	VaultID                  string       `json:"vault_id"`
+	CiphertextSHA256         string       `json:"ciphertext_sha256"`
+	SourceApplicationVersion string       `json:"source_application_version"`
+	TargetApplicationVersion string       `json:"target_application_version"`
+	SourceSchemaVersion      int          `json:"source_schema_version"`
+	TargetSchemaVersion      int          `json:"target_schema_version"`
+	RestoredAt               time.Time    `json:"restored_at"`
+	ArtifactCount            int          `json:"artifact_count"`
+	EventCount               int          `json:"event_count"`
+}
+
 type Store interface {
 	CreateBackup(context.Context, CreateInput) (Receipt, error)
 	PreflightBackup(context.Context, PreflightInput) (Preflight, error)
+}
+
+type Restorer interface {
+	StageRestore(context.Context, StageRestoreInput) (Preflight, error)
+	ReconcileRestore(context.Context, ReconcileRestoreInput) (Restore, error)
+	FinalizeRestore(context.Context, string) error
+	CleanupInactiveRestore(context.Context, string) error
 }

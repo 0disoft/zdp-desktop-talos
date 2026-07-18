@@ -9,6 +9,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapikeyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/localvaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
+	"github.com/0disoft/zdp-desktop-talos/internal/version"
 )
 
 func NewVaultCreator(localDataRoot string) (*vaultbootstrap.Creator, error) {
@@ -33,6 +34,9 @@ func NewVaultCreator(localDataRoot string) (*vaultbootstrap.Creator, error) {
 	}
 	if err := creator.ReconcilePurges(context.Background()); err != nil {
 		return nil, fmt.Errorf("reconcile pending Vault purges: %w", err)
+	}
+	if err := creator.ReconcileRestores(context.Background(), version.Application); err != nil {
+		return nil, fmt.Errorf("reconcile pending Vault restores: %w", err)
 	}
 	return creator, nil
 }

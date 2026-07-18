@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	catalogVersion = 2
+	catalogVersion = 3
 	maxEntries     = 256
 )
 
@@ -58,6 +58,13 @@ func (c *Catalog) PendingPurges(ctx context.Context) ([]vaultcatalog.Entry, erro
 	return filterState(entries, vaultcatalog.StatePurgePending), err
 }
 
+func (c *Catalog) PendingRestores(ctx context.Context) ([]vaultcatalog.Entry, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entries, _, err := c.load(ctx)
+	return filterState(entries, vaultcatalog.StateRestorePending), err
+}
+
 func (c *Catalog) Add(ctx context.Context, entry vaultcatalog.Entry) error {
 	entry.State = vaultcatalog.StateActive
 	if err := validateEntry(entry); err != nil {
@@ -88,6 +95,18 @@ func (c *Catalog) Add(ctx context.Context, entry vaultcatalog.Entry) error {
 }
 
 func (c *Catalog) MarkPurgePending(ctx context.Context, target vaultcatalog.Entry) error {
+	return c.markState(ctx, target, vaultcatalog.StatePurgePending)
+}
+
+func (c *Catalog) MarkRestorePending(ctx context.Context, target vaultcatalog.Entry) error {
+	return c.markState(ctx, target, vaultcatalog.StateRestorePending)
+}
+
+func (c *Catalog) MarkActive(ctx context.Context, target vaultcatalog.Entry) error {
+	return c.markState(ctx, target, vaultcatalog.StateActive)
+}
+
+func (c *Catalog) markState(ctx context.Context, target vaultcatalog.Entry, state vaultcatalog.State) error {
 	target.State = vaultcatalog.StateActive
 	if err := validateEntry(target); err != nil {
 		return vaultcatalog.ErrNotFound
@@ -104,10 +123,15 @@ func (c *Catalog) MarkPurgePending(ctx context.Context, target vaultcatalog.Entr
 	found := false
 	for index := range entries {
 		if entries[index].VaultID == target.VaultID && entries[index].CreatedAt.Equal(target.CreatedAt) {
-			if entries[index].State == vaultcatalog.StatePurgePending {
+			if entries[index].State == state {
 				return nil
 			}
-			entries[index].State = vaultcatalog.StatePurgePending
+			if state == vaultcatalog.StatePurgePending && entries[index].State != vaultcatalog.StateActive ||
+				state == vaultcatalog.StateRestorePending && entries[index].State != vaultcatalog.StateActive ||
+				state == vaultcatalog.StateActive && entries[index].State != vaultcatalog.StateRestorePending {
+				return vaultcatalog.ErrNotFound
+			}
+			entries[index].State = state
 			found = true
 			break
 		}
@@ -162,7 +186,7 @@ func (c *Catalog) load(ctx context.Context) ([]vaultcatalog.Entry, bool, error) 
 		return nil, false, fmt.Errorf("read Vault catalog: %w", err)
 	}
 	var stored document
-	if err := json.Unmarshal(encoded, &stored); err != nil || (stored.Version != 1 && stored.Version != catalogVersion) || len(stored.Entries) > maxEntries {
+	if err := json.Unmarshal(encoded, &stored); err != nil || (stored.Version != 1 && stored.Version != 2 && stored.Version != catalogVersion) || len(stored.Entries) > maxEntries {
 		return nil, true, vaultcatalog.ErrCorrupt
 	}
 	entries := make([]vaultcatalog.Entry, 0, len(stored.Entries))
@@ -210,7 +234,7 @@ func (c *Catalog) store(ctx context.Context, entries []vaultcatalog.Entry, exist
 }
 
 func validateEntry(entry vaultcatalog.Entry) error {
-	if !id.IsUUIDv7(entry.VaultID) || entry.CreatedAt.IsZero() || (entry.State != vaultcatalog.StateActive && entry.State != vaultcatalog.StatePurgePending) {
+	if !id.IsUUIDv7(entry.VaultID) || entry.CreatedAt.IsZero() || (entry.State != vaultcatalog.StateActive && entry.State != vaultcatalog.StatePurgePending && entry.State != vaultcatalog.StateRestorePending) {
 		return vaultcatalog.ErrCorrupt
 	}
 	return nil

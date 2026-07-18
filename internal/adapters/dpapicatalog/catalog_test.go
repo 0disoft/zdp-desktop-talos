@@ -75,6 +75,40 @@ func TestCatalogMigratesV1AndSeparatesPendingPurges(t *testing.T) {
 	}
 }
 
+func TestCatalogJournalsRestoreAndOnlyReturnsToActive(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	keys := &memoryKeyStore{values: map[keyvault.Reference][]byte{}}
+	catalog, _ := New(keys)
+	entry := vaultcatalog.Entry{VaultID: "00000000-0000-7000-8000-000000000001", CreatedAt: time.Unix(100, 0).UTC()}
+	if err := catalog.Add(ctx, entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.MarkRestorePending(ctx, entry); err != nil {
+		t.Fatal(err)
+	}
+	if active, err := catalog.List(ctx); err != nil || len(active) != 0 {
+		t.Fatalf("active=%+v err=%v", active, err)
+	}
+	pending, err := catalog.PendingRestores(ctx)
+	if err != nil || len(pending) != 1 || pending[0].State != vaultcatalog.StateRestorePending {
+		t.Fatalf("pending=%+v err=%v", pending, err)
+	}
+	if err := catalog.MarkPurgePending(ctx, pending[0]); !errors.Is(err, vaultcatalog.ErrNotFound) {
+		t.Fatalf("restore-to-purge transition error=%v", err)
+	}
+	if err := catalog.MarkActive(ctx, pending[0]); err != nil {
+		t.Fatal(err)
+	}
+	active, err := catalog.List(ctx)
+	if err != nil || len(active) != 1 || active[0].State != vaultcatalog.StateActive {
+		t.Fatalf("active after restore=%+v err=%v", active, err)
+	}
+	if err := catalog.MarkActive(ctx, active[0]); err != nil {
+		t.Fatalf("idempotent active transition: %v", err)
+	}
+}
+
 func TestCatalogRejectsDuplicateAndCorruptDocument(t *testing.T) {
 	t.Parallel()
 	keys := &memoryKeyStore{values: map[keyvault.Reference][]byte{}}

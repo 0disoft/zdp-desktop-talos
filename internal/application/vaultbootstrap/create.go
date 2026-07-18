@@ -62,10 +62,28 @@ var (
 	ErrEnrollmentConflict    = errors.New("sync enrollment conflicts with local Vault state")
 	ErrEnrollmentUnsupported = errors.New("Vault database does not support sync enrollment")
 	ErrBackupUnsupported     = errors.New("Vault backup storage is unavailable")
+	ErrRestoreUnsupported    = errors.New("Vault restore storage or journal is unavailable")
+	ErrRestoreIncomplete     = errors.New("Vault restore is incomplete and requires startup recovery")
+	ErrRestoreRolledBack     = errors.New("Vault restore failed and the original Vault was recovered")
+	ErrRestoreCleanup        = errors.New("Vault restore completed but retained generation cleanup failed")
 )
 
 type CreateInput struct {
 	RetentionDays int
+}
+
+type RestoreBackupInput struct {
+	Source                   string
+	ExpectedBackupID         string
+	ExpectedCiphertextSHA256 string
+	ExpectedRevision         int
+	Confirmation             string
+	ApplicationVersion       string
+}
+
+type RestoredBackup struct {
+	Session *Session
+	Restore vaultbackup.Restore
 }
 
 type UpdateRetentionInput struct {
@@ -1108,6 +1126,146 @@ func (c *Creator) ReconcilePurges(ctx context.Context) error {
 		return errors.Join(ErrPurgeIncomplete, errors.Join(purgeErrors...))
 	}
 	return nil
+}
+
+func (c *Creator) RestoreBackup(ctx context.Context, session *Session, input RestoreBackupInput) (RestoredBackup, error) {
+	if c == nil || ctx == nil || session == nil || session.database == nil || session.Record.ID == "" {
+		return RestoredBackup{}, ErrNotOpen
+	}
+	restorer, journal, err := c.restoreDependencies()
+	if err != nil {
+		return RestoredBackup{}, err
+	}
+	if input.ExpectedRevision != session.Record.Revision {
+		return RestoredBackup{}, vaultstore.ErrRevisionConflict
+	}
+	if input.Confirmation != session.Record.ID || strings.TrimSpace(input.Source) == "" || strings.TrimSpace(input.ApplicationVersion) == "" {
+		return RestoredBackup{}, ErrInvalidInput
+	}
+	keyRef := keyvault.Reference{VaultID: session.Record.ID, KeyID: VaultKeyID}
+	key, err := c.keys.Get(ctx, keyRef)
+	if err != nil {
+		return RestoredBackup{}, fmt.Errorf("load Vault key for restore: %w", err)
+	}
+	defer clear(key)
+	staged, err := restorer.StageRestore(ctx, vaultbackup.StageRestoreInput{
+		VaultID: session.Record.ID, KeyID: VaultKeyID, Key: key, Source: input.Source,
+		ApplicationVersion: input.ApplicationVersion, ExpectedBackupID: input.ExpectedBackupID,
+		ExpectedCiphertextSHA256: input.ExpectedCiphertextSHA256,
+	})
+	if err != nil {
+		return RestoredBackup{}, err
+	}
+	entry := vaultcatalog.Entry{VaultID: session.Record.ID, CreatedAt: session.Record.CreatedAt, State: vaultcatalog.StateActive}
+	if err := journal.MarkRestorePending(ctx, entry); err != nil {
+		cleanupErr := restorer.CleanupInactiveRestore(context.WithoutCancel(ctx), entry.VaultID)
+		return RestoredBackup{}, errors.Join(fmt.Errorf("record Vault restore intent: %w", err), cleanupErr)
+	}
+	entry.State = vaultcatalog.StateRestorePending
+	if err := session.Close(); err != nil {
+		return RestoredBackup{}, errors.Join(ErrRestoreIncomplete, fmt.Errorf("close Vault before restore: %w", err))
+	}
+	restored, err := restorer.ReconcileRestore(context.WithoutCancel(ctx), vaultbackup.ReconcileRestoreInput{
+		VaultID: entry.VaultID, KeyID: VaultKeyID, Key: key, ApplicationVersion: input.ApplicationVersion,
+	})
+	if err != nil {
+		return RestoredBackup{}, errors.Join(ErrRestoreIncomplete, err)
+	}
+	if restored.BackupID != staged.BackupID || restored.CiphertextSHA256 != staged.CiphertextSHA256 || restored.VaultID != entry.VaultID {
+		return RestoredBackup{}, ErrRestoreIncomplete
+	}
+	if err := journal.MarkActive(context.WithoutCancel(ctx), entry); err != nil {
+		return RestoredBackup{}, errors.Join(ErrRestoreIncomplete, fmt.Errorf("complete Vault restore journal: %w", err))
+	}
+	reopened, openErr := c.openRestoredSession(context.WithoutCancel(ctx), entry.VaultID, key)
+	cleanupErr := restorer.FinalizeRestore(context.WithoutCancel(ctx), entry.VaultID)
+	if openErr != nil {
+		return RestoredBackup{}, errors.Join(ErrRestoreIncomplete, openErr, cleanupErr)
+	}
+	result := RestoredBackup{Session: reopened, Restore: restored}
+	if cleanupErr != nil {
+		return result, errors.Join(ErrRestoreCleanup, cleanupErr)
+	}
+	if restored.State == vaultbackup.RestoreStateRolledBack {
+		return result, ErrRestoreRolledBack
+	}
+	return result, nil
+}
+
+func (c *Creator) ReconcileRestores(ctx context.Context, applicationVersion string) error {
+	if c == nil || ctx == nil || strings.TrimSpace(applicationVersion) == "" {
+		return ErrInvalidInput
+	}
+	restorer, journal, err := c.restoreDependencies()
+	if errors.Is(err, ErrRestoreUnsupported) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	pending, err := journal.PendingRestores(ctx)
+	if err != nil {
+		return fmt.Errorf("read pending Vault restores: %w", err)
+	}
+	var restoreErrors []error
+	for _, entry := range pending {
+		key, keyErr := c.keys.Get(ctx, keyvault.Reference{VaultID: entry.VaultID, KeyID: VaultKeyID})
+		if keyErr != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("load key for pending Vault restore %s: %w", entry.VaultID, keyErr))
+			continue
+		}
+		_, restoreErr := restorer.ReconcileRestore(context.WithoutCancel(ctx), vaultbackup.ReconcileRestoreInput{
+			VaultID: entry.VaultID, KeyID: VaultKeyID, Key: key, ApplicationVersion: applicationVersion,
+		})
+		clear(key)
+		if restoreErr != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("resume restore for Vault %s: %w", entry.VaultID, restoreErr))
+			continue
+		}
+		if err := journal.MarkActive(context.WithoutCancel(ctx), entry); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("complete restore journal for Vault %s: %w", entry.VaultID, err))
+			continue
+		}
+		if err := restorer.FinalizeRestore(context.WithoutCancel(ctx), entry.VaultID); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Errorf("clean restored generations for Vault %s: %w", entry.VaultID, err))
+		}
+	}
+	active, err := c.catalog.List(ctx)
+	if err != nil {
+		restoreErrors = append(restoreErrors, fmt.Errorf("read active Vaults after restore reconciliation: %w", err))
+	} else {
+		for _, entry := range active {
+			if err := restorer.CleanupInactiveRestore(context.WithoutCancel(ctx), entry.VaultID); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Errorf("clean inactive restore state for Vault %s: %w", entry.VaultID, err))
+			}
+		}
+	}
+	if len(restoreErrors) > 0 {
+		return errors.Join(ErrRestoreIncomplete, errors.Join(restoreErrors...))
+	}
+	return nil
+}
+
+func (c *Creator) restoreDependencies() (vaultbackup.Restorer, vaultcatalog.RestoreJournal, error) {
+	restorer, restorerOK := c.backups.(vaultbackup.Restorer)
+	journal, journalOK := c.catalog.(vaultcatalog.RestoreJournal)
+	if !restorerOK || !journalOK {
+		return nil, nil, ErrRestoreUnsupported
+	}
+	return restorer, journal, nil
+}
+
+func (c *Creator) openRestoredSession(ctx context.Context, vaultID string, key []byte) (*Session, error) {
+	database, err := c.databases.Open(ctx, vaultID, VaultKeyID, key)
+	if err != nil {
+		return nil, fmt.Errorf("open restored Vault database: %w", err)
+	}
+	record, err := database.GetVault(ctx, vaultID)
+	if err != nil || record.ID != vaultID || record.Status != vault.StatusActive {
+		_ = database.Close()
+		return nil, errors.Join(ErrRestoreIncomplete, err)
+	}
+	return c.newSession(record, database), nil
 }
 
 func (c *Creator) finishPurge(ctx context.Context, entry vaultcatalog.Entry) error {

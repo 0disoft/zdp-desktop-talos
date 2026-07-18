@@ -140,7 +140,7 @@ func (f *Factory) CreateBackup(ctx context.Context, input vaultbackup.CreateInpu
 
 	preflight, err := f.preflightBackupFile(ctx, vaultbackup.PreflightInput{
 		VaultID: input.VaultID, KeyID: input.KeyID, Key: input.Key, Source: stagePath, ApplicationVersion: input.ApplicationVersion,
-	}, false)
+	}, false, "")
 	if err != nil {
 		return vaultbackup.Receipt{}, fmt.Errorf("verify newly created Vault backup: %w", err)
 	}
@@ -173,7 +173,7 @@ func (f *Factory) PreflightBackup(ctx context.Context, input vaultbackup.Preflig
 		return vaultbackup.Preflight{}, err
 	}
 	input.Source = source
-	return f.preflightBackupFile(ctx, input, true)
+	return f.preflightBackupFile(ctx, input, true, "")
 }
 
 func (f *Factory) validateBackupInput(ctx context.Context, vaultID, keyID string, key []byte, applicationVersion string) error {
@@ -297,7 +297,7 @@ func writeTarEntry(archive *tar.Writer, name string, createdAt time.Time, size i
 	return nil
 }
 
-func (f *Factory) preflightBackupFile(ctx context.Context, input vaultbackup.PreflightInput, requireExtension bool) (vaultbackup.Preflight, error) {
+func (f *Factory) preflightBackupFile(ctx context.Context, input vaultbackup.PreflightInput, requireExtension bool, retainedRoot string) (vaultbackup.Preflight, error) {
 	if requireExtension && !strings.EqualFold(filepath.Ext(input.Source), vaultbackup.FileExtension) {
 		return vaultbackup.Preflight{}, vaultbackup.ErrUnsafePath
 	}
@@ -331,11 +331,23 @@ func (f *Factory) preflightBackupFile(ctx context.Context, input vaultbackup.Pre
 		return vaultbackup.Preflight{}, err
 	}
 
-	stagingRoot, err := os.MkdirTemp(f.root, ".backup-preflight-")
-	if err != nil {
-		return vaultbackup.Preflight{}, fmt.Errorf("create Vault backup preflight directory: %w", err)
+	stagingRoot := retainedRoot
+	removeStaging := false
+	if stagingRoot == "" {
+		stagingRoot, err = os.MkdirTemp(f.root, ".backup-preflight-")
+		if err != nil {
+			return vaultbackup.Preflight{}, fmt.Errorf("create Vault backup preflight directory: %w", err)
+		}
+		removeStaging = true
+	} else {
+		entries, readErr := os.ReadDir(stagingRoot)
+		if readErr != nil || len(entries) != 0 {
+			return vaultbackup.Preflight{}, vaultbackup.ErrRestorePending
+		}
 	}
-	defer os.RemoveAll(stagingRoot)
+	if removeStaging {
+		defer os.RemoveAll(stagingRoot)
+	}
 	expected := make(map[string]vaultbackup.FileRecord, len(manifest.Artifacts)+1)
 	expected[manifest.Database.Name] = manifest.Database
 	for _, artifact := range manifest.Artifacts {
@@ -368,6 +380,9 @@ func (f *Factory) preflightBackupFile(ctx context.Context, input vaultbackup.Pre
 	}
 	if len(seen) != len(expected) {
 		return vaultbackup.Preflight{}, vaultbackup.ErrCorrupt
+	}
+	if err := os.MkdirAll(filepath.Join(stagingRoot, databaseEntryName+".blobs"), 0o700); err != nil {
+		return vaultbackup.Preflight{}, fmt.Errorf("create Vault backup artifact staging directory: %w", err)
 	}
 	if _, err := io.Copy(io.Discard, stream); err != nil {
 		return vaultbackup.Preflight{}, errors.Join(vaultbackup.ErrCorrupt, err)
@@ -411,6 +426,7 @@ func (f *Factory) preflightBackupFile(ctx context.Context, input vaultbackup.Pre
 		VaultID:                  manifest.VaultID,
 		Path:                     input.Source,
 		SourceApplicationVersion: manifest.SourceApplicationVersion,
+		MinimumRestoreVersion:    manifest.MinimumRestoreVersion,
 		TargetApplicationVersion: input.ApplicationVersion,
 		SourceSchemaVersion:      before.SchemaVersion,
 		TargetSchemaVersion:      after.SchemaVersion,

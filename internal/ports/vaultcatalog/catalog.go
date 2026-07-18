@@ -15,8 +15,9 @@ var (
 type State string
 
 const (
-	StateActive       State = "active"
-	StatePurgePending State = "purge_pending"
+	StateActive         State = "active"
+	StatePurgePending   State = "purge_pending"
+	StateRestorePending State = "restore_pending"
 )
 
 type Entry struct {
@@ -31,4 +32,10 @@ type Catalog interface {
 	Add(context.Context, Entry) error
 	MarkPurgePending(context.Context, Entry) error
 	Remove(context.Context, Entry) error
+}
+
+type RestoreJournal interface {
+	PendingRestores(context.Context) ([]Entry, error)
+	MarkRestorePending(context.Context, Entry) error
+	MarkActive(context.Context, Entry) error
 }

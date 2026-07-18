@@ -20,9 +20,10 @@ import (
 )
 
 type Factory struct {
-	root   string
-	now    func() time.Time
-	random io.Reader
+	root        string
+	now         func() time.Time
+	random      io.Reader
+	restoreHook func(string) error
 }
 
 type database struct {
