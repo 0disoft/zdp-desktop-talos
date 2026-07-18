@@ -35,7 +35,7 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 	keys := &memoryKeys{values: map[keyvault.Reference][]byte{{VaultID: "vault-e2e", KeyID: "vault-kek-v1"}: append([]byte(nil), vaultKey...)}}
 	appendEvent := func(key, value string, at time.Time) {
 		t.Helper()
-		if _, err := store.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "task.contract.created", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
+		if _, err := store.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "task.contract.created", SchemaVersion: 2, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
 			t.Fatal(err)
 		}
 	}

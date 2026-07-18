@@ -20,7 +20,6 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
-	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
@@ -30,6 +29,7 @@ import (
 var syncableEventSchemas = map[string]int{
 	taskContractCreatedEventType:    taskContractEventSchemaVersion,
 	taskContractRevisedEventType:    taskContractEventSchemaVersion,
+	taskContractSnapshotEventType:   taskContractEventSchemaVersion,
 	decisionCreatedEventType:        decisionEventSchemaVersion,
 	decisionAnsweredEventType:       decisionEventSchemaVersion,
 	decisionSupersededEventType:     decisionEventSchemaVersion,
@@ -210,7 +210,7 @@ func (s *Store) materializeReplayEvent(ctx context.Context, tx *sql.Tx, record e
 		return syncstate.ReplayQuarantined, "schema_unsupported", nil
 	}
 	switch record.Type {
-	case taskContractCreatedEventType, taskContractRevisedEventType:
+	case taskContractCreatedEventType, taskContractRevisedEventType, taskContractSnapshotEventType:
 		return s.materializeTaskReplay(ctx, tx, record)
 	case decisionCreatedEventType, decisionAnsweredEventType, decisionSupersededEventType, decisionResolvedEventType:
 		return s.materializeDecisionReplay(ctx, tx, record)
@@ -227,14 +227,14 @@ func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record ev
 		return syncstate.ReplayQuarantined, "payload_invalid", nil
 	}
 	payloadTime, err := time.Parse(time.RFC3339Nano, payload.CreatedAt)
-	if err != nil || !payloadTime.Equal(record.OccurredAt) {
+	workspaceID, sourceWorkspaceHash, workspaceErr := taskPayloadWorkspace(record.VaultID, record.SchemaVersion, payload)
+	contract, contractErr := taskContractFromPayload(payload, record.ID)
+	if err != nil || !payloadTime.Equal(record.OccurredAt) || workspaceErr != nil || contractErr != nil || record.Sensitivity != event.SensitivityPrivate {
 		return syncstate.ReplayQuarantined, "payload_invalid", nil
 	}
-	if record.Type == taskContractCreatedEventType {
-		sourceHash := workspaceRootHash(payload.WorkspaceRoot)
-		workspaceID := workspacemapping.ID(record.VaultID, sourceHash)
-		created, err := taskCreatedFromPayload(record.VaultID, payload, record.ID, workspaceID, payload.WorkspaceRoot)
-		if err != nil || payload.Revision != 1 || record.Sensitivity != event.SensitivityPrivate {
+	isCreation := record.Type == taskContractCreatedEventType || record.Type == taskContractSnapshotEventType && payload.Revision == 1
+	if isCreation {
+		if payload.Revision != 1 {
 			return syncstate.ReplayQuarantined, "payload_invalid", nil
 		}
 		if _, err := scanTaskPointer(tx.QueryRowContext(ctx, taskSelect+" WHERE task_id = ?", payload.TaskID)); err == nil {
@@ -242,10 +242,10 @@ func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record ev
 		} else if !errors.Is(err, taskstore.ErrNotFound) {
 			return "", "", err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id, workspace_id) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, created.Task.ID, created.Task.VaultID, sourceHash, created.Task.BaselineCommit, string(task.StatusContracted), payload.CreatedAt, payload.CreatedAt, record.ID, workspaceID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id, workspace_id) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, payload.TaskID, record.VaultID, sourceWorkspaceHash, payload.BaselineCommit, string(task.StatusContracted), payload.CreatedAt, payload.CreatedAt, record.ID, workspaceID); err != nil {
 			return "", "", err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO task_contract_revisions(task_id, revision, baseline_commit, created_at, event_id) VALUES(?, 1, ?, ?, ?)`, created.Task.ID, created.Task.BaselineCommit, payload.CreatedAt, record.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO task_contract_revisions(task_id, revision, baseline_commit, created_at, event_id) VALUES(?, 1, ?, ?, ?)`, payload.TaskID, payload.BaselineCommit, payload.CreatedAt, record.ID); err != nil {
 			return "", "", err
 		}
 		return syncstate.ReplayApplied, "applied", nil
@@ -265,12 +265,8 @@ func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record ev
 	if err != nil {
 		return "", "", err
 	}
-	if current.Status != task.StatusContracted || payload.Revision != pointer.currentRevision+1 || payload.BaselineCommit != current.BaselineCommit || payload.WorkspaceRoot != current.WorkspaceRoot || payloadTime.Before(current.UpdatedAt) {
+	if current.Status != task.StatusContracted || payload.Revision != pointer.currentRevision+1 || payload.BaselineCommit != current.BaselineCommit || workspaceID != current.WorkspaceID || sourceWorkspaceHash != pointer.workspaceRootHash || payloadTime.Before(current.UpdatedAt) {
 		return syncstate.ReplayConflicted, "aggregate_revision_conflict", nil
-	}
-	created, err := taskResultFromPayload(record.VaultID, payload, record.ID, current.CreatedAt, current.WorkspaceID, payload.WorkspaceRoot)
-	if err != nil || record.Sensitivity != event.SensitivityPrivate {
-		return syncstate.ReplayQuarantined, "payload_invalid", nil
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO task_contract_revisions(task_id, revision, baseline_commit, created_at, event_id) VALUES(?, ?, ?, ?, ?)`, payload.TaskID, payload.Revision, payload.BaselineCommit, payload.CreatedAt, record.ID); err != nil {
 		return "", "", err
@@ -279,7 +275,7 @@ func (s *Store) materializeTaskReplay(ctx context.Context, tx *sql.Tx, record ev
 	if err != nil {
 		return "", "", err
 	}
-	if rows, _ := result.RowsAffected(); rows != 1 || created.Task.CurrentRevision != payload.Revision {
+	if rows, _ := result.RowsAffected(); rows != 1 || contract.Revision != payload.Revision {
 		return "", "", syncstore.ErrReplayConflict
 	}
 	return syncstate.ReplayApplied, "applied", nil

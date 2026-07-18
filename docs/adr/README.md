@@ -55,5 +55,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0046-allowlisted-canonical-sync-replay.md`: explicit export allowlist, self-contained Decision v2 events, schema-18 replay outcomes, and conflict quarantine
 - `0047-expiry-bounded-vault-enrollment.md`: random-capability offer/acceptance, DPAPI-local target identity, schema-19 lifecycle journal, and two-Vault replay proof
 - `0048-device-local-workspace-remapping.md`: stable Vault-bound workspace IDs, schema-20 encrypted local mapping journal, baseline verification, and fail-closed imported Tasks
+- `0049-path-free-task-sync-v2.md`: path-free Task v2 events, schema-21 legacy snapshot bridge, strict replay identity, and v1 export retirement
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

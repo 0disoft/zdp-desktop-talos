@@ -3,7 +3,7 @@ Unicode true
 !define INFO_PROJECTNAME "zdp-desktop-talos"
 !define INFO_COMPANYNAME "0disoft"
 !define INFO_PRODUCTNAME "Talos Agent"
-!define INFO_PRODUCTVERSION "0.23.0"
+!define INFO_PRODUCTVERSION "0.24.0"
 !define INFO_COPYRIGHT "Copyright (c) 2026 0disoft"
 !define PRODUCT_EXECUTABLE "talos-desktop.exe"
 !define UNINST_KEY_NAME "0disoftTalosAgent"

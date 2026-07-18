@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 20
+const currentSchemaVersion = 21
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -512,6 +512,20 @@ var migrations = []migration{
 			`CREATE INDEX workspace_mappings_state_idx ON workspace_mappings(vault_id, state, workspace_id)`,
 		},
 	},
+	{
+		version: 21,
+		statements: []string{
+			`CREATE TABLE task_sync_snapshots (
+				task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				revision INTEGER NOT NULL CHECK (revision > 0),
+				source_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				snapshot_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				created_at TEXT NOT NULL,
+				PRIMARY KEY(task_id, revision)
+			) STRICT`,
+			`CREATE INDEX task_sync_snapshots_event_idx ON task_sync_snapshots(snapshot_event_id, task_id, revision)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -570,6 +584,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT pack_id, vault_id, device_id, sequence_start, sequence_end, event_count, applied_count, conflicted_count, quarantined_count, completed_at, event_id FROM sync_replay_batches LIMIT 0`,
 		`SELECT enrollment_id, vault_id, role, state, peer_device_id, offer_hash, acceptance_hash, acceptance_envelope, expires_at, created_at, updated_at, created_event_id, last_event_id FROM sync_enrollments LIMIT 0`,
 		`SELECT workspace_id, vault_id, source_workspace_hash, local_root_hash, verified_baseline, state, revision, created_at, updated_at, created_event_id, last_event_id FROM workspace_mappings LIMIT 0`,
+		`SELECT task_id, revision, source_event_id, snapshot_event_id, created_at FROM task_sync_snapshots LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

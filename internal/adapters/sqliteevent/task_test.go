@@ -3,17 +3,25 @@ package sqliteevent
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 )
 
 func TestTaskAndFirstContractCommitAtomicallyAndSurviveRestart(t *testing.T) {
@@ -33,6 +41,17 @@ func TestTaskAndFirstContractCommitAtomicallyAndSurviveRestart(t *testing.T) {
 	created, err := store.CreateTaskContract(ctx, input)
 	if err != nil {
 		t.Fatal(err)
+	}
+	createdEvent, err := store.Get(ctx, created.Contract.EventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createdEvent.SchemaVersion != taskContractEventSchemaVersion || bytes.Contains(createdEvent.Payload, []byte(input.WorkspaceRoot)) {
+		t.Fatalf("path-free task event=%+v payload=%s", createdEvent, createdEvent.Payload)
+	}
+	var createdPayload taskContractPayload
+	if err := json.Unmarshal(createdEvent.Payload, &createdPayload); err != nil || createdPayload.WorkspaceID != created.Task.WorkspaceID || createdPayload.SourceWorkspaceHash == "" || createdPayload.WorkspaceRoot != "" {
+		t.Fatalf("created payload=%+v error=%v", createdPayload, err)
 	}
 	replayed, err := store.CreateTaskContract(ctx, input)
 	if err != nil {
@@ -67,6 +86,95 @@ func TestTaskAndFirstContractCommitAtomicallyAndSurviveRestart(t *testing.T) {
 	}
 	if restoredTask.BaselineCommit != input.BaselineCommit || restoredContract.Goal != input.Goal || restoredContract.EventID != created.Contract.EventID || len(restoredContract.VerificationCommands) != 1 || restoredContract.VerificationCommands[0].RuleID != "go-test" {
 		t.Fatalf("restored mismatch: %+v %+v", restoredTask, restoredContract)
+	}
+}
+
+func TestSchema20LegacyTaskReceivesPathFreeSyncSnapshots(t *testing.T) {
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "schema-20-task.db")
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range migrations {
+		if migration.version > 20 {
+			break
+		}
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("apply migration %d: %v", migration.version, err)
+		}
+	}
+	sealer, err := envelope.NewSealer("test-key", bytes.Repeat([]byte{0x23}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyStore := &Store{db: db, sealer: sealer, blobRoot: databasePath + ".blobs", now: func() time.Time { return time.Date(2026, 7, 18, 18, 0, 0, 0, time.UTC) }, random: rand.Reader}
+	createdAt := legacyStore.now()
+	if _, err := legacyStore.CreateVault(ctx, vaultstore.CreateInput{VaultID: "vault-legacy-task", RetentionDays: 30, OccurredAt: createdAt, IdempotencyKey: "legacy-vault"}); err != nil {
+		t.Fatal(err)
+	}
+	root := `C:\legacy-path-must-not-sync`
+	baseline := strings.Repeat("a", 40)
+	payload := taskContractPayload{TaskID: "legacy-task", Revision: 1, WorkspaceRoot: root, BaselineCommit: baseline, Goal: "migrate legacy task", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"snapshot is path free"}, Risk: task.RiskMedium, CreatedAt: createdAt.Add(time.Second).Format(time.RFC3339Nano)}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventRecord, err := legacyStore.newEventRecord("vault-legacy-task", taskContractCreatedEventType, taskContractLegacyEventSchemaVersion, "private", encoded, createdAt.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mapping, err := legacyStore.ensureLocalWorkspaceMapping(ctx, tx, "vault-legacy-task", root, baseline, createdAt.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyStore.insertEvent(ctx, tx, eventRecord); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO tasks(task_id, vault_id, workspace_root_hash, baseline_commit, status, current_revision, created_at, updated_at, last_event_id, workspace_id) VALUES(?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`, payload.TaskID, "vault-legacy-task", workspaceRootHash(root), baseline, string(task.StatusContracted), payload.CreatedAt, payload.CreatedAt, eventRecord.ID, mapping.WorkspaceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO task_contract_revisions(task_id, revision, baseline_commit, created_at, event_id) VALUES(?, 1, ?, ?, ?)`, payload.TaskID, baseline, payload.CreatedAt, eventRecord.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openTestStore(t, databasePath)
+	defer reopened.Close()
+	var snapshotEventID string
+	if err := reopened.db.QueryRow(`SELECT snapshot_event_id FROM task_sync_snapshots WHERE task_id = ? AND revision = 1`, payload.TaskID).Scan(&snapshotEventID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := reopened.Get(ctx, snapshotEventID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Type != taskContractSnapshotEventType || snapshot.SchemaVersion != taskContractEventSchemaVersion || bytes.Contains(snapshot.Payload, []byte(root)) {
+		t.Fatalf("snapshot=%+v payload=%s", snapshot, snapshot.Payload)
+	}
+	var snapshotPayload taskContractPayload
+	if err := json.Unmarshal(snapshot.Payload, &snapshotPayload); err != nil || snapshotPayload.WorkspaceID != workspacemapping.ID("vault-legacy-task", workspaceRootHash(root)) || snapshotPayload.SourceWorkspaceHash != workspaceRootHash(root) || snapshotPayload.WorkspaceRoot != "" {
+		t.Fatalf("snapshot payload=%+v error=%v", snapshotPayload, err)
+	}
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.RegisterSyncDevice(ctx, syncstore.RegisterDeviceInput{VaultID: "vault-legacy-task", DeviceID: "legacy-source-device", PublicKey: publicKey, OccurredAt: createdAt.Add(2 * time.Second), IdempotencyKey: "register-legacy-source"}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, replayed, err := reopened.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: "vault-legacy-task", DeviceID: "legacy-source-device", Limit: 8, OccurredAt: createdAt.Add(3 * time.Second)})
+	if err != nil || replayed || len(prepared.Events) != 1 || prepared.Events[0].ID != snapshotEventID || prepared.Events[0].SchemaVersion != taskContractEventSchemaVersion {
+		t.Fatalf("prepared=%+v replayed=%v error=%v", prepared, replayed, err)
 	}
 }
 

@@ -138,8 +138,9 @@ func TestSyncExportReservationAndReadyPackAreRestartSafe(t *testing.T) {
 	}
 	markers := [][]byte{[]byte(`{"item":"first-private-marker"}`), []byte(`{"item":"second-private-marker"}`)}
 	eventTypes := []string{taskContractCreatedEventType, memoryCandidateCreatedEventType}
+	eventSchemas := []int{taskContractEventSchemaVersion, memoryEventSchemaVersion}
 	for index, marker := range markers {
-		if _, err := store.Append(ctx, eventstore.AppendInput{VaultID: "vault-export", Type: eventTypes[index], SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: marker, OccurredAt: now.Add(time.Duration(index+2) * time.Second), IdempotencyKey: fmt.Sprintf("export-event-%d", index)}); err != nil {
+		if _, err := store.Append(ctx, eventstore.AppendInput{VaultID: "vault-export", Type: eventTypes[index], SchemaVersion: eventSchemas[index], Sensitivity: event.SensitivityPrivate, Payload: marker, OccurredAt: now.Add(time.Duration(index+2) * time.Second), IdempotencyKey: fmt.Sprintf("export-event-%d", index)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -222,7 +223,7 @@ func TestSchema15MigratesToDurableSyncState(t *testing.T) {
 	if version != currentSchemaVersion {
 		t.Fatalf("schema version=%d", version)
 	}
-	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches", "sync_enrollments", "workspace_mappings"} {
+	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches", "sync_enrollments", "workspace_mappings", "task_sync_snapshots"} {
 		var name string
 		if err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name); err != nil || name != table {
 			t.Fatalf("table %s name=%q error=%v", table, name, err)

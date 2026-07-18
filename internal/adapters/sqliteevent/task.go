@@ -19,14 +19,17 @@ import (
 const (
 	taskContractCreatedEventType         = "task.contract.created"
 	taskContractRevisedEventType         = "task.contract.revised"
+	taskContractSnapshotEventType        = "task.contract.snapshot"
 	taskContractLegacyEventSchemaVersion = 1
-	taskContractEventSchemaVersion       = 1
+	taskContractEventSchemaVersion       = 2
 )
 
 type taskContractPayload struct {
 	TaskID               string                           `json:"task_id"`
 	Revision             int                              `json:"revision"`
-	WorkspaceRoot        string                           `json:"workspace_root"`
+	WorkspaceID          string                           `json:"workspace_id,omitempty"`
+	SourceWorkspaceHash  string                           `json:"source_workspace_hash,omitempty"`
+	WorkspaceRoot        string                           `json:"workspace_root,omitempty"`
 	BaselineCommit       string                           `json:"baseline_commit"`
 	Goal                 string                           `json:"goal"`
 	AllowedPaths         []string                         `json:"allowed_paths"`
@@ -88,7 +91,7 @@ func (s *Store) CreateTaskContract(ctx context.Context, input taskstore.CreateIn
 		return taskstore.Created{}, fmt.Errorf("generate task id: %w", err)
 	}
 	payload := taskContractPayload{
-		TaskID: taskID, Revision: 1, WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: input.BaselineCommit,
+		TaskID: taskID, Revision: 1, WorkspaceID: mapping.WorkspaceID, SourceWorkspaceHash: mapping.SourceWorkspaceHash, BaselineCommit: input.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: append([]string(nil), input.AllowedPaths...), ForbiddenActions: append([]string(nil), input.ForbiddenActions...),
 		AcceptanceCriteria: append([]string(nil), input.AcceptanceCriteria...), VerificationCommands: verificationCommandsToPayload(input.VerificationCommands), Risk: input.Risk, CreatedAt: occurredAt.Format(time.RFC3339Nano),
 	}
@@ -176,7 +179,7 @@ func (s *Store) ReviseTaskContract(ctx context.Context, input taskstore.ReviseIn
 		return taskstore.Created{}, taskstore.ErrInvalidCommand
 	}
 	payload := taskContractPayload{
-		TaskID: input.TaskID, Revision: nextRevision, WorkspaceRoot: storedCurrent.WorkspaceRoot, BaselineCommit: current.BaselineCommit,
+		TaskID: input.TaskID, Revision: nextRevision, WorkspaceID: storedCurrent.WorkspaceID, SourceWorkspaceHash: pointer.workspaceRootHash, BaselineCommit: current.BaselineCommit,
 		Goal: input.Goal, AllowedPaths: append([]string(nil), input.AllowedPaths...), ForbiddenActions: append([]string(nil), input.ForbiddenActions...),
 		AcceptanceCriteria: append([]string(nil), input.AcceptanceCriteria...), VerificationCommands: verificationCommandsToPayload(input.VerificationCommands), Risk: input.Risk, CreatedAt: occurredAt.Format(time.RFC3339Nano),
 	}
@@ -302,15 +305,28 @@ func taskResultFromPayload(vaultID string, payload taskContractPayload, eventID 
 	if err != nil {
 		return taskstore.Created{}, err
 	}
-	result := taskstore.Created{
-		Task:     task.Record{ID: payload.TaskID, VaultID: vaultID, WorkspaceID: workspaceID, WorkspaceRoot: workspaceRoot, BaselineCommit: payload.BaselineCommit, Status: task.StatusContracted, CurrentRevision: payload.Revision, CreatedAt: taskCreatedAt, UpdatedAt: revisionAt, LastEventID: eventID},
-		Contract: task.ContractRevision{TaskID: payload.TaskID, Revision: payload.Revision, BaselineCommit: payload.BaselineCommit, Goal: payload.Goal, AllowedPaths: payload.AllowedPaths, ForbiddenActions: payload.ForbiddenActions, AcceptanceCriteria: payload.AcceptanceCriteria, VerificationCommands: verificationCommandsFromPayload(payload.VerificationCommands), Risk: payload.Risk, CreatedAt: revisionAt, EventID: eventID},
+	contract, err := taskContractFromPayload(payload, eventID)
+	if err != nil {
+		return taskstore.Created{}, err
 	}
+	result := taskstore.Created{Task: task.Record{ID: payload.TaskID, VaultID: vaultID, WorkspaceID: workspaceID, WorkspaceRoot: workspaceRoot, BaselineCommit: payload.BaselineCommit, Status: task.StatusContracted, CurrentRevision: payload.Revision, CreatedAt: taskCreatedAt, UpdatedAt: revisionAt, LastEventID: eventID}, Contract: contract}
 	if err := result.Task.Validate(); err != nil {
 		return taskstore.Created{}, err
 	}
 	if err := result.Contract.Validate(); err != nil {
 		return taskstore.Created{}, err
+	}
+	return result, nil
+}
+
+func taskContractFromPayload(payload taskContractPayload, eventID string) (task.ContractRevision, error) {
+	createdAt, err := time.Parse(time.RFC3339Nano, payload.CreatedAt)
+	if err != nil {
+		return task.ContractRevision{}, err
+	}
+	result := task.ContractRevision{TaskID: payload.TaskID, Revision: payload.Revision, BaselineCommit: payload.BaselineCommit, Goal: payload.Goal, AllowedPaths: payload.AllowedPaths, ForbiddenActions: payload.ForbiddenActions, AcceptanceCriteria: payload.AcceptanceCriteria, VerificationCommands: verificationCommandsFromPayload(payload.VerificationCommands), Risk: payload.Risk, CreatedAt: createdAt, EventID: eventID}
+	if err := result.Validate(); err != nil {
+		return task.ContractRevision{}, err
 	}
 	return result, nil
 }
@@ -337,7 +353,7 @@ func scanTaskPointer(row scanner) (taskPointer, error) {
 }
 
 func taskFromEvent(record event.Record, pointer taskPointer) (task.Record, error) {
-	if record.Type != taskContractCreatedEventType && record.Type != taskContractRevisedEventType || record.VaultID != pointer.vaultID {
+	if record.Type != taskContractCreatedEventType && record.Type != taskContractRevisedEventType && record.Type != taskContractSnapshotEventType || record.VaultID != pointer.vaultID {
 		return task.Record{}, errors.New("stored task event type or Vault is invalid")
 	}
 	var payload taskContractPayload
@@ -353,21 +369,41 @@ func taskFromEvent(record event.Record, pointer taskPointer) (task.Record, error
 		return task.Record{}, fmt.Errorf("parse task updated_at: %w", err)
 	}
 	expectedEventTime := pointer.updatedAt
-	if record.Type == taskContractCreatedEventType {
+	if record.Type == taskContractCreatedEventType || record.Type == taskContractSnapshotEventType && pointer.currentRevision == 1 {
 		expectedEventTime = pointer.createdAt
 	}
-	if payload.TaskID != pointer.taskID || payload.BaselineCommit != pointer.baselineCommit || payload.Revision != pointer.currentRevision || payload.CreatedAt != expectedEventTime || workspaceRootHash(payload.WorkspaceRoot) != pointer.workspaceRootHash || record.ID != pointer.lastEventID {
+	workspaceID, sourceWorkspaceHash, err := taskPayloadWorkspace(record.VaultID, record.SchemaVersion, payload)
+	if err != nil || payload.TaskID != pointer.taskID || payload.BaselineCommit != pointer.baselineCommit || payload.Revision != pointer.currentRevision || payload.CreatedAt != expectedEventTime || sourceWorkspaceHash != pointer.workspaceRootHash || workspaceID != pointer.workspaceID || record.ID != pointer.lastEventID {
 		return task.Record{}, errors.New("task event and pointer disagree")
 	}
-	workspaceID := pointer.workspaceID
-	if workspaceID == "" {
-		workspaceID = workspacemapping.ID(pointer.vaultID, pointer.workspaceRootHash)
-	}
 	result := task.Record{ID: pointer.taskID, VaultID: pointer.vaultID, WorkspaceID: workspaceID, WorkspaceRoot: payload.WorkspaceRoot, BaselineCommit: pointer.baselineCommit, Status: task.Status(pointer.status), CurrentRevision: pointer.currentRevision, CreatedAt: createdAt, UpdatedAt: updatedAt, LastEventID: pointer.lastEventID}
-	if err := result.Validate(); err != nil {
-		return task.Record{}, fmt.Errorf("validate stored task: %w", err)
+	if result.ID == "" || result.VaultID == "" || !workspacemapping.ValidWorkspaceID(result.WorkspaceID) || result.BaselineCommit == "" || result.CurrentRevision < 1 || result.CreatedAt.IsZero() || result.UpdatedAt.Before(result.CreatedAt) || result.LastEventID == "" {
+		return task.Record{}, errors.New("stored task identity is invalid")
+	}
+	if record.SchemaVersion == taskContractLegacyEventSchemaVersion {
+		if validationErr := result.Validate(); validationErr != nil {
+			return task.Record{}, fmt.Errorf("validate stored task: %w", validationErr)
+		}
 	}
 	return result, nil
+}
+
+func taskPayloadWorkspace(vaultID string, schemaVersion int, payload taskContractPayload) (string, string, error) {
+	switch schemaVersion {
+	case taskContractLegacyEventSchemaVersion:
+		if payload.WorkspaceRoot == "" || payload.WorkspaceID != "" || payload.SourceWorkspaceHash != "" {
+			return "", "", errors.New("legacy task workspace payload is invalid")
+		}
+		sourceHash := workspaceRootHash(payload.WorkspaceRoot)
+		return workspacemapping.ID(vaultID, sourceHash), sourceHash, nil
+	case taskContractEventSchemaVersion:
+		if payload.WorkspaceRoot != "" || !workspacemapping.ValidWorkspaceID(payload.WorkspaceID) || payload.SourceWorkspaceHash == "" || payload.WorkspaceID != workspacemapping.ID(vaultID, payload.SourceWorkspaceHash) {
+			return "", "", errors.New("task workspace payload is invalid")
+		}
+		return payload.WorkspaceID, payload.SourceWorkspaceHash, nil
+	default:
+		return "", "", errors.New("task workspace schema is unsupported")
+	}
 }
 
 func (s *Store) resolveTaskWorkspace(ctx context.Context, queryer workspaceMappingQueryer, stored task.Record) (task.Record, error) {
@@ -385,7 +421,7 @@ func (s *Store) resolveTaskWorkspace(ctx context.Context, queryer workspaceMappi
 func workspaceRootHash(root string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(root))) }
 
 func contractFromEvent(record event.Record, taskID string, revision int, baselineCommit, createdAt string) (task.ContractRevision, error) {
-	if record.Type != taskContractCreatedEventType && record.Type != taskContractRevisedEventType {
+	if record.Type != taskContractCreatedEventType && record.Type != taskContractRevisedEventType && record.Type != taskContractSnapshotEventType || record.SchemaVersion != taskContractLegacyEventSchemaVersion && record.SchemaVersion != taskContractEventSchemaVersion {
 		return task.ContractRevision{}, errors.New("stored task contract event type is invalid")
 	}
 	var payload taskContractPayload
