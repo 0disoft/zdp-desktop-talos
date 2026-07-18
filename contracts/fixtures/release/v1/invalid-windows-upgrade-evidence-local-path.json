@@ -2,6 +2,17 @@
   "schema": "talos.windows-upgrade-evidence/1",
   "status": "failed",
   "architecture": "amd64",
+  "signer_thumbprint_sha1": "ffffffffffffffffffffffffffffffffffffffff",
+  "runner_preflight": {
+    "schema": "talos.windows-upgrade-runner-preflight/1",
+    "architecture": "amd64",
+    "bun_version": "1.3.14",
+    "signer_thumbprint_sha1": "ffffffffffffffffffffffffffffffffffffffff",
+    "webview2_ready": true,
+    "signing_private_keys_absent": true,
+    "installation_absent": true,
+    "data_absent": true
+  },
   "verifier_commit": "cccccccccccccccccccccccccccccccccccccccc",
   "old_run_id": "101",
   "new_run_id": "202",

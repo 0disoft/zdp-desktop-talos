@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { compareVersions, releaseProbeSchema, validateProbeReport, validateReceipt } from "./windows-upgrade-contract";
+import { compareVersions, releaseProbeSchema, validateProbeReport, validateReceipt, validateUpgradeRunnerPreflight } from "./windows-upgrade-contract";
 
 const sourceCommit = "a".repeat(40);
 
@@ -90,5 +90,41 @@ describe("release probe report contract", () => {
         { action: "inspect", application_version: "0.34.0" },
       ),
     ).toThrow("unsupported field");
+  });
+});
+
+describe("upgrade runner preflight contract", () => {
+  const signer = "f".repeat(40);
+  const valid = {
+    schema: "talos.windows-upgrade-runner-preflight/1",
+    architecture: "amd64",
+    bun_version: "1.3.14",
+    signer_thumbprint_sha1: signer,
+    webview2_ready: true,
+    signing_private_keys_absent: true,
+    installation_absent: true,
+    data_absent: true,
+  };
+
+  test("binds clean-runner evidence to the expected public signer", () => {
+    expect(validateUpgradeRunnerPreflight(valid, signer).signer_thumbprint_sha1).toBe(signer);
+    expect(() => validateUpgradeRunnerPreflight(valid, "e".repeat(40))).toThrow("does not satisfy");
+  });
+
+  test("keeps preflight fixtures aligned with the runtime parser", async () => {
+    const root = path.join("contracts", "fixtures", "release", "v1");
+    const validFixture = JSON.parse(await readFile(path.join(root, "valid-windows-upgrade-runner-preflight.json"), "utf8")) as unknown;
+    expect(validateUpgradeRunnerPreflight(validFixture, signer).bun_version).toBe("1.3.14");
+    const invalidFixture = JSON.parse(
+      await readFile(path.join(root, "invalid-windows-upgrade-runner-preflight-private-key.json"), "utf8"),
+    ) as unknown;
+    expect(() => validateUpgradeRunnerPreflight(invalidFixture, signer)).toThrow("does not satisfy");
+  });
+
+  test("rejects private-key or dirty-profile claims", () => {
+    expect(() => validateUpgradeRunnerPreflight({ ...valid, signing_private_keys_absent: false }, signer)).toThrow("does not satisfy");
+    expect(() => validateUpgradeRunnerPreflight({ ...valid, data_absent: false }, signer)).toThrow("does not satisfy");
+    expect(() => validateUpgradeRunnerPreflight({ ...valid, bun_version: "latest" }, signer)).toThrow("does not satisfy");
+    expect(() => validateUpgradeRunnerPreflight({ ...valid, certificate_subject: "CN=private" }, signer)).toThrow("unsupported field set");
   });
 });

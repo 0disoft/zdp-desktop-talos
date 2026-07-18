@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.0disoft.dev/talos/release/v1/windows-upgrade-runner-preflight.schema.json",
+  "title": "Talos Windows Upgrade Runner Preflight",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "architecture",
+    "bun_version",
+    "signer_thumbprint_sha1",
+    "webview2_ready",
+    "signing_private_keys_absent",
+    "installation_absent",
+    "data_absent"
+  ],
+  "properties": {
+    "schema": { "const": "talos.windows-upgrade-runner-preflight/1" },
+    "architecture": { "const": "amd64" },
+    "bun_version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+    "signer_thumbprint_sha1": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "webview2_ready": { "const": true },
+    "signing_private_keys_absent": { "const": true },
+    "installation_absent": { "const": true },
+    "data_absent": { "const": true }
+  }
+}

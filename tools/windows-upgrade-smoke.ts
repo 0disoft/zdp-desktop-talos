@@ -1,4 +1,4 @@
-import { lstat, mkdir, realpath, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   artifactPath,
@@ -9,9 +9,11 @@ import {
   sha256File,
   upgradeEvidenceSchema,
   validateProbeReport,
+  validateUpgradeRunnerPreflight,
   verifyReceiptFiles,
   type PackageReceipt,
   type ProbeReport,
+  type UpgradeRunnerPreflight,
 } from "./windows-upgrade-contract";
 
 const maxProcessOutputBytes = 1024 * 1024;
@@ -43,6 +45,8 @@ type UpgradeEvidence = {
   schema: typeof upgradeEvidenceSchema;
   status: "passed" | "failed";
   architecture: "amd64";
+  signer_thumbprint_sha1: string;
+  runner_preflight: UpgradeRunnerPreflight;
   verifier_commit: string;
   old_run_id: string;
   new_run_id: string;
@@ -306,41 +310,67 @@ async function writeEvidence(evidencePath: string, evidence: UpgradeEvidence): P
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
 }
 
+async function loadRunnerPreflight(runnerTemp: string, candidate: string, expectedSigner: string): Promise<UpgradeRunnerPreflight> {
+  const ownedCandidate = ownedPath(runnerTemp, candidate);
+  let stat: Awaited<ReturnType<typeof lstat>>;
+  try {
+    stat = await lstat(ownedCandidate);
+  } catch {
+    throw new SmokeFailure("guard", "RUNNER_PREFLIGHT_MISSING");
+  }
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 16 * 1024) {
+    throw new SmokeFailure("guard", "RUNNER_PREFLIGHT_INVALID");
+  }
+  const resolved = await realpath(ownedCandidate);
+  ownedPath(runnerTemp, resolved);
+  try {
+    return validateUpgradeRunnerPreflight(JSON.parse(await readFile(resolved, "utf8")) as unknown, expectedSigner);
+  } catch {
+    throw new SmokeFailure("guard", "RUNNER_PREFLIGHT_INVALID");
+  }
+}
+
 async function main(): Promise<void> {
   const args = argumentsMap(Bun.argv.slice(2));
   const runnerTemp = process.env.RUNNER_TEMP ?? "";
   const localAppData = process.env.LOCALAPPDATA ?? "";
+  const verifierCommit = requiredArgument(args, "--verifier-commit");
+  const oldRunID = requiredArgument(args, "--old-run-id");
+  const newRunID = requiredArgument(args, "--new-run-id");
+  const oldCommit = requiredArgument(args, "--old-source-commit");
+  const newCommit = requiredArgument(args, "--new-source-commit");
+  const expectedSigner = requiredArgument(args, "--expected-signer-thumbprint").toLowerCase();
+  if (
+    process.platform !== "win32" ||
+    process.env.CI !== "true" ||
+    process.env.TALOS_UPGRADE_SMOKE_EPHEMERAL !== "true" ||
+    runnerTemp === "" ||
+    localAppData === "" ||
+    !signerPattern.test(expectedSigner) ||
+    !commitPattern.test(oldCommit) ||
+    !commitPattern.test(newCommit) ||
+    !commitPattern.test(verifierCommit) ||
+    !runIDPattern.test(oldRunID) ||
+    !runIDPattern.test(newRunID)
+  ) {
+    throw new SmokeFailure("guard", "UNTRUSTED_RUNNER_OR_INPUT");
+  }
   const evidencePath = ownedPath(runnerTemp, requiredArgument(args, "--evidence"));
+  const runnerPreflight = await loadRunnerPreflight(runnerTemp, requiredArgument(args, "--runner-preflight"), expectedSigner);
   const evidence: UpgradeEvidence = {
     schema: upgradeEvidenceSchema,
     status: "failed",
     architecture: "amd64",
-    verifier_commit: requiredArgument(args, "--verifier-commit"),
-    old_run_id: requiredArgument(args, "--old-run-id"),
-    new_run_id: requiredArgument(args, "--new-run-id"),
+    signer_thumbprint_sha1: expectedSigner,
+    runner_preflight: runnerPreflight,
+    verifier_commit: verifierCommit,
+    old_run_id: oldRunID,
+    new_run_id: newRunID,
     phases: [],
   };
   let currentStage: Stage = "guard";
   let installRoot = "";
   try {
-    const oldCommit = requiredArgument(args, "--old-source-commit");
-    const newCommit = requiredArgument(args, "--new-source-commit");
-    const expectedSigner = requiredArgument(args, "--expected-signer-thumbprint");
-    if (
-      process.platform !== "win32" ||
-      process.env.CI !== "true" ||
-      process.env.TALOS_UPGRADE_SMOKE_EPHEMERAL !== "true" ||
-      runnerTemp === "" ||
-      localAppData === "" ||
-      !signerPattern.test(expectedSigner) ||
-      !commitPattern.test(oldCommit) ||
-      !commitPattern.test(newCommit) ||
-      !commitPattern.test(evidence.verifier_commit) ||
-      !runIDPattern.test(evidence.old_run_id) ||
-      !runIDPattern.test(evidence.new_run_id)
-    ) {
-      throw new SmokeFailure("guard", "UNTRUSTED_RUNNER_OR_INPUT");
-    }
     const oldRoot = await realpath(ownedPath(runnerTemp, requiredArgument(args, "--old-package-root")));
     const newRoot = await realpath(ownedPath(runnerTemp, requiredArgument(args, "--new-package-root")));
     ownedPath(runnerTemp, oldRoot);
@@ -368,7 +398,7 @@ async function main(): Promise<void> {
     evidence.phases.push({ name: currentStage, status: "passed", application_version: oldPackage.receipt.version });
 
     currentStage = "old-vault";
-		const created = await runProbe(currentStage, oldPackage, "create", ["--retention-days", "30"], { revision: 1, retention_days: 30 }, dataRoot);
+    const created = await runProbe(currentStage, oldPackage, "create", ["--retention-days", "30"], { revision: 1, retention_days: 30 }, dataRoot);
     const backupPath = ownedPath(runnerTemp, path.join(runnerTemp, "talos-upgrade-smoke", "vault-backup.talos-backup"));
     await mkdir(path.dirname(backupPath), { recursive: true });
     const backup = await runProbe(

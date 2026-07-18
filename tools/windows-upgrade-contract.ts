@@ -38,6 +38,17 @@ export type ProbeReport = {
   restore_state?: string;
 };
 
+export type UpgradeRunnerPreflight = {
+  schema: "talos.windows-upgrade-runner-preflight/1";
+  architecture: "amd64";
+  bun_version: string;
+  signer_thumbprint_sha1: string;
+  webview2_ready: true;
+  signing_private_keys_absent: true;
+  installation_absent: true;
+  data_absent: true;
+};
+
 const receiptKeys = [
   "schema",
   "version",
@@ -48,6 +59,16 @@ const receiptKeys = [
   "artifacts",
 ] as const;
 const artifactKeys = ["name", "sha256", "size", "signature_status", "signer_subject"] as const;
+const runnerPreflightKeys = [
+  "schema",
+  "architecture",
+  "bun_version",
+  "signer_thumbprint_sha1",
+  "webview2_ready",
+  "signing_private_keys_absent",
+  "installation_absent",
+  "data_absent",
+] as const;
 const probeKeys = new Set([
   "schema",
   "action",
@@ -63,6 +84,7 @@ const probeKeys = new Set([
 ]);
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const commitPattern = /^[a-f0-9]{40}$/;
+const signerThumbprintPattern = /^[a-f0-9]{40}$/;
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -209,6 +231,37 @@ export function validateProbeReport(value: unknown, expected: Partial<ProbeRepor
     }
   }
   return report;
+}
+
+export function validateUpgradeRunnerPreflight(value: unknown, expectedSignerThumbprint: string): UpgradeRunnerPreflight {
+  const preflight = record(value, "upgrade runner preflight");
+  exactKeys(preflight, runnerPreflightKeys, "upgrade runner preflight");
+  const normalizedSigner = expectedSignerThumbprint.toLowerCase();
+  if (
+    preflight.schema !== "talos.windows-upgrade-runner-preflight/1" ||
+    preflight.architecture !== "amd64" ||
+    typeof preflight.bun_version !== "string" ||
+    !versionPattern.test(preflight.bun_version) ||
+    typeof preflight.signer_thumbprint_sha1 !== "string" ||
+    !signerThumbprintPattern.test(preflight.signer_thumbprint_sha1) ||
+    preflight.signer_thumbprint_sha1 !== normalizedSigner ||
+    preflight.webview2_ready !== true ||
+    preflight.signing_private_keys_absent !== true ||
+    preflight.installation_absent !== true ||
+    preflight.data_absent !== true
+  ) {
+    throw new Error("upgrade runner preflight does not satisfy the release boundary");
+  }
+  return {
+    schema: "talos.windows-upgrade-runner-preflight/1",
+    architecture: "amd64",
+    bun_version: preflight.bun_version,
+    signer_thumbprint_sha1: normalizedSigner,
+    webview2_ready: true,
+    signing_private_keys_absent: true,
+    installation_absent: true,
+    data_absent: true,
+  };
 }
 
 export async function findSingleReceipt(root: string): Promise<string> {

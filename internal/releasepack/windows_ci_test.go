@@ -106,6 +106,9 @@ func TestWindowsUpgradeRunsWithoutSigningKey(t *testing.T) {
 		"actions: read",
 		"TALOS_EXPECTED_SIGNER_SHA1",
 		"TALOS_UPGRADE_SMOKE_EPHEMERAL",
+		"verify-upgrade-runner.ps1",
+		"talos-upgrade-runner-preflight.json",
+		"--runner-preflight",
 		"oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6",
 		"run-id: ${{ inputs.old_run_id }}",
 		"run-id: ${{ inputs.new_run_id }}",
@@ -125,9 +128,66 @@ func TestWindowsUpgradeRunsWithoutSigningKey(t *testing.T) {
 		"pull_request_target",
 		"continue-on-error",
 		"upgrade-smoke.ps1",
+		"PFX",
+		"PASSWORD",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("windows-upgrade-smoke.yml contains forbidden behavior %q", forbidden)
+		}
+	}
+	preflightIndex := strings.Index(workflow, "verify-upgrade-runner.ps1")
+	resolveIndex := strings.Index(workflow, "tools/windows-upgrade-runs.ts")
+	downloadIndex := strings.Index(workflow, "actions/download-artifact@")
+	if preflightIndex < 0 || resolveIndex < 0 || downloadIndex < 0 || preflightIndex > resolveIndex || preflightIndex > downloadIndex {
+		t.Fatal("upgrade-runner preflight must execute before signing-run resolution and package downloads")
+	}
+}
+
+func TestWindowsUpgradeRunnerContract(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	content := readFile(t, filepath.Join(root, "packaging", "windows", "upgrade-runner.json"))
+	var contract struct {
+		Schema                   string   `json:"schema"`
+		Architecture             string   `json:"architecture"`
+		BunVersion               string   `json:"bun_version"`
+		RequireWebView2          bool     `json:"require_webview2"`
+		ForbidSigningPrivateKeys bool     `json:"forbid_code_signing_private_keys"`
+		RunnerLabels             []string `json:"runner_labels"`
+	}
+	if err := json.Unmarshal([]byte(content), &contract); err != nil {
+		t.Fatal(err)
+	}
+	if contract.Schema != "talos.windows-upgrade-runner/1" || contract.Architecture != "amd64" || contract.BunVersion != "1.3.14" {
+		t.Fatalf("unexpected upgrade-runner identity or toolchain: %+v", contract)
+	}
+	if !contract.RequireWebView2 || !contract.ForbidSigningPrivateKeys {
+		t.Fatalf("upgrade runner safety requirements are disabled: %+v", contract)
+	}
+	if strings.Join(contract.RunnerLabels, ",") != "self-hosted,windows,x64,talos-upgrade-smoke" {
+		t.Fatalf("unexpected upgrade runner labels: %v", contract.RunnerLabels)
+	}
+
+	preflight := readFile(t, filepath.Join(root, "packaging", "windows", "verify-upgrade-runner.ps1"))
+	for _, required := range []string{
+		`Cert:\CurrentUser\My`,
+		`Cert:\LocalMachine\My`,
+		"HasPrivateKey",
+		"1.3.6.1.5.5.7.3.3",
+		"Microsoft Edge WebView2 Runtime is required",
+		"pre-existing Talos installation",
+		"pre-existing Talos data",
+		"FileMode]::CreateNew",
+		"talos.windows-upgrade-runner-preflight/1",
+		"signing_private_keys_absent",
+	} {
+		if !strings.Contains(preflight, required) {
+			t.Errorf("verify-upgrade-runner.ps1 is missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{"local_path", "install_root", "data_root"} {
+		if strings.Contains(preflight, forbidden) {
+			t.Errorf("verify-upgrade-runner.ps1 exposes forbidden report material %q", forbidden)
 		}
 	}
 }
@@ -201,6 +261,9 @@ func TestSignedArtifactVerificationPinsCommitAndPublisher(t *testing.T) {
 		"RELEASE_PROBE_FAILED",
 		"direct_rollback_read_verified",
 		"upgradeEvidenceSchema",
+		"validateUpgradeRunnerPreflight",
+		"signer_thumbprint_sha1",
+		"runner_preflight",
 	} {
 		if !strings.Contains(upgrade, required) {
 			t.Errorf("windows-upgrade-smoke.ts is missing %q", required)
@@ -247,6 +310,11 @@ func TestWindowsUpgradeEvidenceContractIsStrictAndPathFree(t *testing.T) {
 	if !ok {
 		t.Fatal("Windows upgrade evidence schema properties are missing")
 	}
+	for _, required := range []string{"signer_thumbprint_sha1", "runner_preflight"} {
+		if _, found := properties[required]; !found {
+			t.Errorf("Windows upgrade evidence schema is missing %q", required)
+		}
+	}
 	for _, forbidden := range []string{"local_path", "install_root", "package_root", "runner_temp"} {
 		if _, found := properties[forbidden]; found {
 			t.Errorf("Windows upgrade evidence schema exposes local path field %q", forbidden)
@@ -260,6 +328,13 @@ func TestWindowsUpgradeEvidenceContractIsStrictAndPathFree(t *testing.T) {
 	}
 	if valid["schema"] != "talos.windows-upgrade-evidence/1" || valid["status"] != "passed" {
 		t.Fatalf("unexpected valid Windows upgrade evidence fixture: %+v", valid)
+	}
+	if valid["signer_thumbprint_sha1"] != strings.Repeat("f", 40) {
+		t.Fatal("valid Windows upgrade evidence fixture is not bound to a signer thumbprint")
+	}
+	preflight, ok := valid["runner_preflight"].(map[string]any)
+	if !ok || preflight["signing_private_keys_absent"] != true || preflight["webview2_ready"] != true {
+		t.Fatal("valid Windows upgrade evidence fixture lacks clean-runner preflight facts")
 	}
 	for _, forbidden := range []string{"local_path", "install_root", "package_root", "runner_temp"} {
 		if strings.Contains(validContent, forbidden) {

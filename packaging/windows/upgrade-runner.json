@@ -1,0 +1,13 @@
+{
+  "schema": "talos.windows-upgrade-runner/1",
+  "architecture": "amd64",
+  "bun_version": "1.3.14",
+  "require_webview2": true,
+  "forbid_code_signing_private_keys": true,
+  "runner_labels": [
+    "self-hosted",
+    "windows",
+    "x64",
+    "talos-upgrade-smoke"
+  ]
+}

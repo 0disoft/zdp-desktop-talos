@@ -8,6 +8,8 @@
     "schema",
     "status",
     "architecture",
+    "signer_thumbprint_sha1",
+    "runner_preflight",
     "verifier_commit",
     "old_run_id",
     "new_run_id",
@@ -17,6 +19,8 @@
     "schema": { "const": "talos.windows-upgrade-evidence/1" },
     "status": { "enum": ["passed", "failed"] },
     "architecture": { "const": "amd64" },
+    "signer_thumbprint_sha1": { "$ref": "#/$defs/signer_thumbprint" },
+    "runner_preflight": { "$ref": "#/$defs/runner_preflight" },
     "verifier_commit": { "$ref": "#/$defs/commit" },
     "old_run_id": { "$ref": "#/$defs/run_id" },
     "new_run_id": { "$ref": "#/$defs/run_id" },
@@ -50,6 +54,31 @@
     "run_id": { "type": "string", "pattern": "^[1-9][0-9]*$" },
     "version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "signer_thumbprint": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "runner_preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "architecture",
+        "bun_version",
+        "signer_thumbprint_sha1",
+        "webview2_ready",
+        "signing_private_keys_absent",
+        "installation_absent",
+        "data_absent"
+      ],
+      "properties": {
+        "schema": { "const": "talos.windows-upgrade-runner-preflight/1" },
+        "architecture": { "const": "amd64" },
+        "bun_version": { "$ref": "#/$defs/version" },
+        "signer_thumbprint_sha1": { "$ref": "#/$defs/signer_thumbprint" },
+        "webview2_ready": { "const": true },
+        "signing_private_keys_absent": { "const": true },
+        "installation_absent": { "const": true },
+        "data_absent": { "const": true }
+      }
+    },
     "package": {
       "type": "object",
       "additionalProperties": false,

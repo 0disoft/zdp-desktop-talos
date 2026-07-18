@@ -22,6 +22,7 @@ func TestWindowsPackagingPowerShellParses(t *testing.T) {
 		"sign-artifact.ps1",
 		"verify-package.ps1",
 		"verify-signing-host.ps1",
+		"verify-upgrade-runner.ps1",
 	}
 	for _, name := range scripts {
 		name := name

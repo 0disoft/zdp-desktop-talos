@@ -1,0 +1,10 @@
+{
+  "schema": "talos.windows-upgrade-runner-preflight/1",
+  "architecture": "amd64",
+  "bun_version": "1.3.14",
+  "signer_thumbprint_sha1": "ffffffffffffffffffffffffffffffffffffffff",
+  "webview2_ready": true,
+  "signing_private_keys_absent": false,
+  "installation_absent": true,
+  "data_absent": true
+}

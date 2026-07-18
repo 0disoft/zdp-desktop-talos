@@ -54,6 +54,12 @@ jobs:
         with:
           bun-version: 1.3.14
 
+      - name: Verify disposable upgrade runner
+        shell: pwsh
+        run: >-
+          ./packaging/windows/verify-upgrade-runner.ps1
+          -OutputPath (Join-Path $env:RUNNER_TEMP 'talos-upgrade-runner-preflight.json')
+
       - name: Resolve trusted signing runs
         id: runs
         shell: pwsh
@@ -95,6 +101,7 @@ jobs:
           --new-source-commit "${{ steps.runs.outputs.new_source_commit }}"
           --verifier-commit "${{ steps.runs.outputs.verifier_commit }}"
           --expected-signer-thumbprint $env:TALOS_EXPECTED_SIGNER_SHA1
+          --runner-preflight (Join-Path $env:RUNNER_TEMP 'talos-upgrade-runner-preflight.json')
           --evidence (Join-Path $env:RUNNER_TEMP 'talos-windows-upgrade-evidence.json')
 
       - name: Upload bounded upgrade evidence
