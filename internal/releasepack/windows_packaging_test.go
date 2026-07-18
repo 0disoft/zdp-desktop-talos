@@ -3,6 +3,9 @@
 package releasepack
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,6 +101,99 @@ func TestWindowsPackagePublishesSignedReleaseProbeOutsideInstaller(t *testing.T)
 	}
 }
 
+func TestWindowsPackageReceiptContractIsStrict(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	schemaContent := readFile(t, filepath.Join(root, "contracts", "jsonschema", "release", "v1", "windows-package-receipt.schema.json"))
+	for _, expected := range []string{
+		`"$schema": "https://json-schema.org/draft/2020-12/schema"`,
+		`"additionalProperties": false`,
+		`"talos.windows-package-receipt/1"`,
+		`"talos.release-probe/1"`,
+		`"minItems": 5`,
+		`"maxItems": 5`,
+		`"talos-release-probe.exe"`,
+	} {
+		if !strings.Contains(schemaContent, expected) {
+			t.Errorf("Windows package receipt schema is missing %q", expected)
+		}
+	}
+	for _, fixture := range []string{
+		"valid-windows-package-receipt.json",
+		"invalid-windows-package-receipt-duplicate-artifact.json",
+	} {
+		content := readFile(t, filepath.Join(root, "contracts", "fixtures", "release", "v1", fixture))
+		if !strings.Contains(content, `"schema": "talos.windows-package-receipt/1"`) {
+			t.Errorf("%s does not declare the package receipt schema", fixture)
+		}
+	}
+
+	verifier := readFile(t, filepath.Join(root, "packaging", "windows", "verify-package.ps1"))
+	for _, expected := range []string{
+		"Assert-ExactProperties",
+		"release_probe_schema",
+		"expectedArtifactNames",
+		"Select-Object -Unique",
+		"FileAttributes]::ReparsePoint",
+		"signature-required receipt",
+	} {
+		if !strings.Contains(verifier, expected) {
+			t.Errorf("verify-package.ps1 is missing strict receipt guard %q", expected)
+		}
+	}
+}
+
+func TestWindowsPackageVerifierAcceptsOnlyTheExactReceiptArtifactSet(t *testing.T) {
+	t.Parallel()
+	root := repositoryRoot(t)
+	temporary := t.TempDir()
+	version := "0.34.0"
+	commit := strings.Repeat("a", 40)
+	names := []string{
+		"talos-desktop.exe",
+		"talos-worker.exe",
+		"talosctl.exe",
+		"talos-release-probe.exe",
+		"talos-agent-" + version + "-windows-amd64-setup.exe",
+	}
+	artifacts := make([]map[string]any, 0, len(names))
+	for index, name := range names {
+		content := []byte{byte(index + 1)}
+		if err := os.WriteFile(filepath.Join(temporary, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(content)
+		artifacts = append(artifacts, map[string]any{
+			"name": name, "sha256": hex.EncodeToString(digest[:]), "size": len(content),
+			"signature_status": "NotSigned", "signer_subject": nil,
+		})
+	}
+	receipt := map[string]any{
+		"schema": "talos.windows-package-receipt/1", "version": version, "architecture": "amd64",
+		"source_commit": commit, "signature_required": false, "release_probe_schema": "talos.release-probe/1",
+		"artifacts": artifacts,
+	}
+	receiptPath := filepath.Join(temporary, "talos-agent-"+version+"-windows-amd64-receipt.json")
+	writeJSON(t, receiptPath, receipt)
+	verifier := filepath.Join(root, "packaging", "windows", "verify-package.ps1")
+	if output, err := runPackageVerifier(verifier, receiptPath, commit); err != nil {
+		t.Fatalf("exact unsigned package receipt was rejected: %v\n%s", err, output)
+	}
+
+	artifacts[len(artifacts)-1]["name"] = "talos-release-probe.exe"
+	writeJSON(t, receiptPath, receipt)
+	if output, err := runPackageVerifier(verifier, receiptPath, commit); err == nil {
+		t.Fatalf("duplicate package artifact unexpectedly passed:\n%s", output)
+	}
+
+	artifacts[len(artifacts)-1]["name"] = names[len(names)-1]
+	receipt["local_path"] = temporary
+	writeJSON(t, receiptPath, receipt)
+	if output, err := runPackageVerifier(verifier, receiptPath, commit); err == nil {
+		t.Fatalf("unknown receipt field unexpectedly passed:\n%s", output)
+	}
+}
+
 func TestWindowsPackagingVersionIsSynchronized(t *testing.T) {
 	t.Parallel()
 	root := repositoryRoot(t)
@@ -159,4 +255,22 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(content)
+}
+
+func writeJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(encoded, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runPackageVerifier(verifier, receipt, commit string) ([]byte, error) {
+	return exec.Command(
+		"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", verifier,
+		"-ReceiptPath", receipt, "-ExpectedSourceCommit", commit,
+	).CombinedOutput()
 }

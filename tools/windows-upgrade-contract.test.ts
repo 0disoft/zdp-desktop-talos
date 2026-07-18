@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { compareVersions, releaseProbeSchema, validateProbeReport, validateReceipt } from "./windows-upgrade-contract";
 
 const sourceCommit = "a".repeat(40);
@@ -25,6 +27,14 @@ function validReceipt(): Record<string, unknown> {
 describe("Windows upgrade package contract", () => {
   test("accepts the exact signed five-artifact receipt", () => {
     expect(validateReceipt(validReceipt(), sourceCommit).artifacts).toHaveLength(5);
+  });
+
+  test("keeps release receipt fixtures aligned with the runtime parser", async () => {
+    const root = path.join("contracts", "fixtures", "release", "v1");
+    const valid = JSON.parse(await readFile(path.join(root, "valid-windows-package-receipt.json"), "utf8")) as unknown;
+    expect(validateReceipt(valid, sourceCommit).version).toBe("0.34.0");
+    const invalid = JSON.parse(await readFile(path.join(root, "invalid-windows-package-receipt-duplicate-artifact.json"), "utf8")) as unknown;
+    expect(() => validateReceipt(invalid, sourceCommit)).toThrow("unexpected or duplicate artifact name");
   });
 
   test("rejects unknown receipt fields", () => {
