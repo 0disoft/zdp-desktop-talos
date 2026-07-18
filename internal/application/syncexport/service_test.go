@@ -67,7 +67,7 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 	defer reopened.Close()
 	appendEvent = func(key, value string, at time.Time) {
 		t.Helper()
-		if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "memory.state.changed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
+		if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "memory.state.changed", SchemaVersion: 2, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -83,7 +83,7 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 	if keys.putCount(syncidentity.SigningKeyID) != 1 {
 		t.Fatalf("sync signing key put count=%d", keys.putCount(syncidentity.SigningKeyID))
 	}
-	if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "memory.state.changed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"password":"test-only-marker"}`), OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "event-secret-finding"}); err != nil {
+	if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "memory.state.changed", SchemaVersion: 2, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"password":"test-only-marker"}`), OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "event-secret-finding"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := restartedExporter.ExportNext(ctx, "vault-e2e", 32); !errors.Is(err, syncexport.ErrSecretFindings) {

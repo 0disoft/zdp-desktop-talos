@@ -138,8 +138,9 @@ func candidateInput(taskRecord task.Record, contract task.ContractRevision, sour
 		VaultID: taskRecord.VaultID,
 		Kind:    memory.KindDecision,
 		Scope: memory.Scope{
-			Kind:          memory.ScopeWorkspace,
-			WorkspaceRoot: taskRecord.WorkspaceRoot,
+			Kind:                memory.ScopeWorkspace,
+			WorkspaceID:         taskRecord.WorkspaceID,
+			SourceWorkspaceHash: taskRecord.SourceWorkspaceHash,
 		},
 		Statement:        statement,
 		Rationale:        rationale,

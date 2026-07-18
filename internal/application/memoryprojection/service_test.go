@@ -13,6 +13,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/security/redaction"
 )
 
@@ -42,7 +43,7 @@ func TestCompileIsDeterministicAndStructurallyExcludesUnsafeRecords(t *testing.T
 		if first.Files[index].Path != second.Files[index].Path || first.Files[index].Content != second.Files[index].Content || first.Files[index].SHA256 != second.Files[index].SHA256 {
 			t.Fatalf("projection output changed with input order: first=%+v second=%+v", first.Files[index], second.Files[index])
 		}
-		for _, forbidden := range []string{private.ID, candidate.ID, public.VaultID, public.Scope.WorkspaceRoot, public.EvidenceEventIDs[0]} {
+		for _, forbidden := range []string{private.ID, candidate.ID, public.VaultID, public.Scope.WorkspaceID, public.EvidenceEventIDs[0]} {
 			if strings.Contains(first.Files[index].Content, forbidden) {
 				t.Fatalf("%s leaked %q", first.Files[index].Path, forbidden)
 			}
@@ -134,7 +135,7 @@ func projectionRecord(t *testing.T, id string, state memory.State, sensitivity e
 	}
 	record := memory.Record{
 		ID: id, VaultID: "00000000-0000-7000-8000-000000000001", Kind: memory.KindProcedure, State: state,
-		Scope:     memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceRoot: filepath.Join(os.TempDir(), "talos-projection-repo")},
+		Scope:     memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceID: workspacemapping.ID("00000000-0000-7000-8000-000000000001", strings.Repeat("f", 64)), SourceWorkspaceHash: strings.Repeat("f", 64)},
 		Statement: "Run the projection check.", Rationale: "The user approved this public rule.",
 		Applicability: memory.Applicability{GoalTerms: []string{"projection"}}, EvidenceEventIDs: []string{"event-private-pointer"},
 		SourceActor: "user", Confidence: 100, Sensitivity: sensitivity, Revision: revision,

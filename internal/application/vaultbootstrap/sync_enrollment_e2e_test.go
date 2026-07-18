@@ -14,10 +14,15 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapicatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/localvaultdb"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/contextassembly"
 	enrollmentapp "github.com/0disoft/zdp-desktop-talos/internal/application/syncenrollment"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/workspaceremap"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorycontext"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/workspacestore"
 )
 
@@ -33,6 +38,24 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 	defer sourceSession.Close()
 	workspace, targetWorkspace, baseline := enrollmentWorkspacePair(t)
 	createdTask, err := sourceSession.CreateTaskContract(ctx, CreateTaskContractInput{WorkspaceRoot: workspace, BaselineCommit: baseline, Goal: "establish a synced task", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the task replays on the enrolled device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "source-task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceMemoryDatabase, err := sourceSession.MemoryDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate, err := sourceMemoryDatabase.CreateMemoryCandidate(ctx, memorystore.CreateCandidateInput{
+		VaultID: sourceSession.Record.ID, Kind: memory.KindProcedure,
+		Scope:     memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceID: createdTask.Task.WorkspaceID, SourceWorkspaceHash: createdTask.Task.SourceWorkspaceHash},
+		Statement: "Apply the approved cross-device workspace rule.", Rationale: "The source task provides portable workspace provenance.",
+		EvidenceEventIDs: []string{createdTask.Contract.EventID}, SourceActor: "memory-compiler:test", Confidence: 90, Sensitivity: event.SensitivityPrivate,
+		IdempotencyKey: "source-memory",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvedMemory, err := sourceMemoryDatabase.TransitionMemory(ctx, memorystore.TransitionInput{VaultID: sourceSession.Record.ID, MemoryID: candidate.ID, ExpectedRevision: 1, NextState: memory.StateApproved, Reason: "approved for cross-device replay", IdempotencyKey: "source-memory-approve"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +115,18 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 	targetTask, err := accepted.Session.database.GetTask(ctx, createdTask.Task.ID)
 	if err != nil || targetTask.CurrentRevision != 1 || targetTask.WorkspaceRoot != targetWorkspace {
 		t.Fatalf("target task=%+v error=%v", targetTask, err)
+	}
+	targetMemoryDatabase, err := accepted.Session.MemoryDatabase()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembler, err := contextassembly.New(targetMemoryDatabase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assembled, err := assembler.Assemble(ctx, memorycontext.Request{VaultID: accepted.Session.Record.ID, WorkspaceID: targetTask.WorkspaceID, Goal: "reuse the approved workspace rule", MaxCandidates: 16, MaxItems: 4, MaxBytes: 4096})
+	if err != nil || len(assembled.Items) != 1 || assembled.Items[0].MemoryID != approvedMemory.ID || assembled.Items[0].Content != approvedMemory.Statement {
+		t.Fatalf("assembled=%+v error=%v", assembled, err)
 	}
 	if _, err := accepted.Session.ReviseTaskContract(ctx, ReviseTaskContractInput{TaskID: targetTask.ID, ExpectedRevision: 1, WorkspaceRoot: targetWorkspace, BaselineCommit: baseline, Goal: "return the synced revision", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the revision replays on the source device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "target-revision"}); err != nil {
 		t.Fatal(err)

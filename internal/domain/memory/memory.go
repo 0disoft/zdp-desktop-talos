@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 )
 
 const (
@@ -92,24 +93,43 @@ const (
 )
 
 type Scope struct {
-	Kind          ScopeKind `json:"kind"`
-	WorkspaceRoot string    `json:"workspace_root,omitempty"`
+	Kind                ScopeKind `json:"kind"`
+	WorkspaceID         string    `json:"workspace_id,omitempty"`
+	SourceWorkspaceHash string    `json:"source_workspace_hash,omitempty"`
+	WorkspaceRoot       string    `json:"workspace_root,omitempty"`
 }
 
 func (s Scope) Validate() error {
 	switch s.Kind {
 	case ScopeVault:
-		if s.WorkspaceRoot != "" {
+		if s.WorkspaceID != "" || s.SourceWorkspaceHash != "" || s.WorkspaceRoot != "" {
 			return ErrInvalidRecord
 		}
 	case ScopeWorkspace:
-		if strings.TrimSpace(s.WorkspaceRoot) == "" || len(s.WorkspaceRoot) > 4096 || !filepath.IsAbs(s.WorkspaceRoot) || strings.IndexByte(s.WorkspaceRoot, 0) >= 0 {
+		legacy := s.WorkspaceID == "" && s.SourceWorkspaceHash == "" && strings.TrimSpace(s.WorkspaceRoot) != ""
+		portable := s.WorkspaceRoot == "" && workspacemapping.ValidWorkspaceID(s.WorkspaceID) && validWorkspaceHash(s.SourceWorkspaceHash)
+		if !legacy && !portable {
+			return ErrInvalidRecord
+		}
+		if legacy && (len(s.WorkspaceRoot) > 4096 || !filepath.IsAbs(s.WorkspaceRoot) || strings.IndexByte(s.WorkspaceRoot, 0) >= 0) {
 			return ErrInvalidRecord
 		}
 	default:
 		return ErrInvalidRecord
 	}
 	return nil
+}
+
+func validWorkspaceHash(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+			return false
+		}
+	}
+	return true
 }
 
 type Applicability struct {

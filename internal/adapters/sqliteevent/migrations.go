@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 21
+const currentSchemaVersion = 22
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -526,6 +526,22 @@ var migrations = []migration{
 			`CREATE INDEX task_sync_snapshots_event_idx ON task_sync_snapshots(snapshot_event_id, task_id, revision)`,
 		},
 	},
+	{
+		version: 22,
+		statements: []string{
+			`ALTER TABLE memory_records ADD COLUMN workspace_id TEXT NOT NULL DEFAULT ''`,
+			`CREATE INDEX memory_records_workspace_idx ON memory_records(vault_id, state, scope_kind, workspace_id, confidence, updated_at, memory_id)`,
+			`CREATE TABLE memory_sync_snapshots (
+				memory_id TEXT NOT NULL REFERENCES memory_records(memory_id) ON DELETE RESTRICT,
+				revision INTEGER NOT NULL CHECK (revision > 0),
+				source_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				snapshot_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				created_at TEXT NOT NULL,
+				PRIMARY KEY(memory_id, revision)
+			) STRICT`,
+			`CREATE INDEX memory_sync_snapshots_event_idx ON memory_sync_snapshots(snapshot_event_id, memory_id, revision)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -573,7 +589,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT task_id, status, action_id, completed_at, event_id FROM task_outcomes LIMIT 0`,
 		`SELECT vault_id, membership_id, state, revision, created_at, updated_at, last_event_id FROM account_links LIMIT 0`,
 		`SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts LIMIT 0`,
-		`SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id FROM memory_records LIMIT 0`,
+		`SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, workspace_id, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id FROM memory_records LIMIT 0`,
 		`SELECT vault_id, device_id, public_key, state, revision, next_sequence, created_at, updated_at, last_event_id FROM sync_devices LIMIT 0`,
 		`SELECT pack_id, vault_id, device_id, sequence_start, sequence_end, event_count, ciphertext_hash, pack_envelope, state, received_at, event_id FROM sync_pack_receipts LIMIT 0`,
 		`SELECT event_id, vault_id, device_id, device_seq, origin_kind FROM sync_event_origins LIMIT 0`,
@@ -585,6 +601,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT enrollment_id, vault_id, role, state, peer_device_id, offer_hash, acceptance_hash, acceptance_envelope, expires_at, created_at, updated_at, created_event_id, last_event_id FROM sync_enrollments LIMIT 0`,
 		`SELECT workspace_id, vault_id, source_workspace_hash, local_root_hash, verified_baseline, state, revision, created_at, updated_at, created_event_id, last_event_id FROM workspace_mappings LIMIT 0`,
 		`SELECT task_id, revision, source_event_id, snapshot_event_id, created_at FROM task_sync_snapshots LIMIT 0`,
+		`SELECT memory_id, revision, source_event_id, snapshot_event_id, created_at FROM memory_sync_snapshots LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

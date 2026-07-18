@@ -1,18 +1,19 @@
 package memory
 
 import (
-	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 )
 
 func TestRecordRequiresNormalizedProvenanceAndReviewLifecycle(t *testing.T) {
 	now := time.Date(2026, 7, 17, 1, 0, 0, 0, time.UTC)
 	record := Record{
 		ID: "memory-1", VaultID: "vault-1", Kind: KindProcedure, State: StateCandidate,
-		Scope: Scope{Kind: ScopeWorkspace, WorkspaceRoot: filepath.Join(t.TempDir(), "repo")}, Statement: "Run focused tests first.",
+		Scope: Scope{Kind: ScopeWorkspace, WorkspaceID: workspacemapping.ID("vault", strings.Repeat("a", 64)), SourceWorkspaceHash: strings.Repeat("a", 64)}, Statement: "Run focused tests first.",
 		Rationale: "The prior task failed after a broad test run.", Applicability: Applicability{GoalTerms: []string{"tests"}},
 		EvidenceEventIDs: []string{"event-1"}, SourceActor: "memory-extractor", Confidence: 80,
 		Sensitivity: event.SensitivityPrivate, Revision: 1, CreatedAt: now, UpdatedAt: now,

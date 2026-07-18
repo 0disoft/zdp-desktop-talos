@@ -368,7 +368,7 @@ func (d *serviceDatabase) ListActiveMemories(_ context.Context, input memorystor
 		if record.VaultID != input.VaultID || (record.State != memory.StateApproved && record.State != memory.StateStable) || len(result) >= input.Limit {
 			continue
 		}
-		if record.Scope.Kind == memory.ScopeWorkspace && record.Scope.WorkspaceRoot != input.WorkspaceRoot {
+		if record.Scope.Kind == memory.ScopeWorkspace && record.Scope.WorkspaceID != input.WorkspaceID {
 			continue
 		}
 		if !input.At.IsZero() && record.IsExpired(input.At) {

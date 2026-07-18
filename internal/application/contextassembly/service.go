@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
-	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorycontext"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 )
@@ -28,20 +28,16 @@ func New(store memorystore.Reader) (*Service, error) {
 }
 
 func (s *Service) Assemble(ctx context.Context, request memorycontext.Request) (memorycontext.Result, error) {
-	if ctx == nil || strings.TrimSpace(request.VaultID) == "" || strings.TrimSpace(request.WorkspaceRoot) == "" || strings.TrimSpace(request.Goal) == "" || request.MaxCandidates < 1 || request.MaxCandidates > 200 || request.MaxItems < 1 || request.MaxItems > 32 || request.MaxCandidates < request.MaxItems || request.MaxBytes < 256 || request.MaxBytes > 256<<10 {
+	if ctx == nil || strings.TrimSpace(request.VaultID) == "" || !workspacemapping.ValidWorkspaceID(request.WorkspaceID) || strings.TrimSpace(request.Goal) == "" || request.MaxCandidates < 1 || request.MaxCandidates > 200 || request.MaxItems < 1 || request.MaxItems > 32 || request.MaxCandidates < request.MaxItems || request.MaxBytes < 256 || request.MaxBytes > 256<<10 {
 		return memorycontext.Result{}, ErrInvalidRequest
 	}
 	now := s.now().UTC()
-	records, err := s.store.ListActiveMemories(ctx, memorystore.ListActiveInput{VaultID: request.VaultID, WorkspaceRoot: request.WorkspaceRoot, Limit: request.MaxCandidates, At: now})
+	records, err := s.store.ListActiveMemories(ctx, memorystore.ListActiveInput{VaultID: request.VaultID, WorkspaceID: request.WorkspaceID, Limit: request.MaxCandidates, At: now})
 	if err != nil {
 		return memorycontext.Result{}, err
 	}
 	haystack := strings.ToLower(strings.Join(append([]string{request.Goal}, request.AllowedPaths...), "\n"))
 	result := memorycontext.Result{Items: make([]memorycontext.Item, 0, request.MaxItems), Considered: len(records)}
-	requestWorkspaceHash, err := permission.WorkspaceHash(request.WorkspaceRoot)
-	if err != nil {
-		return memorycontext.Result{}, ErrInvalidRequest
-	}
 	for _, record := range records {
 		if record.Validate() != nil || record.VaultID != request.VaultID {
 			return memorycontext.Result{}, ErrInvalidRequest
@@ -50,8 +46,7 @@ func (s *Service) Assemble(ctx context.Context, request memorycontext.Request) (
 			continue
 		}
 		if record.Scope.Kind == memory.ScopeWorkspace {
-			recordWorkspaceHash, err := permission.WorkspaceHash(record.Scope.WorkspaceRoot)
-			if err != nil || recordWorkspaceHash != requestWorkspaceHash {
+			if record.Scope.WorkspaceID != request.WorkspaceID {
 				return memorycontext.Result{}, ErrInvalidRequest
 			}
 		}

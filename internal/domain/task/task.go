@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 )
 
 const (
@@ -44,16 +46,17 @@ const (
 )
 
 type Record struct {
-	ID              string
-	VaultID         string
-	WorkspaceID     string
-	WorkspaceRoot   string
-	BaselineCommit  string
-	Status          Status
-	CurrentRevision int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	LastEventID     string
+	ID                  string
+	VaultID             string
+	WorkspaceID         string
+	SourceWorkspaceHash string
+	WorkspaceRoot       string
+	BaselineCommit      string
+	Status              Status
+	CurrentRevision     int
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	LastEventID         string
 }
 
 type ContractRevision struct {
@@ -89,7 +92,7 @@ func (c VerificationCommand) Normalize() (VerificationCommand, error) {
 }
 
 func (r Record) Validate() error {
-	if r.ID == "" || r.VaultID == "" || (r.WorkspaceID != "" && !workspaceIDPattern.MatchString(r.WorkspaceID)) || !filepath.IsAbs(r.WorkspaceRoot) || !commitPattern.MatchString(r.BaselineCommit) {
+	if r.ID == "" || r.VaultID == "" || (r.WorkspaceID != "" && (!workspaceIDPattern.MatchString(r.WorkspaceID) || r.WorkspaceID != workspacemapping.ID(r.VaultID, r.SourceWorkspaceHash))) || !filepath.IsAbs(r.WorkspaceRoot) || !commitPattern.MatchString(r.BaselineCommit) {
 		return fmt.Errorf("%w: identity, workspace root, and baseline are required", ErrInvalidRecord)
 	}
 	if (r.Status != StatusContracted && r.Status != StatusCompleted && r.Status != StatusDiscarded) || r.CurrentRevision < 1 || r.CreatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) || r.LastEventID == "" {

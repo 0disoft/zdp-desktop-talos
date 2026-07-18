@@ -186,7 +186,7 @@ func TestSyncExportReservationAndReadyPackAreRestartSafe(t *testing.T) {
 	if err != nil || restored != ready || !bytes.Equal(restoredBytes, encoded) {
 		t.Fatalf("restored=%+v bytes=%q error=%v", restored, restoredBytes, err)
 	}
-	if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-export", Type: memoryStateChangedEventType, SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"item":"third"}`), OccurredAt: now.Add(9 * time.Second), IdempotencyKey: "export-event-3"}); err != nil {
+	if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-export", Type: memoryStateChangedEventType, SchemaVersion: memoryEventSchemaVersion, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"item":"third"}`), OccurredAt: now.Add(9 * time.Second), IdempotencyKey: "export-event-3"}); err != nil {
 		t.Fatal(err)
 	}
 	next, replay, err := reopened.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: "vault-export", DeviceID: "device-local", Limit: 2, OccurredAt: now.Add(10 * time.Second)})
@@ -223,7 +223,7 @@ func TestSchema15MigratesToDurableSyncState(t *testing.T) {
 	if version != currentSchemaVersion {
 		t.Fatalf("schema version=%d", version)
 	}
-	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches", "sync_enrollments", "workspace_mappings", "task_sync_snapshots"} {
+	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events", "sync_replay_items", "sync_replay_batches", "sync_enrollments", "workspace_mappings", "task_sync_snapshots", "memory_sync_snapshots"} {
 		var name string
 		if err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name); err != nil || name != table {
 			t.Fatalf("table %s name=%q error=%v", table, name, err)

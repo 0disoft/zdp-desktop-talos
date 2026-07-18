@@ -23,7 +23,7 @@ Simply redacting the payload during export would change canonical event bytes un
 
 New sync packs contain no Task workspace path, and old local contract revisions remain transferable without rewriting history. Target devices can replay Task state while continuing to fail closed for repository work until mapping succeeds. The source and target contract event IDs differ for legacy bridged revisions by design; the signed snapshot event is the shared sync provenance.
 
-Memory v1 workspace scope remains path-derived and must move to `workspace_id` before Phase 8 can claim path-independent context assembly.
+Memory scope remained path-derived at this decision point. ADR 0050 subsequently moved workspace-scoped Memory and context assembly to `workspace_id` with a separate schema-22 legacy snapshot bridge.
 
 ## Verification
 

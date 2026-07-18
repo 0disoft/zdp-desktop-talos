@@ -10,6 +10,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
@@ -20,6 +21,8 @@ func TestCompileTaskCreatesOneIdempotentCandidatePerAnsweredDecision(t *testing.
 	t.Parallel()
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
 	taskRecord := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: strings.Repeat("a", 40), Status: task.StatusContracted, CurrentRevision: 2, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
+	taskRecord.SourceWorkspaceHash = strings.Repeat("c", 64)
+	taskRecord.WorkspaceID = workspacemapping.ID(taskRecord.VaultID, taskRecord.SourceWorkspaceHash)
 	contract := task.ContractRevision{TaskID: taskRecord.ID, Revision: 2, BaselineCommit: taskRecord.BaselineCommit, Goal: "Keep Decision revisions consistent", AllowedPaths: []string{"internal/domain/decision/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}
 	answer := decision.Answer{ID: "answer-1", DecisionID: "decision-1", QuestionRevision: 1, ExpectedRepositoryRevision: taskRecord.BaselineCommit, SelectedOptionID: "strict", CreatedAt: now.Add(time.Minute), EventID: "answer-event"}
 	result := decisionstore.Result{
@@ -46,7 +49,7 @@ func TestCompileTaskCreatesOneIdempotentCandidatePerAnsweredDecision(t *testing.
 		t.Fatalf("first=%+v second=%+v created=%d", first, second, len(sink.created))
 	}
 	created := sink.created[0]
-	if created.Kind != memory.KindDecision || created.Scope.WorkspaceRoot != taskRecord.WorkspaceRoot || created.SourceActor != decisionSourceActor || created.Confidence != 85 || created.IdempotencyKey != "memory-decision:decision-1:1:answer-1" || !strings.Contains(created.Statement, "Reject stale answers") || len(created.EvidenceEventIDs) != 2 || len(created.Applicability.GoalTerms) == 0 {
+	if created.Kind != memory.KindDecision || created.Scope.WorkspaceID != taskRecord.WorkspaceID || created.Scope.SourceWorkspaceHash != taskRecord.SourceWorkspaceHash || created.Scope.WorkspaceRoot != "" || created.SourceActor != decisionSourceActor || created.Confidence != 85 || created.IdempotencyKey != "memory-decision:decision-1:1:answer-1" || !strings.Contains(created.Statement, "Reject stale answers") || len(created.EvidenceEventIDs) != 2 || len(created.Applicability.GoalTerms) == 0 {
 		t.Fatalf("created=%+v", created)
 	}
 }
@@ -55,6 +58,8 @@ func TestCompileTaskRejectsCrossVaultAndMalformedEvidence(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	taskRecord := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: strings.Repeat("a", 40), Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
+	taskRecord.SourceWorkspaceHash = strings.Repeat("d", 64)
+	taskRecord.WorkspaceID = workspacemapping.ID(taskRecord.VaultID, taskRecord.SourceWorkspaceHash)
 	contract := task.ContractRevision{TaskID: "task-1", Revision: 1, BaselineCommit: taskRecord.BaselineCommit, Goal: "memory decision", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}
 	for _, testCase := range []struct {
 		name      string
@@ -81,6 +86,8 @@ func TestCompileTaskRejectsSecretBeforeCreatingAnyCandidate(t *testing.T) {
 	now := time.Now().UTC().Add(-time.Hour)
 	baseline := strings.Repeat("b", 40)
 	taskRecord := task.Record{ID: "task-secret", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: baseline, Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
+	taskRecord.SourceWorkspaceHash = strings.Repeat("e", 64)
+	taskRecord.WorkspaceID = workspacemapping.ID(taskRecord.VaultID, taskRecord.SourceWorkspaceHash)
 	contract := task.ContractRevision{TaskID: taskRecord.ID, Revision: 1, BaselineCommit: baseline, Goal: "Remember concurrency decisions", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}
 	decisionResult := func(id, answerText string, createdAt time.Time) decisionstore.Result {
 		answer := decision.Answer{ID: "answer-" + id, DecisionID: id, QuestionRevision: 1, ExpectedRepositoryRevision: baseline, Text: answerText, CreatedAt: createdAt, EventID: "answer-event-" + id}

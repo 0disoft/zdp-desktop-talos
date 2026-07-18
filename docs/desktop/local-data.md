@@ -21,6 +21,8 @@ Schema version 20 adds a stable Vault-bound workspace identifier to Task state a
 
 Schema version 21 records the bridge from each local legacy Task v1 contract event to a path-free Task v2 sync snapshot. New Task events contain only the stable workspace identifier and source hash, never the absolute root. Existing local revisions receive deterministic one-per-revision bridge records while imported v1 events do not generate another exportable snapshot. The original event and contract pointer remain unchanged; the bridge exists only to preserve old local contracts across manual sync.
 
+Schema version 22 adds the stable workspace identifier to materialized Memory records and records one path-free Memory v2 snapshot for each locally originated legacy Memory revision. New Memory events carry only `workspace_id` and the source hash; context assembly compares that identifier rather than a local path hash. Imported v1 events never create new snapshots, and the original Memory event chain remains unchanged.
+
 Schema version 6 adds Decision state and answer pointers. Question text, rationale, safe defaults, scopes, options, and answer values remain encrypted; plaintext rows retain revisions, repository baselines, answer hashes, state, and provenance required for stale-answer and conflict enforcement.
 
 On Windows, the application bootstrap keeps protected key records and per-Vault databases under separate children of `%LocalAppData%/0disoft/Talos Agent`. Creation is a compensated workflow: a database or initial-state failure removes any partial database and the newly protected key. Locking closes the database and clears the envelope sealer's in-memory key copy.

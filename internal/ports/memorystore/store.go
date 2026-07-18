@@ -47,10 +47,10 @@ type TransitionInput struct {
 }
 
 type ListActiveInput struct {
-	VaultID       string
-	WorkspaceRoot string
-	Limit         int
-	At            time.Time
+	VaultID     string
+	WorkspaceID string
+	Limit       int
+	At          time.Time
 }
 
 type ListInput struct {

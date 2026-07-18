@@ -212,7 +212,7 @@ func (s *Service) Propose(ctx context.Context, request Request) (Result, error) 
 			return Result{}, ErrEgressBlocked
 		}
 		memoryResult, err = s.memories.Assemble(ctx, memorycontext.Request{
-			VaultID: record.VaultID, WorkspaceRoot: record.WorkspaceRoot, Goal: contract.Goal,
+			VaultID: record.VaultID, WorkspaceID: record.WorkspaceID, Goal: contract.Goal,
 			AllowedPaths: contract.AllowedPaths, MaxCandidates: s.policy.MaxMemoryCandidates, MaxItems: available, MaxBytes: s.policy.MaxMemoryBytes,
 		})
 		if err != nil {

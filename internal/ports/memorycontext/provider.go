@@ -8,7 +8,7 @@ import (
 
 type Request struct {
 	VaultID       string
-	WorkspaceRoot string
+	WorkspaceID   string
 	Goal          string
 	AllowedPaths  []string
 	MaxCandidates int

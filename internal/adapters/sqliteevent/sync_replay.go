@@ -17,7 +17,6 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
-	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
@@ -36,6 +35,7 @@ var syncableEventSchemas = map[string]int{
 	decisionResolvedEventType:       decisionEventSchemaVersion,
 	memoryCandidateCreatedEventType: memoryEventSchemaVersion,
 	memoryStateChangedEventType:     memoryEventSchemaVersion,
+	memorySnapshotEventType:         memoryEventSchemaVersion,
 }
 
 type syncReplayPayload struct {
@@ -214,7 +214,7 @@ func (s *Store) materializeReplayEvent(ctx context.Context, tx *sql.Tx, record e
 		return s.materializeTaskReplay(ctx, tx, record)
 	case decisionCreatedEventType, decisionAnsweredEventType, decisionSupersededEventType, decisionResolvedEventType:
 		return s.materializeDecisionReplay(ctx, tx, record)
-	case memoryCandidateCreatedEventType, memoryStateChangedEventType:
+	case memoryCandidateCreatedEventType, memoryStateChangedEventType, memorySnapshotEventType:
 		return s.materializeMemoryReplay(ctx, tx, record)
 	default:
 		return syncstate.ReplayQuarantined, "event_type_not_syncable", nil
@@ -442,7 +442,7 @@ func (s *Store) materializeMemoryReplay(ctx context.Context, tx *sql.Tx, record 
 	if err != nil || !incoming.UpdatedAt.Equal(record.OccurredAt) {
 		return syncstate.ReplayQuarantined, "payload_invalid", nil
 	}
-	if record.Type == memoryCandidateCreatedEventType {
+	if record.Type == memoryCandidateCreatedEventType || record.Type == memorySnapshotEventType && incoming.Revision == 1 {
 		if incoming.State != memory.StateCandidate || incoming.Revision != 1 || incoming.CreatedEventID != record.ID || !incoming.CreatedAt.Equal(incoming.UpdatedAt) {
 			return syncstate.ReplayQuarantined, "payload_invalid", nil
 		}
@@ -457,14 +457,11 @@ func (s *Store) materializeMemoryReplay(ctx context.Context, tx *sql.Tx, record 
 			}
 			return "", "", err
 		}
-		workspaceHash := ""
-		if incoming.Scope.Kind == memory.ScopeWorkspace {
-			workspaceHash, err = permission.WorkspaceHash(incoming.Scope.WorkspaceRoot)
-			if err != nil {
-				return syncstate.ReplayQuarantined, "payload_invalid", nil
-			}
+		workspaceHash, workspaceID, err := memoryScopeIdentity(record.VaultID, incoming.Scope)
+		if err != nil {
+			return syncstate.ReplayQuarantined, "payload_invalid", nil
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO memory_records(memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, incoming.ID, record.VaultID, string(incoming.Kind), string(incoming.State), string(incoming.Scope.Kind), workspaceHash, string(incoming.Sensitivity), incoming.Confidence, incoming.Revision, payload.CreatedAt, payload.UpdatedAt, payload.ReviewedAt, payload.ExpiresAt, payload.SupersededBy, incoming.CreatedEventID, record.ID); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO memory_records(memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, workspace_id, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, incoming.ID, record.VaultID, string(incoming.Kind), string(incoming.State), string(incoming.Scope.Kind), workspaceHash, workspaceID, string(incoming.Sensitivity), incoming.Confidence, incoming.Revision, payload.CreatedAt, payload.UpdatedAt, payload.ReviewedAt, payload.ExpiresAt, payload.SupersededBy, incoming.CreatedEventID, record.ID); err != nil {
 			return "", "", err
 		}
 		return syncstate.ReplayApplied, "applied", nil
@@ -481,6 +478,10 @@ func (s *Store) materializeMemoryReplay(ctx context.Context, tx *sql.Tx, record 
 		return "", "", err
 	}
 	current, err := memoryFromEvent(currentEvent)
+	if err != nil {
+		return "", "", err
+	}
+	current, err = normalizeMemoryScope(current, pointer)
 	if err != nil {
 		return "", "", err
 	}
@@ -502,7 +503,7 @@ func (s *Store) materializeMemoryReplay(ctx context.Context, tx *sql.Tx, record 
 		if err != nil {
 			return "", "", err
 		}
-		if replacement.state != string(memory.StateApproved) && replacement.state != string(memory.StateStable) || replacement.scopeKind != pointer.scopeKind || replacement.workspaceRootHash != pointer.workspaceRootHash {
+		if replacement.state != string(memory.StateApproved) && replacement.state != string(memory.StateStable) || replacement.scopeKind != pointer.scopeKind || replacement.workspaceID != pointer.workspaceID || replacement.workspaceRootHash != pointer.workspaceRootHash {
 			return syncstate.ReplayConflicted, "replacement_invalid", nil
 		}
 	}

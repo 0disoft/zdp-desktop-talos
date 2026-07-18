@@ -58,7 +58,7 @@ func TestApprovedEncryptedMemoryChangesTheNextPlanWithProvenance(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate, err := kernel.CreateCandidate(ctx, memorystore.CreateCandidateInput{
-		VaultID: vaultID, Kind: memory.KindProcedure, Scope: memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceRoot: workspaceRoot},
+		VaultID: vaultID, Kind: memory.KindProcedure, Scope: memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceID: created.Task.WorkspaceID, SourceWorkspaceHash: created.Task.SourceWorkspaceHash},
 		Statement: "Run focused decision tests before the full suite.", Rationale: "The earlier task isolated revision failures faster.",
 		Applicability: memory.Applicability{GoalTerms: []string{"decision"}}, EvidenceEventIDs: []string{created.Contract.EventID},
 		SourceActor: "memory-extractor", Confidence: 90, Sensitivity: event.SensitivityPrivate,

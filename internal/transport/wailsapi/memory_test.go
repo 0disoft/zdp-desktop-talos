@@ -11,6 +11,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspace"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 )
@@ -31,8 +32,10 @@ func TestMemoryServiceCompilesReviewsAndExplainsTaskMemory(t *testing.T) {
 		t.Fatalf("vault=%+v", createdVault)
 	}
 	vaultID := createdVault.Vault.VaultID
+	sourceHash := workspacemapping.RootHash(root)
+	workspaceID := workspacemapping.ID(vaultID, sourceHash)
 	database.taskCreated = taskstore.Created{
-		Task:     task.Record{ID: "task-1", VaultID: vaultID, WorkspaceRoot: root, BaselineCommit: baseline, Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"},
+		Task:     task.Record{ID: "task-1", VaultID: vaultID, WorkspaceID: workspaceID, SourceWorkspaceHash: sourceHash, WorkspaceRoot: root, BaselineCommit: baseline, Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"},
 		Contract: task.ContractRevision{TaskID: "task-1", Revision: 1, BaselineCommit: baseline, Goal: "Keep Decision revisions consistent", AllowedPaths: []string{"internal/domain/decision/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"},
 	}
 	answer := decision.Answer{ID: "answer-1", DecisionID: "decision-1", QuestionRevision: 1, ExpectedRepositoryRevision: baseline, SelectedOptionID: "strict", CreatedAt: now.Add(time.Minute), EventID: "answer-event"}

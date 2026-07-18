@@ -355,7 +355,7 @@ func (s *VaultService) explainTaskMemory(taskID, workspaceRoot, baselineCommit s
 	if err != nil {
 		return memorycontext.Result{}, err
 	}
-	return assembler.Assemble(context.Background(), memorycontext.Request{VaultID: vaultID, WorkspaceRoot: workspaceRoot, Goal: contract.Goal, AllowedPaths: contract.AllowedPaths, MaxCandidates: maxMemoryCandidates, MaxItems: maxContextItems, MaxBytes: maxContextBytes})
+	return assembler.Assemble(context.Background(), memorycontext.Request{VaultID: vaultID, WorkspaceID: taskRecord.WorkspaceID, Goal: contract.Goal, AllowedPaths: contract.AllowedPaths, MaxCandidates: maxMemoryCandidates, MaxItems: maxContextItems, MaxBytes: maxContextBytes})
 }
 
 func (s *VaultService) memoryDatabaseLocked() (vaultbootstrap.MemoryDatabase, string, error) {

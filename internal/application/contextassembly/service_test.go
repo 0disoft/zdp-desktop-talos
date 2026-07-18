@@ -3,28 +3,30 @@ package contextassembly
 import (
 	"context"
 	"errors"
-	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorycontext"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 )
 
 func TestAssemblerSelectsOnlyApplicableApprovedMemoryWithinBudget(t *testing.T) {
 	now := time.Date(2026, 7, 17, 1, 0, 0, 0, time.UTC)
-	workspaceRoot := filepath.Join(t.TempDir(), "repo")
+	sourceHash := strings.Repeat("a", 64)
+	workspaceID := workspacemapping.ID("vault", sourceHash)
 	store := &reader{records: []memory.Record{
-		memoryRecord("one", memory.StateStable, []string{"decision"}, "Require question revisions.", workspaceRoot, now),
-		memoryRecord("two", memory.StateApproved, []string{"unrelated"}, "Do not select this.", workspaceRoot, now),
+		memoryRecord("one", memory.StateStable, []string{"decision"}, "Require question revisions.", workspaceID, sourceHash, now),
+		memoryRecord("two", memory.StateApproved, []string{"unrelated"}, "Do not select this.", workspaceID, sourceHash, now),
 	}}
 	service, err := New(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := service.Assemble(context.Background(), memorycontext.Request{VaultID: "vault", WorkspaceRoot: workspaceRoot, Goal: "Fix decision concurrency", MaxCandidates: 8, MaxItems: 2, MaxBytes: 1024})
+	result, err := service.Assemble(context.Background(), memorycontext.Request{VaultID: "vault", WorkspaceID: workspaceID, Goal: "Fix decision concurrency", MaxCandidates: 8, MaxItems: 2, MaxBytes: 1024})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,14 +37,15 @@ func TestAssemblerSelectsOnlyApplicableApprovedMemoryWithinBudget(t *testing.T) 
 
 func TestAssemblerRejectsCrossVaultRecordFromStoreAdapter(t *testing.T) {
 	now := time.Date(2026, 7, 17, 1, 0, 0, 0, time.UTC)
-	workspaceRoot := filepath.Join(t.TempDir(), "repo")
-	record := memoryRecord("foreign", memory.StateApproved, nil, "Do not trust this.", workspaceRoot, now)
+	sourceHash := strings.Repeat("b", 64)
+	workspaceID := workspacemapping.ID("vault", sourceHash)
+	record := memoryRecord("foreign", memory.StateApproved, nil, "Do not trust this.", workspaceID, sourceHash, now)
 	record.VaultID = "other-vault"
 	service, err := New(&reader{records: []memory.Record{record}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.Assemble(context.Background(), memorycontext.Request{VaultID: "vault", WorkspaceRoot: workspaceRoot, Goal: "verify", MaxCandidates: 8, MaxItems: 2, MaxBytes: 1024})
+	_, err = service.Assemble(context.Background(), memorycontext.Request{VaultID: "vault", WorkspaceID: workspaceID, Goal: "verify", MaxCandidates: 8, MaxItems: 2, MaxBytes: 1024})
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("cross-Vault adapter record error=%v", err)
 	}
@@ -50,22 +53,23 @@ func TestAssemblerRejectsCrossVaultRecordFromStoreAdapter(t *testing.T) {
 
 func TestAssemblerDefensivelyExcludesExpiredAdapterRecord(t *testing.T) {
 	now := time.Date(2026, 7, 18, 1, 0, 0, 0, time.UTC)
-	workspaceRoot := filepath.Join(t.TempDir(), "repo")
-	record := memoryRecord("expired", memory.StateApproved, nil, "Old rule.", workspaceRoot, now)
+	sourceHash := strings.Repeat("c", 64)
+	workspaceID := workspacemapping.ID("vault", sourceHash)
+	record := memoryRecord("expired", memory.StateApproved, nil, "Old rule.", workspaceID, sourceHash, now)
 	record.ExpiresAt = now.Add(time.Hour)
 	service, err := New(&reader{records: []memory.Record{record}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	service.now = func() time.Time { return now.Add(2 * time.Hour) }
-	result, err := service.Assemble(context.Background(), memorycontext.Request{VaultID: "vault", WorkspaceRoot: workspaceRoot, Goal: "verify", MaxCandidates: 8, MaxItems: 2, MaxBytes: 1024})
+	result, err := service.Assemble(context.Background(), memorycontext.Request{VaultID: "vault", WorkspaceID: workspaceID, Goal: "verify", MaxCandidates: 8, MaxItems: 2, MaxBytes: 1024})
 	if err != nil || result.Considered != 1 || len(result.Items) != 0 {
 		t.Fatalf("result=%+v error=%v", result, err)
 	}
 }
 
-func memoryRecord(id string, state memory.State, terms []string, statement, workspaceRoot string, now time.Time) memory.Record {
-	return memory.Record{ID: id, VaultID: "vault", Kind: memory.KindConstraint, State: state, Scope: memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceRoot: workspaceRoot}, Statement: statement, Rationale: "prior evidence", Applicability: memory.Applicability{GoalTerms: terms}, EvidenceEventIDs: []string{"event"}, SourceActor: "extractor", Confidence: 80, Sensitivity: event.SensitivityPrivate, Revision: 2, CreatedAt: now, UpdatedAt: now, ReviewedAt: now, CreatedEventID: "created", LastEventID: "last"}
+func memoryRecord(id string, state memory.State, terms []string, statement, workspaceID, sourceHash string, now time.Time) memory.Record {
+	return memory.Record{ID: id, VaultID: "vault", Kind: memory.KindConstraint, State: state, Scope: memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceID: workspaceID, SourceWorkspaceHash: sourceHash}, Statement: statement, Rationale: "prior evidence", Applicability: memory.Applicability{GoalTerms: terms}, EvidenceEventIDs: []string{"event"}, SourceActor: "extractor", Confidence: 80, Sensitivity: event.SensitivityPrivate, Revision: 2, CreatedAt: now, UpdatedAt: now, ReviewedAt: now, CreatedEventID: "created", LastEventID: "last"}
 }
 
 type reader struct{ records []memory.Record }
