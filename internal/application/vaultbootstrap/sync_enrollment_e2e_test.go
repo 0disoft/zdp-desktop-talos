@@ -14,6 +14,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapicatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/folderexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/localvaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/contextassembly"
 	enrollmentapp "github.com/0disoft/zdp-desktop-talos/internal/application/syncenrollment"
@@ -210,7 +211,7 @@ func enrollmentWorkspacePair(t *testing.T) (string, string, string) {
 
 func runEnrollmentGit(t *testing.T, executable, directory string, args ...string) string {
 	t.Helper()
-	command := exec.Command(executable, append([]string{"-C", directory}, args...)...)
+	command := exec.Command(executable, append([]string{"-c", "core.longpaths=true", "-C", directory}, args...)...)
 	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -314,18 +315,93 @@ func TestFolderExchangeTransfersAndIdempotentlyReplaysEnrolledPack(t *testing.T)
 
 	directory := filepath.Join(t.TempDir(), "shared-folder")
 	exchange := folderexchange.New()
-	exported, err := source.ExportNextSyncPackToFolder(ctx, exchange, ExportSyncPackToFolderInput{Root: directory, Limit: 64})
+	exported, err := source.ExportNextSyncPackToExchange(ctx, exchange, ExportSyncPackToExchangeInput{Root: directory, Limit: 64})
 	if err != nil || exported.File.RelativePath == "" || exported.FileReplay {
 		t.Fatalf("exported=%+v error=%v", exported, err)
 	}
-	imported, err := accepted.Session.ImportSyncPacksFromFolder(ctx, exchange, ImportSyncPacksFromFolderInput{Root: directory, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
+	imported, err := accepted.Session.ImportSyncPacksFromExchange(ctx, exchange, ImportSyncPacksFromExchangeInput{Root: directory, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
 	if err != nil || len(imported) != 1 || imported[0].Result.Replay.Batch.AppliedCount < 1 {
 		t.Fatalf("imported=%+v error=%v", imported, err)
 	}
 	if _, err := accepted.Session.database.GetTask(ctx, created.Task.ID); !errors.Is(err, workspacestore.ErrMappingRequired) {
 		t.Fatalf("imported task error=%v", err)
 	}
-	replayed, err := accepted.Session.ImportSyncPacksFromFolder(ctx, exchange, ImportSyncPacksFromFolderInput{Root: directory, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
+	replayed, err := accepted.Session.ImportSyncPacksFromExchange(ctx, exchange, ImportSyncPacksFromExchangeInput{Root: directory, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
+	if err != nil || len(replayed) != 1 || !replayed[0].Result.Replayed {
+		t.Fatalf("replayed=%+v error=%v", replayed, err)
+	}
+}
+
+func TestGitExchangeRequiresManualCommitAndImportsCommittedPack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sourceCreator, _ := newEnrollmentTestCreator(t, filepath.Join(t.TempDir(), "source"))
+	targetCreator, _ := newEnrollmentTestCreator(t, filepath.Join(t.TempDir(), "target"))
+	source, err := sourceCreator.Create(ctx, CreateInput{RetentionDays: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	initializeEnrollmentSource(t, ctx, source)
+	workspace, _, baseline := enrollmentWorkspacePair(t)
+	created, err := source.CreateTaskContract(ctx, CreateTaskContractInput{WorkspaceRoot: workspace, BaselineCommit: baseline, Goal: "exchange a committed Git pack", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the target imports only a committed pack"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "git-exchange-task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	offer, err := source.CreateEnrollmentOffer(ctx, CreateEnrollmentOfferInput{ValidFor: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := targetCreator.AcceptEnrollmentOffer(ctx, AcceptEnrollmentOfferInput{Encoded: offer.Encoded, Secret: offer.Secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accepted.Session.Close()
+	if _, err := source.CompleteEnrollment(ctx, CompleteEnrollmentInput{EncodedAcceptance: accepted.EncodedAcceptance, Secret: offer.Secret}); err != nil {
+		t.Fatal(err)
+	}
+
+	gitExecutable, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("system Git is unavailable")
+	}
+	exchangeRoot := filepath.Join(t.TempDir(), "git-exchange")
+	if err := os.Mkdir(exchangeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runEnrollmentGit(t, gitExecutable, exchangeRoot, "init", "-b", "main")
+	runEnrollmentGit(t, gitExecutable, exchangeRoot, "config", "user.email", "talos-sync@example.invalid")
+	runEnrollmentGit(t, gitExecutable, exchangeRoot, "config", "user.name", "Talos Sync Test")
+	if err := os.WriteFile(filepath.Join(exchangeRoot, "README.md"), []byte("Talos encrypted pack exchange\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runEnrollmentGit(t, gitExecutable, exchangeRoot, "add", "README.md")
+	runEnrollmentGit(t, gitExecutable, exchangeRoot, "commit", "-m", "initialize exchange")
+	inspector, err := gitcli.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exchange, err := gitexchange.New(inspector, inspector, folderexchange.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := source.ExportNextSyncPackToExchange(ctx, exchange, ExportSyncPackToExchangeInput{Root: exchangeRoot, Limit: 64})
+	if err != nil || !strings.HasPrefix(exported.File.RelativePath, gitexchange.DataDirectory+"/") {
+		t.Fatalf("exported=%+v error=%v", exported, err)
+	}
+	if _, err := accepted.Session.ImportSyncPacksFromExchange(ctx, exchange, ImportSyncPacksFromExchangeInput{Root: exchangeRoot, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()}); !errors.Is(err, gitexchange.ErrRepositoryDirty) {
+		t.Fatalf("uncommitted import error=%v", err)
+	}
+	runEnrollmentGit(t, gitExecutable, exchangeRoot, "add", "--", gitexchange.DataDirectory)
+	runEnrollmentGit(t, gitExecutable, exchangeRoot, "commit", "-m", "add encrypted sync pack")
+	imported, err := accepted.Session.ImportSyncPacksFromExchange(ctx, exchange, ImportSyncPacksFromExchangeInput{Root: exchangeRoot, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
+	if err != nil || len(imported) != 1 || imported[0].Result.Replay.Batch.AppliedCount < 1 {
+		t.Fatalf("imported=%+v error=%v", imported, err)
+	}
+	if _, err := accepted.Session.database.GetTask(ctx, created.Task.ID); !errors.Is(err, workspacestore.ErrMappingRequired) {
+		t.Fatalf("imported task error=%v", err)
+	}
+	replayed, err := accepted.Session.ImportSyncPacksFromExchange(ctx, exchange, ImportSyncPacksFromExchangeInput{Root: exchangeRoot, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
 	if err != nil || len(replayed) != 1 || !replayed[0].Result.Replayed {
 		t.Fatalf("replayed=%+v error=%v", replayed, err)
 	}

@@ -194,7 +194,7 @@ type ImportSyncPackInput struct {
 	ReceivedAt time.Time
 }
 
-type ExportSyncPackToFolderInput struct {
+type ExportSyncPackToExchangeInput struct {
 	Root  string
 	Limit int
 }
@@ -207,7 +207,7 @@ type ExportedSyncPackFile struct {
 	FileReplay bool
 }
 
-type ImportSyncPacksFromFolderInput struct {
+type ImportSyncPacksFromExchangeInput struct {
 	Root       string
 	DeviceID   string
 	ReceivedAt time.Time
@@ -486,7 +486,7 @@ func (s *Session) ImportAndApplySyncPack(ctx context.Context, input ImportSyncPa
 	return importer.Apply(ctx, syncpack.PrepareImportInput{Encoded: input.Encoded, VaultID: s.Record.ID, DeviceID: input.DeviceID, EncryptionKey: vaultKey, ReceivedAt: input.ReceivedAt})
 }
 
-func (s *Session) ExportNextSyncPackToFolder(ctx context.Context, exchange syncexchange.Exchange, input ExportSyncPackToFolderInput) (ExportedSyncPackFile, error) {
+func (s *Session) ExportNextSyncPackToExchange(ctx context.Context, exchange syncexchange.Exchange, input ExportSyncPackToExchangeInput) (ExportedSyncPackFile, error) {
 	if exchange == nil || strings.TrimSpace(input.Root) == "" {
 		return ExportedSyncPackFile{}, ErrInvalidInput
 	}
@@ -502,7 +502,7 @@ func (s *Session) ExportNextSyncPackToFolder(ctx context.Context, exchange synce
 	return ExportedSyncPackFile{Batch: exported.Batch, Manifest: exported.Manifest, File: file, PackReplay: exported.Replay, FileReplay: replay}, nil
 }
 
-func (s *Session) ImportSyncPacksFromFolder(ctx context.Context, exchange syncexchange.Exchange, input ImportSyncPacksFromFolderInput) ([]ImportedSyncPackFile, error) {
+func (s *Session) ImportSyncPacksFromExchange(ctx context.Context, exchange syncexchange.Exchange, input ImportSyncPacksFromExchangeInput) ([]ImportedSyncPackFile, error) {
 	if exchange == nil || strings.TrimSpace(input.Root) == "" || strings.TrimSpace(input.DeviceID) == "" {
 		return nil, ErrInvalidInput
 	}

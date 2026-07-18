@@ -79,7 +79,7 @@ func (i *Inspector) Inspect(ctx context.Context, requestedPath string) (workspac
 	if head.exitCode != 0 && !detached {
 		return workspace.RepositorySnapshot{}, repository.ErrInspectionFailed
 	}
-	status, err := i.git(ctx, repositoryRoot, "status", "--porcelain=v2", "-z", "--untracked-files=normal")
+	status, err := i.git(ctx, repositoryRoot, "status", "--porcelain=v2", "-z", "--untracked-files=all")
 	if err != nil || status.exitCode != 0 {
 		return workspace.RepositorySnapshot{}, repository.ErrInspectionFailed
 	}
@@ -104,7 +104,7 @@ func (i *Inspector) git(ctx context.Context, root string, command ...string) (re
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, i.timeout)
 	defer cancel()
-	args := []string{"--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "color.ui=false", "-c", "core.quotepath=false", "-C", root}
+	args := []string{"--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "core.longpaths=true", "-c", "color.ui=false", "-c", "core.quotepath=false", "-C", root}
 	args = append(args, command...)
 	result, err := i.run(commandCtx, i.executable, args, gitEnvironment())
 	if errors.Is(err, errOutputLimit) {

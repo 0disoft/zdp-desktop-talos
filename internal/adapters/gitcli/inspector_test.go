@@ -102,9 +102,22 @@ func TestInspectorReadsCleanDirtyAndDetachedRepository(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "untracked.txt"), []byte("new\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Mkdir(filepath.Join(root, "untracked-directory"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "untracked-directory", "nested.txt"), []byte("nested\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	dirty, err := inspector.Inspect(context.Background(), root)
-	if err != nil || !dirty.Dirty || len(dirty.Changes) != 2 {
+	if err != nil || !dirty.Dirty || len(dirty.Changes) != 3 {
 		t.Fatalf("dirty=%+v err=%v", dirty, err)
+	}
+	foundNested := false
+	for _, change := range dirty.Changes {
+		foundNested = foundNested || change.Path == "untracked-directory/nested.txt"
+	}
+	if !foundNested {
+		t.Fatalf("nested untracked path was collapsed: %+v", dirty.Changes)
 	}
 	runGitTest(t, git, root, "checkout", "--detach")
 	detached, err := inspector.Inspect(context.Background(), root)

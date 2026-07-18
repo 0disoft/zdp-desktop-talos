@@ -23,6 +23,8 @@ export async function cancelEnrollment(enrollmentID: string): Promise<AckResult>
 export async function revokeSyncDevice(deviceID: string, expectedRevision: number): Promise<AckResult> { return parseAck(await Call.ByName(`${service}.RevokeDevice`, deviceID, expectedRevision, correlationID(), correlationID())); }
 export async function exportSyncFolder(root: string, limit = 64): Promise<FolderResult> { return parseFolder(await Call.ByName(`${service}.ExportFolder`, root, limit, correlationID())); }
 export async function importSyncFolder(root: string, deviceID: string): Promise<FolderResult> { return parseFolder(await Call.ByName(`${service}.ImportFolder`, root, deviceID, correlationID())); }
+export async function exportSyncGit(root: string, limit = 64): Promise<FolderResult> { return parseFolder(await Call.ByName(`${service}.ExportGit`, root, limit, correlationID())); }
+export async function importSyncGit(root: string, deviceID: string): Promise<FolderResult> { return parseFolder(await Call.ByName(`${service}.ImportGit`, root, deviceID, correlationID())); }
 export async function mapSyncWorkspace(taskID: string, localPath: string, expectedRevision: number): Promise<AckResult> { return parseAck(await Call.ByName(`${service}.MapWorkspace`, taskID, localPath, expectedRevision, correlationID(), correlationID())); }
 export async function revokeSyncWorkspace(workspaceID: string, expectedRevision: number): Promise<AckResult> { return parseAck(await Call.ByName(`${service}.RevokeWorkspace`, workspaceID, expectedRevision, correlationID(), correlationID())); }
 

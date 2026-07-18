@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncenrollment"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
@@ -112,14 +113,15 @@ type SyncFolderResult struct {
 }
 
 type SyncService struct {
-	vault     *VaultService
-	exchange  syncexchange.Exchange
-	inspector repository.Inspector
-	verifier  repository.BaselineVerifier
+	vault          *VaultService
+	folderExchange syncexchange.Exchange
+	gitExchange    syncexchange.Exchange
+	inspector      repository.Inspector
+	verifier       repository.BaselineVerifier
 }
 
-func NewSyncService(vault *VaultService, exchange syncexchange.Exchange, inspector repository.Inspector, verifier repository.BaselineVerifier) *SyncService {
-	return &SyncService{vault: vault, exchange: exchange, inspector: inspector, verifier: verifier}
+func NewSyncService(vault *VaultService, folderExchange, gitExchange syncexchange.Exchange, inspector repository.Inspector, verifier repository.BaselineVerifier) *SyncService {
+	return &SyncService{vault: vault, folderExchange: folderExchange, gitExchange: gitExchange, inspector: inspector, verifier: verifier}
 }
 
 func (s *SyncService) Overview(correlationID string) SyncOverviewResult {
@@ -216,13 +218,27 @@ func (s *SyncService) RevokeDevice(deviceID string, expectedRevision int, reques
 }
 
 func (s *SyncService) ExportFolder(root string, limit int, correlationID string) SyncFolderResult {
-	if s == nil || s.exchange == nil || !validLocalPath(root) {
+	if s == nil || s.folderExchange == nil || !validLocalPath(root) {
 		return syncFolderError(syncexchange.ErrInvalidRequest, correlationID)
 	}
+	return s.exportExchange(s.folderExchange, root, limit, correlationID)
+}
+
+func (s *SyncService) ExportGit(root string, limit int, correlationID string) SyncFolderResult {
+	if s == nil || s.gitExchange == nil {
+		return syncFolderError(gitexchange.ErrUnavailable, correlationID)
+	}
+	if !validLocalPath(root) {
+		return syncFolderError(syncexchange.ErrInvalidRequest, correlationID)
+	}
+	return s.exportExchange(s.gitExchange, root, limit, correlationID)
+}
+
+func (s *SyncService) exportExchange(exchange syncexchange.Exchange, root string, limit int, correlationID string) SyncFolderResult {
 	var exported vaultbootstrap.ExportedSyncPackFile
 	ack := s.withOpenSession(correlationID, func(session *vaultbootstrap.Session) error {
 		var err error
-		exported, err = session.ExportNextSyncPackToFolder(context.Background(), s.exchange, vaultbootstrap.ExportSyncPackToFolderInput{Root: root, Limit: limit})
+		exported, err = session.ExportNextSyncPackToExchange(context.Background(), exchange, vaultbootstrap.ExportSyncPackToExchangeInput{Root: root, Limit: limit})
 		return err
 	})
 	if ack.Error != nil {
@@ -232,13 +248,27 @@ func (s *SyncService) ExportFolder(root string, limit int, correlationID string)
 }
 
 func (s *SyncService) ImportFolder(root, deviceID, correlationID string) SyncFolderResult {
-	if s == nil || s.exchange == nil || !validLocalPath(root) || strings.TrimSpace(deviceID) == "" {
+	if s == nil || s.folderExchange == nil || !validLocalPath(root) || strings.TrimSpace(deviceID) == "" {
 		return syncFolderError(syncexchange.ErrInvalidRequest, correlationID)
 	}
+	return s.importExchange(s.folderExchange, root, deviceID, correlationID)
+}
+
+func (s *SyncService) ImportGit(root, deviceID, correlationID string) SyncFolderResult {
+	if s == nil || s.gitExchange == nil {
+		return syncFolderError(gitexchange.ErrUnavailable, correlationID)
+	}
+	if !validLocalPath(root) || strings.TrimSpace(deviceID) == "" {
+		return syncFolderError(syncexchange.ErrInvalidRequest, correlationID)
+	}
+	return s.importExchange(s.gitExchange, root, deviceID, correlationID)
+}
+
+func (s *SyncService) importExchange(exchange syncexchange.Exchange, root, deviceID, correlationID string) SyncFolderResult {
 	var imported []vaultbootstrap.ImportedSyncPackFile
 	ack := s.withOpenSession(correlationID, func(session *vaultbootstrap.Session) error {
 		var err error
-		imported, err = session.ImportSyncPacksFromFolder(context.Background(), s.exchange, vaultbootstrap.ImportSyncPacksFromFolderInput{Root: root, DeviceID: strings.TrimSpace(deviceID), ReceivedAt: time.Now().UTC()})
+		imported, err = session.ImportSyncPacksFromExchange(context.Background(), exchange, vaultbootstrap.ImportSyncPacksFromExchangeInput{Root: root, DeviceID: strings.TrimSpace(deviceID), ReceivedAt: time.Now().UTC()})
 		return err
 	})
 	if ack.Error != nil {

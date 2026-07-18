@@ -10,6 +10,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/folderexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/bootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/transport/wailsapi"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -55,10 +56,15 @@ func main() {
 	reviewService := wailsapi.NewPatchReviewService(vaultService, executionFactory, executionInitializationError)
 	patchService := wailsapi.NewPatchService(vaultService, executionFactory, executionInitializationError)
 	var syncService *wailsapi.SyncService
+	folderSync := folderexchange.New()
 	if inspectorErr == nil {
-		syncService = wailsapi.NewSyncService(vaultService, folderexchange.New(), inspector, inspector)
+		gitSync, gitSyncErr := gitexchange.New(inspector, inspector, folderSync)
+		if gitSyncErr != nil {
+			gitSync = nil
+		}
+		syncService = wailsapi.NewSyncService(vaultService, folderSync, gitSync, inspector, inspector)
 	} else {
-		syncService = wailsapi.NewSyncService(vaultService, folderexchange.New(), nil, nil)
+		syncService = wailsapi.NewSyncService(vaultService, folderSync, nil, nil, nil)
 	}
 	var window *application.WebviewWindow
 	if singleInstance != nil {

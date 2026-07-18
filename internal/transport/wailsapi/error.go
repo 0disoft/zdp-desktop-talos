@@ -3,6 +3,7 @@ package wailsapi
 import (
 	"errors"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/sqliteevent"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/contextassembly"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
@@ -256,6 +257,24 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, vaultbootstrap.ErrNotOpen):
 		mapped.Code = "VAULT_NOT_OPEN"
 		mapped.Message = "Task Contract를 저장하려면 Vault를 먼저 열어 주세요."
+	case errors.Is(err, gitexchange.ErrUnavailable):
+		mapped.Code = "SYNC_GIT_UNAVAILABLE"
+		mapped.Message = "시스템 Git을 사용할 수 없어 Git 동기화를 실행할 수 없습니다."
+	case errors.Is(err, gitexchange.ErrInvalidRequest):
+		mapped.Code = "SYNC_GIT_REPOSITORY_INVALID"
+		mapped.Message = "브랜치와 기준 커밋이 있는 Git 저장소 루트 폴더를 선택해 주세요."
+	case errors.Is(err, gitexchange.ErrRepositoryDirty):
+		mapped.Code = "SYNC_GIT_REPOSITORY_DIRTY"
+		mapped.Message = "Git 교환 저장소의 기존 변경을 먼저 정리해 주세요."
+	case errors.Is(err, gitexchange.ErrDetachedHead):
+		mapped.Code = "SYNC_GIT_DETACHED_HEAD"
+		mapped.Message = "Git 교환 저장소를 브랜치로 전환한 뒤 다시 시도해 주세요."
+	case errors.Is(err, gitexchange.ErrRepositoryChanged):
+		mapped.Code = "SYNC_GIT_REPOSITORY_CHANGED"
+		mapped.Message = "Git 교환 중 저장소 상태가 바뀌었습니다. 변경 내용을 직접 확인해 주세요."
+	case errors.Is(err, gitexchange.ErrPackUntracked):
+		mapped.Code = "SYNC_GIT_PACK_UNTRACKED"
+		mapped.Message = "talos-sync pack이 Git에서 무시되거나 추적되지 않습니다. ignore 규칙을 확인해 주세요."
 	case errors.Is(err, syncexchange.ErrUnsafePath):
 		mapped.Code = "SYNC_FOLDER_PATH_UNSAFE"
 		mapped.Message = "동기화 폴더가 파일 또는 링크를 포함해 안전하게 사용할 수 없습니다."

@@ -24,3 +24,7 @@ type Inspector interface {
 type BaselineVerifier interface {
 	ContainsCommit(context.Context, string, string) (bool, error)
 }
+
+type TrackedPathVerifier interface {
+	IsTracked(context.Context, string, string) (bool, error)
+}

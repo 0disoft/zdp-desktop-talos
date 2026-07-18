@@ -112,6 +112,10 @@ func TestSyncServiceMapsSafeErrorsWithoutLeakingPaths(t *testing.T) {
 	if invalid.Error == nil || invalid.Error.Code != "SYNC_FOLDER_REQUEST_INVALID" {
 		t.Fatalf("invalid=%+v", invalid)
 	}
+	unavailable := service.ExportGit(`C:\exchange`, 64, "git")
+	if unavailable.Error == nil || unavailable.Error.Code != "SYNC_GIT_UNAVAILABLE" {
+		t.Fatalf("unavailable=%+v", unavailable)
+	}
 }
 
 func newSyncServiceTest(t *testing.T) (*VaultService, *SyncService, *syncServiceKeyStore) {
@@ -130,7 +134,7 @@ func newSyncServiceTest(t *testing.T) (*VaultService, *SyncService, *syncService
 		t.Fatal(err)
 	}
 	vault := NewVaultService(creator, nil)
-	return vault, NewSyncService(vault, folderexchange.New(), nil, nil), keys
+	return vault, NewSyncService(vault, folderexchange.New(), nil, nil, nil), keys
 }
 
 type syncServiceKeyStore struct {
