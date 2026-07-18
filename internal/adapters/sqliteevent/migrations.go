@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 15
+const currentSchemaVersion = 16
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -348,6 +348,39 @@ var migrations = []migration{
 			`CREATE INDEX memory_records_expiry_idx ON memory_records(vault_id, state, expires_at, memory_id)`,
 		},
 	},
+	{
+		version: 16,
+		statements: []string{
+			`CREATE TABLE sync_devices (
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				device_id TEXT NOT NULL,
+				public_key BLOB NOT NULL CHECK (length(public_key) = 32),
+				state TEXT NOT NULL CHECK (state IN ('active','revoked')),
+				revision INTEGER NOT NULL CHECK (revision > 0),
+				next_sequence INTEGER NOT NULL CHECK (next_sequence > 0),
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				last_event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				PRIMARY KEY(vault_id, device_id)
+			) STRICT`,
+			`CREATE TABLE sync_pack_receipts (
+				pack_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				sequence_start INTEGER NOT NULL CHECK (sequence_start > 0),
+				sequence_end INTEGER NOT NULL CHECK (sequence_end >= sequence_start),
+				event_count INTEGER NOT NULL CHECK (event_count BETWEEN 1 AND 512 AND event_count = sequence_end - sequence_start + 1),
+				ciphertext_hash TEXT NOT NULL CHECK (length(ciphertext_hash) = 64),
+				pack_envelope BLOB NOT NULL CHECK (length(pack_envelope) > 0),
+				state TEXT NOT NULL CHECK (state IN ('validated')),
+				received_at TEXT NOT NULL,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				FOREIGN KEY(vault_id, device_id) REFERENCES sync_devices(vault_id, device_id) ON DELETE RESTRICT,
+				UNIQUE(vault_id, device_id, sequence_start)
+			) STRICT`,
+			`CREATE INDEX sync_pack_receipts_device_idx ON sync_pack_receipts(vault_id, device_id, sequence_start, pack_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -396,6 +429,8 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT vault_id, membership_id, state, revision, created_at, updated_at, last_event_id FROM account_links LIMIT 0`,
 		`SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts LIMIT 0`,
 		`SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id FROM memory_records LIMIT 0`,
+		`SELECT vault_id, device_id, public_key, state, revision, next_sequence, created_at, updated_at, last_event_id FROM sync_devices LIMIT 0`,
+		`SELECT pack_id, vault_id, device_id, sequence_start, sequence_end, event_count, ciphertext_hash, pack_envelope, state, received_at, event_id FROM sync_pack_receipts LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

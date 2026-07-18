@@ -49,5 +49,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0040-memory-expiry-supersession-and-evaluation.md`: schema-15 validity periods, explicit replacement links, lifecycle UI, and retrieval precision/recall
 - `0041-deterministic-public-memory-projection.md`: public-only deterministic Markdown/YAML/JSONL projection, fail-closed scanning, and bounded preview
 - `0042-signed-encrypted-immutable-sync-pack.md`: contiguous device sequence, Vault-bound encryption, ciphertext identity, and Ed25519 manifest verification
+- `0043-durable-sync-membership-and-validation-journal.md`: trusted device keys, revocation, conditional sequence cursors, and encrypted pack receipts
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

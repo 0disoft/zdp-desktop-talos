@@ -14,11 +14,11 @@ Copying one shared JSONL file between devices would create merge conflicts and p
 - Encrypt the complete event batch with the Vault sync key using the existing envelope primitive and AAD containing the Vault, device sequence range, schema version, and sensitivity.
 - Derive `pack_id` from Vault, device, sequence range, and ciphertext hash. Sign the canonical manifest with Ed25519. Import requires the expected membership public key; a key carried only by the pack is never trusted.
 - Bound a pack to 512 events and 16 MiB. Verify outer schema, Vault/device identity, pack identity, ciphertext hash, signature, decryption, payload schema, event validation, and contiguous sequence in that order.
-- Keep the codec independent from SQLite and Git. Device key persistence, membership/revocation, export journaling, duplicate-range storage, materialized-state replay, and conflict surfacing remain the next layer and must reuse this verified codec.
+- Keep the codec independent from SQLite and Git. Device key persistence, membership/revocation, validation journaling, and duplicate-range rejection are supplied by ADR 0043; export journaling, materialized-state replay, and conflict surfacing remain later layers.
 
 ## Consequences
 
-Talos now has a concrete encrypted exchange object instead of a filename convention. It still does not claim working multi-device sync: without durable device membership and an import journal, a valid pack cannot safely mutate the ledger. Git remains a future transport for immutable blobs, not the authority that validates them.
+Talos now has a concrete encrypted exchange object instead of a filename convention. ADR 0043 adds durable authorization and validation receipts, but a validated pack still cannot mutate canonical streams until ordered replay and conflict handling exist. Git remains a future transport for immutable blobs, not the authority that validates them.
 
 ## Verification
 

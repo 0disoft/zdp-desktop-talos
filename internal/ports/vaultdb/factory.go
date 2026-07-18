@@ -10,6 +10,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 )
@@ -26,6 +27,7 @@ type Database interface {
 	decisionstore.Store
 	executionstore.Store
 	patchstore.Store
+	syncstore.Store
 	taskstore.Store
 	GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error)
 	Close() error

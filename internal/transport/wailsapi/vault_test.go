@@ -13,6 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/patchaction"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/vault"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
@@ -23,6 +24,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
@@ -427,6 +429,21 @@ func (*serviceDatabase) UnlinkAccount(context.Context, accountstore.UnlinkInput)
 }
 func (*serviceDatabase) GetAccountLink(context.Context, string) (accountlink.Record, error) {
 	return accountlink.Record{}, accountstore.ErrNotFound
+}
+func (*serviceDatabase) RegisterSyncDevice(context.Context, syncstore.RegisterDeviceInput) (syncstate.Device, error) {
+	return syncstate.Device{}, syncstore.ErrDeviceNotFound
+}
+func (*serviceDatabase) RevokeSyncDevice(context.Context, syncstore.RevokeDeviceInput) (syncstate.Device, error) {
+	return syncstate.Device{}, syncstore.ErrDeviceNotFound
+}
+func (*serviceDatabase) GetSyncDevice(context.Context, string, string) (syncstate.Device, error) {
+	return syncstate.Device{}, syncstore.ErrDeviceNotFound
+}
+func (*serviceDatabase) RecordValidatedSyncPack(context.Context, syncstore.RecordPackInput) (syncstate.PackReceipt, bool, error) {
+	return syncstate.PackReceipt{}, false, syncstore.ErrPackConflict
+}
+func (*serviceDatabase) GetValidatedSyncPack(context.Context, string, string) (syncstate.PackReceipt, []byte, error) {
+	return syncstate.PackReceipt{}, nil, syncstore.ErrPackConflict
 }
 func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
 
