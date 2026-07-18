@@ -57,6 +57,12 @@ Preflight decrypts only into an app-owned temporary directory, validates archive
 
 Live restore is now a separate confirmation-bound state machine. It authenticates a deterministic staged generation, moves the protected catalog from `active` to `restore_pending`, preserves the complete live generation, activates database and blob components, and validates the promoted generation before returning to `active`. File presence is the idempotent step cursor. Startup resumes interrupted moves; invalid promoted data triggers a validated rollback. The Wails response exposes only backup identity, outcome, versions, schema numbers, counts, and time. Root-key recovery remains unimplemented.
 
+## Update Preparation
+
+The dormant update-preparation core accepts only three user-selected local regular files: an exact JSON manifest, its detached Ed25519 signature, and the named installer artifact. The verifier owns raw-byte signature checking, strict manifest decoding, channel and platform matching, numeric version ordering, validity time, file type, size, and SHA-256. Publisher trust enters only through a reviewed assembly dependency; the payload, renderer, environment, and command line cannot select their own trusted key.
+
+After release verification, the application creates and preflights an encrypted Vault backup, then rechecks the Vault revision. A current-user-protected path-free preparation binds the release ID, manifest and artifact hashes, signing-key fingerprint, Vault revision, and backup identity and ciphertext hash. Authorization verifies the release and backup again and requires exact equality with that record. The result is still evidence only: no Wails method, downloader, installer process, restart handoff, or automatic rollback consumes it until publisher-key provisioning and native N-1 tests authorize a later adapter.
+
 ## Decisions
 
 A Decision blocks only named steps or capabilities. Safe unrelated steps continue. Answers carry the question revision and expected repository revision. Concurrent incompatible answers become `conflicted`; last-write-wins is forbidden for security, privacy, license, public API, and deletion choices.

@@ -18,13 +18,14 @@
 | Shared account boundary | blocked upstream | renderer-safe local status and offline unlink pass; live product-link route and production end-to-end are not approved |
 | Source build and migration | pass | Go suite, Svelte diagnostics and build, schema 0 through 23 migration, desktop/worker/CLI build, doctor including encrypted online-backup, isolated-preflight, and journaled-live-restore self-tests |
 | Scaffold and package source contract | pass | strict ssealed validation and Windows package contract tests |
+| Update preparation | core passes locally; activation blocked | strict signed manifest and artifact verification, protected path-free backup binding, and repeat authorization pass; production publisher key, installer execution adapter, and native N-1 evidence are absent |
 | Signed installer | blocked | requires a provisioned signing host, NSIS, SignTool, and the current-user certificate |
 | Native install and upgrade | blocked | requires clean-install, signed N-1 upgrade, uninstall retention, explicit purge, and rollback evidence on disposable Windows runners |
 | Hosted CI | blocked externally | account usage or billing gate prevents a current hosted run; local evidence does not replace it |
 
 ## Promotion boundary
 
-Do not call this build production-ready. A limited private alpha can be considered only after the signed-installer and native install/upgrade rows pass on their owned runners. Product-link creation, unattended update, automatic Git push, OS sandbox claims, relay sync, and automatic stable-memory promotion stay disabled regardless of source-test results.
+Do not call this build production-ready. A limited private alpha can be considered only after the signed-installer and native install/upgrade rows pass on their owned runners. Product-link creation, unattended update, automatic Git push, OS sandbox claims, relay sync, and automatic stable-memory promotion stay disabled regardless of source-test results. A protected update preparation is not installer permission.
 
 ## Rollback
 

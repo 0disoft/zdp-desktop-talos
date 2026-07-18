@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/updatejournal"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -221,6 +223,11 @@ func TestHardPurgeRequiresExactConfirmationAndCompletesAllStores(t *testing.T) {
 	if !database.closed || !keys.deleted || !databases.purged || len(catalog.entries) != 0 {
 		t.Fatalf("database=%+v keys=%+v factory=%+v catalog=%+v", database, keys, databases, catalog)
 	}
+	if !slices.ContainsFunc(keys.deletedRefs, func(ref keyvault.Reference) bool {
+		return ref.VaultID == vaultID && ref.KeyID == updatejournal.ProtectedRecordKeyID
+	}) {
+		t.Fatalf("hard purge did not delete protected update preparation: %+v", keys.deletedRefs)
+	}
 }
 
 func TestHardPurgeResumesAfterKeyDeletionFailure(t *testing.T) {
@@ -285,10 +292,11 @@ func TestHardPurgeResumesAfterCiphertextOrJournalCleanupFailure(t *testing.T) {
 }
 
 type fakeKeyStore struct {
-	present   bool
-	deleted   bool
-	deleteErr error
-	value     []byte
+	present     bool
+	deleted     bool
+	deleteErr   error
+	value       []byte
+	deletedRefs []keyvault.Reference
 }
 
 func testRandomBytes() []byte {
@@ -309,8 +317,9 @@ func (s *fakeKeyStore) Get(context.Context, keyvault.Reference) ([]byte, error) 
 	return append([]byte(nil), s.value...), nil
 }
 func (s *fakeKeyStore) Rotate(context.Context, keyvault.Reference, []byte) error { return nil }
-func (s *fakeKeyStore) Delete(context.Context, keyvault.Reference) error {
+func (s *fakeKeyStore) Delete(_ context.Context, ref keyvault.Reference) error {
 	s.deleted = true
+	s.deletedRefs = append(s.deletedRefs, ref)
 	if s.deleteErr == nil {
 		s.present = false
 	}

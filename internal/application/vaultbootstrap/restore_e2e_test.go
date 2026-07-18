@@ -11,6 +11,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/artifactstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/updatejournal"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultbackup"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -20,8 +21,12 @@ import (
 func TestCreatorRestoresBackupOnlyAfterExactConfirmation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	creator, _, _, session, receipt := newRestoreApplicationFixture(t)
+	creator, keys, _, session, receipt := newRestoreApplicationFixture(t)
 	t.Cleanup(func() { _ = session.Close() })
+	preparationRef := keyvault.Reference{VaultID: session.Record.ID, KeyID: updatejournal.ProtectedRecordKeyID}
+	if err := keys.Put(ctx, preparationRef, []byte(`{"schema":"test-update-preparation"}`)); err != nil {
+		t.Fatal(err)
+	}
 	invalid, err := creator.RestoreBackup(ctx, session, RestoreBackupInput{
 		Source: receipt.Path, ExpectedBackupID: receipt.BackupID, ExpectedCiphertextSHA256: receipt.CiphertextSHA256,
 		ExpectedRevision: session.Record.Revision, Confirmation: "wrong-vault", ApplicationVersion: version.Application,
@@ -39,6 +44,9 @@ func TestCreatorRestoresBackupOnlyAfterExactConfirmation(t *testing.T) {
 	defer restored.Session.Close()
 	if restored.Restore.State != vaultbackup.RestoreStateRestored || restored.Restore.BackupID != receipt.BackupID || restored.Session.Record.RetentionDays != 30 || restored.Session.Record.Revision != 1 {
 		t.Fatalf("restored=%+v", restored)
+	}
+	if _, err := keys.Get(ctx, preparationRef); !errors.Is(err, keyvault.ErrNotFound) {
+		t.Fatalf("restore retained stale update preparation: %v", err)
 	}
 }
 

@@ -39,6 +39,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/updatejournal"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultbackup"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
@@ -271,6 +272,13 @@ type Session struct {
 	database vaultdb.Database
 	keys     keyvault.Store
 	backups  vaultbackup.Store
+}
+
+func (s *Session) CurrentVault() (vault.Record, error) {
+	if s == nil || s.database == nil {
+		return vault.Record{}, ErrNotOpen
+	}
+	return s.Record, nil
 }
 
 type ExecutionDatabase interface {
@@ -1156,6 +1164,10 @@ func (c *Creator) RestoreBackup(ctx context.Context, session *Session, input Res
 	if err != nil {
 		return RestoredBackup{Session: session}, err
 	}
+	if err := c.keys.Delete(ctx, keyvault.Reference{VaultID: session.Record.ID, KeyID: updatejournal.ProtectedRecordKeyID}); err != nil && !errors.Is(err, keyvault.ErrNotFound) {
+		cleanupErr := restorer.CleanupInactiveRestore(context.WithoutCancel(ctx), session.Record.ID)
+		return RestoredBackup{Session: session}, errors.Join(fmt.Errorf("invalidate update preparation before restore: %w", err), cleanupErr)
+	}
 	entry := vaultcatalog.Entry{VaultID: session.Record.ID, CreatedAt: session.Record.CreatedAt, State: vaultcatalog.StateActive}
 	if err := journal.MarkRestorePending(ctx, entry); err != nil {
 		cleanupErr := restorer.CleanupInactiveRestore(context.WithoutCancel(ctx), entry.VaultID)
@@ -1269,7 +1281,7 @@ func (c *Creator) openRestoredSession(ctx context.Context, vaultID string, key [
 }
 
 func (c *Creator) finishPurge(ctx context.Context, entry vaultcatalog.Entry) error {
-	for _, keyID := range []string{VaultKeyID, syncidentity.SigningKeyID} {
+	for _, keyID := range []string{VaultKeyID, syncidentity.SigningKeyID, updatejournal.ProtectedRecordKeyID} {
 		keyRef := keyvault.Reference{VaultID: entry.VaultID, KeyID: keyID}
 		if err := c.keys.Delete(ctx, keyRef); err != nil && !errors.Is(err, keyvault.ErrNotFound) {
 			return fmt.Errorf("destroy Vault key %s: %w", keyID, err)

@@ -64,5 +64,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0055-explicit-clean-git-pack-exchange.md`: clean committed-pack transport, tracked-file import, manual Git effects, and Windows long-path handling
 - `0056-encrypted-vault-backup-preflight.md`: SQLite online snapshot, chunk-authenticated archive, no-clobber publication, and isolated migration rehearsal
 - `0057-journaled-live-vault-restore.md`: authenticated staging, protected restore journal, crash-resumable generation swap, and verified rollback
+- `0058-signed-update-preparation-gate.md`: exact-byte signed manifests, protected path-free preparation, repeat authorization, and disabled installer execution
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.
