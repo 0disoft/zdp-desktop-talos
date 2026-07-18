@@ -35,6 +35,10 @@ The desktop exposes statement, rationale, confidence, applicability terms, prove
 
 The projection compiler consumes validated memory records after Vault decryption but includes only public records in reviewed non-quarantined lifecycle states. It omits Vault identity, workspace paths, raw evidence IDs, and generation time, sorts by memory ID, renders Markdown, YAML, and JSONL from one model, scans each complete file, and fails closed on any finding. File and bundle hashes bind the exact bytes. The Wails surface returns only a bounded preview and explicit completeness; it cannot choose a path, write files, or mutate Git.
 
+## Manual sync pack
+
+The sync codec accepts only a contiguous device sequence range, encrypts the complete event batch with Vault-bound AAD, hashes the ciphertext, derives an immutable pack identity, and signs the canonical manifest with Ed25519. Import uses a separately trusted membership public key and rejects identity, hash, signature, decryption, schema, count, and sequence failures before persistence. The codec alone cannot authorize a device or apply events; durable membership, revocation, import journals, replay, and conflict resolution remain control-plane responsibilities.
+
 ## Decisions
 
 A Decision blocks only named steps or capabilities. Safe unrelated steps continue. Answers carry the question revision and expected repository revision. Concurrent incompatible answers become `conflicted`; last-write-wins is forbidden for security, privacy, license, public API, and deletion choices.
