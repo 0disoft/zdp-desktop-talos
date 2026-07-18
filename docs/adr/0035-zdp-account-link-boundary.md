@@ -33,7 +33,7 @@ The ZDP desktop product-link contract is now fixed as a contract-only create, br
 
 ## Consequences
 
-The account provider and callback protocol can change without changing the Talos membership model. The implementation remains intentionally dormant in production: fake HTTPS-server tests prove S256 framing, five-second polling, the ten-minute deadline, cancellation, terminal states, trusted verification origins, and secret non-propagation without creating a fake login path.
+The account provider and callback protocol can change without changing the Talos membership model. The HTTP adapter remains intentionally dormant in production: fake HTTPS-server tests prove S256 framing, five-second polling, the ten-minute deadline, cancellation, terminal states, trusted verification origins, and secret non-propagation without creating a fake login path. ADR 0044 adds a renderer-safe local status and offline-unlink surface while keeping link creation unavailable.
 
 Account unlink does not delete encrypted historical references from the event ledger. Users who need physical removal must use the existing Vault hard-purge workflow until a narrower account-reference purge contract is designed.
 

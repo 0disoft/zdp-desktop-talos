@@ -953,11 +953,36 @@ h1 {
   letter-spacing: -0.04em;
 }
 
-.boundary > p {
+.boundary-account {
+	display: grid;
+	gap: 10px;
+	align-self: center;
+}
+
+.boundary-account strong {
+	font-size: 1.05rem;
+}
+
+.boundary-account p {
   margin: 0;
-  align-self: center;
   color: #aeb8c8;
   line-height: 1.75;
+}
+
+.boundary-account button {
+	width: fit-content;
+	margin-top: 4px;
+	padding: 9px 14px;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 10px;
+	color: #d7deea;
+	background: rgba(255, 255, 255, 0.06);
+	cursor: pointer;
+}
+
+.boundary-account button:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
 }
 
 @media (max-width: 800px) {

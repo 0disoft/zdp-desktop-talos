@@ -10,7 +10,7 @@ Desktop UI, local Vault, workspace inspection, Task Contract, Run/Step/Attempt l
 
 Shared signup, account authentication, consent records, platform membership, account/device registration policy, platform audit contracts, and any future relay service. Talos consumes stable identity and consent contracts; it does not copy ZDP core domain logic into the desktop client.
 
-The account-link adapter verifies ZDP challenge evidence outside the core and translates it into opaque references. Its verifier exists only in process memory and can enter only the single-use exchange request; no session or token value crosses the port. Talos owns only the device-local Vault membership, link lifecycle, encrypted reference snapshot, and local idempotency record. Neither the deterministic fake nor the dormant HTTP adapter is wired into production bootstrap or Wails services.
+The account-link adapter verifies ZDP challenge evidence outside the core and translates it into opaque references. Its verifier exists only in process memory and can enter only the single-use exchange request; no session or token value crosses the port. Talos owns only the device-local Vault membership, link lifecycle, encrypted reference snapshot, and local idempotency record. Production Wails exposes renderer-safe local status and offline unlink only. Neither the deterministic fake nor the dormant HTTP adapter is wired into link creation, and `link_available` stays false until upstream promotion evidence exists.
 
 ## External
 

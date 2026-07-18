@@ -202,22 +202,24 @@ func (*serviceDatabaseFactory) Remove(context.Context, string) error { return ni
 func (*serviceDatabaseFactory) Purge(context.Context, string) error  { return nil }
 
 type serviceDatabase struct {
-	closed         bool
-	closeErr       error
-	record         vault.Record
-	taskInput      taskstore.CreateInput
-	reviseInput    taskstore.ReviseInput
-	decisionInput  decisionstore.CreateInput
-	answerInput    decisionstore.AnswerInput
-	supersedeInput decisionstore.SupersedeInput
-	resolveInput   decisionstore.ResolveInput
-	decisionResult decisionstore.Result
-	decisionList   []decisionstore.Result
-	taskCreated    taskstore.Created
-	taskErr        error
-	memoryInputs   []memorystore.CreateCandidateInput
-	memoryRecords  map[string]memory.Record
-	memoryKeys     map[string]string
+	closed             bool
+	closeErr           error
+	record             vault.Record
+	taskInput          taskstore.CreateInput
+	reviseInput        taskstore.ReviseInput
+	decisionInput      decisionstore.CreateInput
+	answerInput        decisionstore.AnswerInput
+	supersedeInput     decisionstore.SupersedeInput
+	resolveInput       decisionstore.ResolveInput
+	decisionResult     decisionstore.Result
+	decisionList       []decisionstore.Result
+	taskCreated        taskstore.Created
+	taskErr            error
+	memoryInputs       []memorystore.CreateCandidateInput
+	memoryRecords      map[string]memory.Record
+	memoryKeys         map[string]string
+	accountRecord      accountlink.Record
+	accountUnlinkInput accountstore.UnlinkInput
 }
 
 func (d *serviceDatabase) CreateVault(_ context.Context, input vaultstore.CreateInput) (vault.Record, error) {
@@ -424,11 +426,31 @@ func (*serviceDatabase) FinishPatchAction(context.Context, patchstore.FinishInpu
 func (*serviceDatabase) LinkAccount(context.Context, accountstore.LinkInput) (accountlink.Record, error) {
 	return accountlink.Record{}, accountstore.ErrNotFound
 }
-func (*serviceDatabase) UnlinkAccount(context.Context, accountstore.UnlinkInput) (accountlink.Record, error) {
-	return accountlink.Record{}, accountstore.ErrNotFound
+func (d *serviceDatabase) UnlinkAccount(_ context.Context, input accountstore.UnlinkInput) (accountlink.Record, error) {
+	d.accountUnlinkInput = input
+	if d.accountRecord.MembershipID == "" {
+		return accountlink.Record{}, accountstore.ErrNotFound
+	}
+	if d.accountRecord.Revision != input.ExpectedRevision || d.accountRecord.State != accountlink.StateLinked {
+		return accountlink.Record{}, accountstore.ErrRevisionConflict
+	}
+	d.accountRecord.State = accountlink.StateUnlinked
+	d.accountRecord.Revision++
+	d.accountRecord.LinkReceiptRef = ""
+	d.accountRecord.SubjectRef = ""
+	d.accountRecord.WorkspaceRef = ""
+	d.accountRecord.ConsentReceiptRef = ""
+	d.accountRecord.LinkedAt = time.Time{}
+	d.accountRecord.LastVerifiedAt = time.Time{}
+	d.accountRecord.UpdatedAt = d.accountRecord.UpdatedAt.Add(time.Nanosecond)
+	d.accountRecord.LastEventID = "account-unlink-event"
+	return d.accountRecord, nil
 }
-func (*serviceDatabase) GetAccountLink(context.Context, string) (accountlink.Record, error) {
-	return accountlink.Record{}, accountstore.ErrNotFound
+func (d *serviceDatabase) GetAccountLink(context.Context, string) (accountlink.Record, error) {
+	if d.accountRecord.MembershipID == "" {
+		return accountlink.Record{}, accountstore.ErrNotFound
+	}
+	return d.accountRecord, nil
 }
 func (*serviceDatabase) RegisterSyncDevice(context.Context, syncstore.RegisterDeviceInput) (syncstate.Device, error) {
 	return syncstate.Device{}, syncstore.ErrDeviceNotFound

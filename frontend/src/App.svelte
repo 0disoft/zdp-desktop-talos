@@ -22,6 +22,7 @@
   import { changeMemoryLifecycle, compileTaskMemories, explainTaskMemory, listMemories, reviewMemory, sweepExpiredMemories, type AppliedMemory, type MemoryItem, type MemoryReviewOutcome } from './lib/api/memory';
   import { getModelProviderStatus, proposePlan, type ModelProviderStatus, type PlanProposal } from './lib/api/plan';
   import { previewMemoryProjection, type ProjectionPreview } from './lib/api/projection';
+  import { getAccountStatus, unlinkAccount, type AccountStatus } from './lib/api/account';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -60,12 +61,16 @@
   let modelProvider = $state<ModelProviderStatus>({ provider_key: 'openai-responses', credential_name: 'OPENAI_API_KEY', ready: false, reason_code: 'MODEL_PROVIDER_UNAVAILABLE' });
   let modelConsent = $state(false);
   let planProposal = $state<PlanProposal | null>(null);
+  let account = $state<AccountStatus>({ mode: 'local_only', state: 'vault_locked', link_available: false, reason_code: 'VAULT_NOT_OPEN' });
 
   onMount(async () => {
     try {
       const providerStatus = getModelProviderStatus();
-      const [status, catalog] = await Promise.all([getVaultStatus(), listVaults()]);
+      const accountStatus = getAccountStatus();
+      const [status, catalog, accountResult] = await Promise.all([getVaultStatus(), listVaults(), accountStatus]);
       vault = status;
+      if (accountResult.error) latestError = accountResult.error;
+      else if (accountResult.account) account = accountResult.account;
       try {
         modelProvider = await providerStatus;
       } catch {
@@ -106,6 +111,7 @@
             creatingNew = false;
           }
         }
+        await refreshAccountStatus();
       }
     } catch {
       latestError = localError('VAULT_REQUEST_FAILED', 'Vault 요청을 완료하지 못했습니다.');
@@ -124,6 +130,7 @@
       else if (result.vault) {
         vault = result.vault;
         retentionDays = result.vault.retention_days ?? retentionDays;
+        await refreshAccountStatus();
       }
     } catch {
       latestError = localError('VAULT_REQUEST_FAILED', 'Vault를 열지 못했습니다.');
@@ -163,6 +170,7 @@
         vault = result.vault;
         clearPrivateTaskState();
       }
+      await refreshAccountStatus();
       const catalog = await listVaults();
       if (catalog.error) latestError ??= catalog.error;
       else {
@@ -466,6 +474,27 @@
       }
     } catch {
       latestError = localError('PROJECTION_PREVIEW_FAILED', '기억 projection을 안전하게 만들지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function refreshAccountStatus() {
+    const result = await getAccountStatus();
+    if (result.error) latestError = result.error;
+    else if (result.account) account = result.account;
+  }
+
+  async function handleAccountUnlink() {
+    if (account.state !== 'linked' || !account.revision) return;
+    loading = true;
+    latestError = null;
+    try {
+      const result = await unlinkAccount(account.revision);
+      if (result.error) latestError = result.error;
+      else if (result.account) account = result.account;
+    } catch {
+      latestError = localError('ACCOUNT_UNLINK_FAILED', '계정 연결을 해제하지 못했습니다.');
     } finally {
       loading = false;
     }
@@ -914,9 +943,18 @@
       <p class="eyebrow">CURRENT BOUNDARY</p>
       <h2 id="boundary-title">계정 연결과 데이터 공유는 별개입니다</h2>
     </div>
-    <p>
-      ZDP 회원가입은 계정 식별과 동의만 연결합니다. 저장소, 프롬프트, 터미널 기록과 기억은 사용자가
-      별도로 승인하지 않는 한 기기 밖으로 나가지 않습니다.
-    </p>
+    <div class="boundary-account" aria-live="polite">
+      <strong>{account.state === 'linked' ? 'ZDP 계정 연결됨' : account.state === 'vault_locked' ? 'Vault 잠김' : '로컬 전용'}</strong>
+      <p>
+        {account.state === 'linked'
+          ? '이 Vault의 계정 참조만 연결돼 있습니다. 저장소와 기억은 자동으로 공유되지 않습니다.'
+          : account.state === 'vault_locked'
+            ? 'Vault를 열면 이 기기의 계정 연결 상태를 확인할 수 있습니다.'
+            : '계정 연결이 정식으로 열리기 전까지 모든 작업은 이 기기에만 남습니다.'}
+      </p>
+      {#if account.state === 'linked'}
+        <button type="button" onclick={handleAccountUnlink} disabled={loading}>연결 해제</button>
+      {/if}
+    </div>
   </section>
 </main>

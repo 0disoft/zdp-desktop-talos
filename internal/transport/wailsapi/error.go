@@ -15,6 +15,8 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/permissionreview"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountidentity"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/accountstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/decisionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/keyvault"
@@ -52,6 +54,31 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, errAccountLinkUpstreamNotReady), errors.Is(err, accountidentity.ErrDisabled):
+		mapped.Code = "PRODUCT_LINK_UPSTREAM_NOT_READY"
+		mapped.Message = "ZDP 계정 연결은 아직 사용할 수 없습니다. 로컬 기능은 계속 사용할 수 있습니다."
+	case errors.Is(err, accountidentity.ErrUnavailable):
+		mapped.Code = "ACCOUNT_LINK_UNAVAILABLE"
+		mapped.Message = "ZDP 계정 연결 서비스를 사용할 수 없습니다. 로컬 기능은 계속 사용할 수 있습니다."
+		mapped.Retryable = true
+	case errors.Is(err, accountidentity.ErrDenied):
+		mapped.Code = "ACCOUNT_LINK_DENIED"
+		mapped.Message = "ZDP 계정 연결이 승인되지 않았습니다."
+	case errors.Is(err, accountidentity.ErrExpired), errors.Is(err, accountidentity.ErrConsumed):
+		mapped.Code = "ACCOUNT_LINK_CHALLENGE_EXPIRED"
+		mapped.Message = "계정 연결 요청이 만료됐습니다. 새 요청으로 다시 시작해 주세요."
+	case errors.Is(err, accountidentity.ErrRejected), errors.Is(err, accountidentity.ErrInvalidRequest), errors.Is(err, accountstore.ErrInvalidCommand):
+		mapped.Code = "ACCOUNT_LINK_REQUEST_INVALID"
+		mapped.Message = "계정 연결 요청을 확인해 주세요."
+	case errors.Is(err, accountstore.ErrRevisionConflict):
+		mapped.Code = "ACCOUNT_LINK_REVISION_CONFLICT"
+		mapped.Message = "계정 연결 상태가 바뀌었습니다. 최신 상태를 다시 확인해 주세요."
+	case errors.Is(err, accountstore.ErrIdempotencyConflict), errors.Is(err, accountstore.ErrIdempotencyUnverified):
+		mapped.Code = "ACCOUNT_LINK_REQUEST_CONFLICT"
+		mapped.Message = "같은 요청 식별자가 다른 계정 연결 작업에 사용되었습니다."
+	case errors.Is(err, accountstore.ErrNotFound):
+		mapped.Code = "ACCOUNT_LINK_NOT_FOUND"
+		mapped.Message = "현재 Vault에 연결된 ZDP 계정이 없습니다."
 	case errors.Is(err, memoryprojection.ErrSecretFindings):
 		mapped.Code = "PROJECTION_SECRET_FINDINGS"
 		mapped.Message = "비밀정보로 보이는 내용이 있어 projection을 만들지 않았습니다."
