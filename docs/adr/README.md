@@ -59,5 +59,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0050-path-free-memory-sync-v2.md`: workspace-ID Memory v2 events, schema-22 legacy snapshot bridge, path-independent context assembly, and v1 export retirement
 - `0051-signed-cross-device-revocation.md`: authority-bound portable revocation, unknown-device tombstones, and fail-closed late registration
 - `0052-terminal-enrollment-lifecycle.md`: schema-23 cancellation and expiry, restart reconciliation, response erasure, and pre-registration completion guards
+- `0053-atomic-folder-pack-exchange.md`: hashed path layout, bounded reads, no-clobber atomic publication, and two-Vault folder replay
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/dpapicatalog"
+	"github.com/0disoft/zdp-desktop-talos/internal/adapters/folderexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/gitcli"
 	"github.com/0disoft/zdp-desktop-talos/internal/adapters/localvaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/contextassembly"
@@ -276,6 +277,53 @@ func TestCanceledIssuerCannotCompleteOrRegisterLateTarget(t *testing.T) {
 	}
 	if _, err := source.database.GetSyncDevice(ctx, source.Record.ID, accepted.TargetDeviceID); !errors.Is(err, syncstore.ErrDeviceNotFound) {
 		t.Fatalf("late target registration error=%v", err)
+	}
+}
+
+func TestFolderExchangeTransfersAndIdempotentlyReplaysEnrolledPack(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	sourceCreator, _ := newEnrollmentTestCreator(t, filepath.Join(t.TempDir(), "source"))
+	targetCreator, _ := newEnrollmentTestCreator(t, filepath.Join(t.TempDir(), "target"))
+	source, err := sourceCreator.Create(ctx, CreateInput{RetentionDays: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	workspace, _, baseline := enrollmentWorkspacePair(t)
+	created, err := source.CreateTaskContract(ctx, CreateTaskContractInput{WorkspaceRoot: workspace, BaselineCommit: baseline, Goal: "exchange a folder pack", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the target imports the immutable pack"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "folder-task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	offer, err := source.CreateEnrollmentOffer(ctx, CreateEnrollmentOfferInput{ValidFor: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := targetCreator.AcceptEnrollmentOffer(ctx, AcceptEnrollmentOfferInput{Encoded: offer.Encoded, Secret: offer.Secret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer accepted.Session.Close()
+	if _, err := source.CompleteEnrollment(ctx, CompleteEnrollmentInput{EncodedAcceptance: accepted.EncodedAcceptance, Secret: offer.Secret}); err != nil {
+		t.Fatal(err)
+	}
+
+	directory := filepath.Join(t.TempDir(), "shared-folder")
+	exchange := folderexchange.New()
+	exported, err := source.ExportNextSyncPackToFolder(ctx, exchange, ExportSyncPackToFolderInput{Root: directory, Limit: 64})
+	if err != nil || exported.File.RelativePath == "" || exported.FileReplay {
+		t.Fatalf("exported=%+v error=%v", exported, err)
+	}
+	imported, err := accepted.Session.ImportSyncPacksFromFolder(ctx, exchange, ImportSyncPacksFromFolderInput{Root: directory, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
+	if err != nil || len(imported) != 1 || imported[0].Result.Replay.Batch.AppliedCount < 1 {
+		t.Fatalf("imported=%+v error=%v", imported, err)
+	}
+	if _, err := accepted.Session.database.GetTask(ctx, created.Task.ID); !errors.Is(err, workspacestore.ErrMappingRequired) {
+		t.Fatalf("imported task error=%v", err)
+	}
+	replayed, err := accepted.Session.ImportSyncPacksFromFolder(ctx, exchange, ImportSyncPacksFromFolderInput{Root: directory, DeviceID: accepted.SourceDeviceID, ReceivedAt: time.Now().UTC()})
+	if err != nil || len(replayed) != 1 || !replayed[0].Result.Replayed {
+		t.Fatalf("replayed=%+v error=%v", replayed, err)
 	}
 }
 

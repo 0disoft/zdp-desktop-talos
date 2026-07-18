@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	enrollmentapp "github.com/0disoft/zdp-desktop-talos/internal/application/syncenrollment"
@@ -32,6 +33,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
@@ -186,6 +188,30 @@ type ImportSyncPackInput struct {
 	Encoded    []byte
 	DeviceID   string
 	ReceivedAt time.Time
+}
+
+type ExportSyncPackToFolderInput struct {
+	Root  string
+	Limit int
+}
+
+type ExportedSyncPackFile struct {
+	Batch      syncstate.ExportBatch
+	Manifest   syncpack.Manifest
+	File       syncexchange.StoredPack
+	PackReplay bool
+	FileReplay bool
+}
+
+type ImportSyncPacksFromFolderInput struct {
+	Root       string
+	DeviceID   string
+	ReceivedAt time.Time
+}
+
+type ImportedSyncPackFile struct {
+	File   syncexchange.StoredPack
+	Result syncpack.ApplyImportResult
 }
 
 type Session struct {
@@ -404,6 +430,50 @@ func (s *Session) ImportAndApplySyncPack(ctx context.Context, input ImportSyncPa
 		return syncpack.ApplyImportResult{}, err
 	}
 	return importer.Apply(ctx, syncpack.PrepareImportInput{Encoded: input.Encoded, VaultID: s.Record.ID, DeviceID: input.DeviceID, EncryptionKey: vaultKey, ReceivedAt: input.ReceivedAt})
+}
+
+func (s *Session) ExportNextSyncPackToFolder(ctx context.Context, exchange syncexchange.Exchange, input ExportSyncPackToFolderInput) (ExportedSyncPackFile, error) {
+	if exchange == nil || strings.TrimSpace(input.Root) == "" {
+		return ExportedSyncPackFile{}, ErrInvalidInput
+	}
+	exported, err := s.ExportNextSyncPack(ctx, input.Limit)
+	if err != nil {
+		return ExportedSyncPackFile{}, err
+	}
+	defer clear(exported.Encoded)
+	file, replay, err := exchange.WritePack(ctx, input.Root, syncexchange.PackDescriptor{VaultID: exported.Manifest.VaultID, DeviceID: exported.Manifest.DeviceID, PackID: exported.Manifest.PackID, SequenceStart: exported.Manifest.SequenceStart, SequenceEnd: exported.Manifest.SequenceEnd, CreatedAt: exported.Batch.CreatedAt}, exported.Encoded)
+	if err != nil {
+		return ExportedSyncPackFile{}, err
+	}
+	return ExportedSyncPackFile{Batch: exported.Batch, Manifest: exported.Manifest, File: file, PackReplay: exported.Replay, FileReplay: replay}, nil
+}
+
+func (s *Session) ImportSyncPacksFromFolder(ctx context.Context, exchange syncexchange.Exchange, input ImportSyncPacksFromFolderInput) ([]ImportedSyncPackFile, error) {
+	if exchange == nil || strings.TrimSpace(input.Root) == "" || strings.TrimSpace(input.DeviceID) == "" {
+		return nil, ErrInvalidInput
+	}
+	packs, err := exchange.ReadPacks(ctx, input.Root, s.Record.ID, input.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		for index := range packs {
+			clear(packs[index].Encoded)
+		}
+	}()
+	receivedAt := input.ReceivedAt.UTC()
+	if receivedAt.IsZero() {
+		receivedAt = time.Now().UTC()
+	}
+	results := make([]ImportedSyncPackFile, 0, len(packs))
+	for _, pack := range packs {
+		applied, err := s.ImportAndApplySyncPack(ctx, ImportSyncPackInput{Encoded: pack.Encoded, DeviceID: input.DeviceID, ReceivedAt: receivedAt})
+		if err != nil {
+			return results, fmt.Errorf("import sync pack %s: %w", pack.RelativePath, err)
+		}
+		results = append(results, ImportedSyncPackFile{File: pack.StoredPack, Result: applied})
+	}
+	return results, nil
 }
 
 func (s *Session) enrollmentDatabase() (EnrollmentDatabase, error) {
