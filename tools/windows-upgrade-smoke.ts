@@ -13,7 +13,9 @@ import {
   verifyReceiptFiles,
   type PackageReceipt,
   type ProbeReport,
+  type UpgradeEvidence,
   type UpgradeRunnerPreflight,
+  type UpgradeStage,
 } from "./windows-upgrade-contract";
 
 const maxProcessOutputBytes = 1024 * 1024;
@@ -21,52 +23,7 @@ const signerPattern = /^[A-Fa-f0-9]{40}$/;
 const commitPattern = /^[a-f0-9]{40}$/;
 const runIDPattern = /^[1-9]\d*$/;
 
-type Stage =
-  | "guard"
-  | "package-verification"
-  | "old-install"
-  | "old-vault"
-  | "new-install"
-  | "new-vault"
-  | "uninstall-retention"
-  | "rollback"
-  | "purge"
-  | "cleanup";
-
-type EvidencePhase = {
-  name: Stage;
-  status: "passed";
-  application_version?: string;
-  revision?: number;
-  retention_days?: number;
-};
-
-type UpgradeEvidence = {
-  schema: typeof upgradeEvidenceSchema;
-  status: "passed" | "failed";
-  architecture: "amd64";
-  signer_thumbprint_sha1: string;
-  runner_preflight: UpgradeRunnerPreflight;
-  verifier_commit: string;
-  old_run_id: string;
-  new_run_id: string;
-  old_package?: { version: string; source_commit: string; receipt_sha256: string };
-  new_package?: { version: string; source_commit: string; receipt_sha256: string };
-  vault?: {
-    id: string;
-    final_revision: number;
-    final_retention_days: number;
-    backup_id: string;
-    backup_ciphertext_sha256: string;
-    backup_source_schema: number;
-    backup_target_schema: number;
-    uninstall_retention_verified: boolean;
-    direct_rollback_read_verified: boolean;
-    purged: boolean;
-  };
-  phases: EvidencePhase[];
-  failure?: { stage: Stage; code: string };
-};
+type Stage = UpgradeStage;
 
 class SmokeFailure extends Error {
   constructor(

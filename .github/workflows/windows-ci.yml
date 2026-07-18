@@ -54,7 +54,7 @@ jobs:
 
       - name: Test Windows release tools
         shell: pwsh
-        run: bun test tools/windows-upgrade-contract.test.ts tools/windows-upgrade-runs.test.ts tools/windows-upgrade-smoke.test.ts
+        run: bun test tools/windows-upgrade-contract.test.ts tools/windows-upgrade-evidence.test.ts tools/windows-upgrade-runs.test.ts tools/windows-upgrade-smoke.test.ts
 
       - name: Test Go packages
         shell: pwsh

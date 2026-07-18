@@ -49,6 +49,71 @@ export type UpgradeRunnerPreflight = {
   data_absent: true;
 };
 
+export type UpgradeStage =
+  | "guard"
+  | "package-verification"
+  | "old-install"
+  | "old-vault"
+  | "new-install"
+  | "new-vault"
+  | "uninstall-retention"
+  | "rollback"
+  | "purge"
+  | "cleanup";
+
+export type UpgradeEvidencePhase = {
+  name: Exclude<UpgradeStage, "cleanup">;
+  status: "passed";
+  application_version?: string;
+  revision?: number;
+  retention_days?: number;
+};
+
+export type UpgradePackageEvidence = {
+  version: string;
+  source_commit: string;
+  receipt_sha256: string;
+};
+
+export type UpgradeVaultEvidence = {
+  id: string;
+  final_revision: number;
+  final_retention_days: number;
+  backup_id: string;
+  backup_ciphertext_sha256: string;
+  backup_source_schema: number;
+  backup_target_schema: number;
+  uninstall_retention_verified: true;
+  direct_rollback_read_verified: true;
+  purged: true;
+};
+
+export type UpgradeEvidence = {
+  schema: typeof upgradeEvidenceSchema;
+  status: "passed" | "failed";
+  architecture: "amd64";
+  signer_thumbprint_sha1: string;
+  runner_preflight: UpgradeRunnerPreflight;
+  verifier_commit: string;
+  old_run_id: string;
+  new_run_id: string;
+  old_package?: UpgradePackageEvidence;
+  new_package?: UpgradePackageEvidence;
+  vault?: UpgradeVaultEvidence;
+  phases: UpgradeEvidencePhase[];
+  failure?: { stage: UpgradeStage; code: string };
+};
+
+export type UpgradeEvidenceExpectations = {
+  expectedSignerThumbprint: string;
+  verifierCommit: string;
+  oldRunID: string;
+  newRunID: string;
+  oldSourceCommit: string;
+  newSourceCommit: string;
+  requirePassed: boolean;
+};
+
 const receiptKeys = [
   "schema",
   "version",
@@ -69,6 +134,47 @@ const runnerPreflightKeys = [
   "installation_absent",
   "data_absent",
 ] as const;
+const upgradeEvidenceKeys = new Set([
+  "schema",
+  "status",
+  "architecture",
+  "signer_thumbprint_sha1",
+  "runner_preflight",
+  "verifier_commit",
+  "old_run_id",
+  "new_run_id",
+  "old_package",
+  "new_package",
+  "vault",
+  "phases",
+  "failure",
+]);
+const upgradePackageKeys = ["version", "source_commit", "receipt_sha256"] as const;
+const upgradeVaultKeys = [
+  "id",
+  "final_revision",
+  "final_retention_days",
+  "backup_id",
+  "backup_ciphertext_sha256",
+  "backup_source_schema",
+  "backup_target_schema",
+  "uninstall_retention_verified",
+  "direct_rollback_read_verified",
+  "purged",
+] as const;
+const upgradePhaseKeys = new Set(["name", "status", "application_version", "revision", "retention_days"]);
+const upgradeFailureKeys = ["stage", "code"] as const;
+const upgradePhaseOrder = [
+  "guard",
+  "package-verification",
+  "old-install",
+  "old-vault",
+  "new-install",
+  "new-vault",
+  "uninstall-retention",
+  "rollback",
+  "purge",
+] as const;
 const probeKeys = new Set([
   "schema",
   "action",
@@ -85,6 +191,8 @@ const probeKeys = new Set([
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const commitPattern = /^[a-f0-9]{40}$/;
 const signerThumbprintPattern = /^[a-f0-9]{40}$/;
+const runIDPattern = /^[1-9]\d*$/;
+const failureCodePattern = /^[A-Z][A-Z0-9_]{2,63}$/;
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 function record(value: unknown, label: string): Record<string, unknown> {
@@ -99,6 +207,14 @@ function exactKeys(value: Record<string, unknown>, expected: readonly string[], 
   const wanted = [...expected].sort();
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     throw new Error(`${label} has an unsupported field set`);
+  }
+}
+
+function rejectUnknownKeys(value: Record<string, unknown>, allowed: ReadonlySet<string>, label: string): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new Error(`${label} contains unsupported field: ${key}`);
+    }
   }
 }
 
@@ -236,6 +352,9 @@ export function validateProbeReport(value: unknown, expected: Partial<ProbeRepor
 export function validateUpgradeRunnerPreflight(value: unknown, expectedSignerThumbprint: string): UpgradeRunnerPreflight {
   const preflight = record(value, "upgrade runner preflight");
   exactKeys(preflight, runnerPreflightKeys, "upgrade runner preflight");
+  if (typeof expectedSignerThumbprint !== "string") {
+    throw new Error("expected upgrade signer thumbprint is invalid");
+  }
   const normalizedSigner = expectedSignerThumbprint.toLowerCase();
   if (
     preflight.schema !== "talos.windows-upgrade-runner-preflight/1" ||
@@ -261,6 +380,214 @@ export function validateUpgradeRunnerPreflight(value: unknown, expectedSignerThu
     signing_private_keys_absent: true,
     installation_absent: true,
     data_absent: true,
+  };
+}
+
+function validateUpgradePackage(value: unknown, expectedCommit: string, label: string): UpgradePackageEvidence {
+  const package_ = record(value, label);
+  exactKeys(package_, upgradePackageKeys, label);
+  if (typeof package_.version !== "string") {
+    throw new Error(`${label} version is invalid`);
+  }
+  parseVersion(package_.version);
+  if (package_.source_commit !== expectedCommit || !commitPattern.test(expectedCommit)) {
+    throw new Error(`${label} source commit does not match the trusted signing run`);
+  }
+  if (typeof package_.receipt_sha256 !== "string" || !sha256Pattern.test(package_.receipt_sha256)) {
+    throw new Error(`${label} receipt hash is invalid`);
+  }
+  return { version: package_.version, source_commit: expectedCommit, receipt_sha256: package_.receipt_sha256 };
+}
+
+function validateUpgradeVault(value: unknown): UpgradeVaultEvidence {
+  const vault = record(value, "upgrade evidence Vault");
+  exactKeys(vault, upgradeVaultKeys, "upgrade evidence Vault");
+  if (
+    typeof vault.id !== "string" ||
+    vault.id.trim() === "" ||
+    vault.id.length > 128 ||
+    typeof vault.backup_id !== "string" ||
+    vault.backup_id.trim() === "" ||
+    vault.backup_id.length > 128 ||
+    typeof vault.backup_ciphertext_sha256 !== "string" ||
+    !sha256Pattern.test(vault.backup_ciphertext_sha256) ||
+    vault.final_revision !== 2 ||
+    vault.final_retention_days !== 45 ||
+    vault.uninstall_retention_verified !== true ||
+    vault.direct_rollback_read_verified !== true ||
+    vault.purged !== true
+  ) {
+    throw new Error("upgrade evidence Vault does not satisfy the N-1 proof contract");
+  }
+  return {
+    id: vault.id,
+    final_revision: 2,
+    final_retention_days: 45,
+    backup_id: vault.backup_id,
+    backup_ciphertext_sha256: vault.backup_ciphertext_sha256,
+    backup_source_schema: positiveInteger(vault.backup_source_schema, "upgrade evidence backup source schema"),
+    backup_target_schema: positiveInteger(vault.backup_target_schema, "upgrade evidence backup target schema"),
+    uninstall_retention_verified: true,
+    direct_rollback_read_verified: true,
+    purged: true,
+  };
+}
+
+function validateUpgradePhases(value: unknown): UpgradeEvidencePhase[] {
+  if (!Array.isArray(value) || value.length > upgradePhaseOrder.length) {
+    throw new Error("upgrade evidence phases are invalid");
+  }
+  return value.map((item, index) => {
+    const phase = record(item, `upgrade evidence phase ${index}`);
+    rejectUnknownKeys(phase, upgradePhaseKeys, `upgrade evidence phase ${index}`);
+    if (phase.name !== upgradePhaseOrder[index] || phase.status !== "passed") {
+      throw new Error("upgrade evidence phases are not the exact successful prefix");
+    }
+    const result: UpgradeEvidencePhase = { name: upgradePhaseOrder[index], status: "passed" };
+    if (phase.application_version !== undefined) {
+      if (typeof phase.application_version !== "string") {
+        throw new Error(`upgrade evidence phase ${index} application version is invalid`);
+      }
+      parseVersion(phase.application_version);
+      result.application_version = phase.application_version;
+    }
+    if (phase.revision !== undefined) {
+      result.revision = positiveInteger(phase.revision, `upgrade evidence phase ${index} revision`);
+    }
+    if (phase.retention_days !== undefined) {
+      result.retention_days = positiveInteger(phase.retention_days, `upgrade evidence phase ${index} retention`);
+    }
+    return result;
+  });
+}
+
+function requireExactPhasePrefix(phases: UpgradeEvidencePhase[], oldVersion: string, newVersion: string, requireComplete: boolean): void {
+  const expected: UpgradeEvidencePhase[] = [
+    { name: "guard", status: "passed" },
+    { name: "package-verification", status: "passed" },
+    { name: "old-install", status: "passed", application_version: oldVersion },
+    { name: "old-vault", status: "passed", application_version: oldVersion, revision: 1, retention_days: 30 },
+    { name: "new-install", status: "passed", application_version: newVersion },
+    { name: "new-vault", status: "passed", application_version: newVersion, revision: 2, retention_days: 45 },
+    { name: "uninstall-retention", status: "passed", revision: 2, retention_days: 45 },
+    { name: "rollback", status: "passed", application_version: oldVersion, revision: 2, retention_days: 45 },
+    { name: "purge", status: "passed", revision: 2 },
+  ];
+  if ((requireComplete && phases.length !== expected.length) || JSON.stringify(phases) !== JSON.stringify(expected.slice(0, phases.length))) {
+    throw new Error("upgrade evidence does not contain the exact successful N-1 phase prefix");
+  }
+}
+
+export function validateUpgradeEvidence(value: unknown, expected: UpgradeEvidenceExpectations): UpgradeEvidence {
+  const evidence = record(value, "upgrade evidence");
+  rejectUnknownKeys(evidence, upgradeEvidenceKeys, "upgrade evidence");
+  if (typeof expected.expectedSignerThumbprint !== "string" || typeof expected.requirePassed !== "boolean") {
+    throw new Error("upgrade evidence verification policy is invalid");
+  }
+  const normalizedSigner = expected.expectedSignerThumbprint.toLowerCase();
+  if (
+    evidence.schema !== upgradeEvidenceSchema ||
+    (evidence.status !== "passed" && evidence.status !== "failed") ||
+    evidence.architecture !== "amd64" ||
+    typeof evidence.signer_thumbprint_sha1 !== "string" ||
+    !signerThumbprintPattern.test(evidence.signer_thumbprint_sha1) ||
+    evidence.signer_thumbprint_sha1 !== normalizedSigner ||
+    !signerThumbprintPattern.test(normalizedSigner) ||
+    evidence.verifier_commit !== expected.verifierCommit ||
+    !commitPattern.test(expected.verifierCommit) ||
+    evidence.old_run_id !== expected.oldRunID ||
+    evidence.new_run_id !== expected.newRunID ||
+    !runIDPattern.test(expected.oldRunID) ||
+    !runIDPattern.test(expected.newRunID) ||
+    expected.oldRunID === expected.newRunID ||
+    !commitPattern.test(expected.oldSourceCommit) ||
+    !commitPattern.test(expected.newSourceCommit) ||
+    expected.oldSourceCommit === expected.newSourceCommit
+  ) {
+    throw new Error("upgrade evidence identity does not match the trusted run selection");
+  }
+  const runnerPreflight = validateUpgradeRunnerPreflight(evidence.runner_preflight, normalizedSigner);
+  const phases = validateUpgradePhases(evidence.phases);
+  const oldPackage = evidence.old_package === undefined ? undefined : validateUpgradePackage(evidence.old_package, expected.oldSourceCommit, "old package evidence");
+  const newPackage = evidence.new_package === undefined ? undefined : validateUpgradePackage(evidence.new_package, expected.newSourceCommit, "new package evidence");
+  if ((oldPackage === undefined) !== (newPackage === undefined)) {
+    throw new Error("upgrade evidence must contain both package identities or neither");
+  }
+  if (oldPackage && newPackage && compareVersions(oldPackage.version, newPackage.version) >= 0) {
+    throw new Error("upgrade evidence package versions are not strictly increasing");
+  }
+  if ((phases.length >= 2) !== (oldPackage !== undefined && newPackage !== undefined)) {
+    throw new Error("upgrade evidence package identities do not match the completed phase prefix");
+  }
+  if (oldPackage && newPackage) {
+    requireExactPhasePrefix(phases, oldPackage.version, newPackage.version, evidence.status === "passed");
+  } else if (JSON.stringify(phases) !== JSON.stringify(upgradePhaseOrder.slice(0, phases.length).map((name) => ({ name, status: "passed" })))) {
+    throw new Error("upgrade evidence early phase prefix contains unsupported details");
+  }
+
+  const result: UpgradeEvidence = {
+    schema: upgradeEvidenceSchema,
+    status: evidence.status,
+    architecture: "amd64",
+    signer_thumbprint_sha1: normalizedSigner,
+    runner_preflight: runnerPreflight,
+    verifier_commit: expected.verifierCommit,
+    old_run_id: expected.oldRunID,
+    new_run_id: expected.newRunID,
+    phases,
+  };
+  if (oldPackage && newPackage) {
+    result.old_package = oldPackage;
+    result.new_package = newPackage;
+  }
+
+  if (evidence.status === "passed") {
+    if (!oldPackage || !newPackage || evidence.failure !== undefined || evidence.vault === undefined) {
+      throw new Error("upgrade evidence is not a complete passing promotion artifact");
+    }
+    result.vault = validateUpgradeVault(evidence.vault);
+    return result;
+  }
+
+  if (expected.requirePassed) {
+    throw new Error("upgrade evidence records a failed native run");
+  }
+  if (evidence.vault !== undefined || evidence.failure === undefined) {
+    throw new Error("failed upgrade evidence has an invalid terminal shape");
+  }
+  const failure = record(evidence.failure, "upgrade evidence failure");
+  exactKeys(failure, upgradeFailureKeys, "upgrade evidence failure");
+  if (
+    typeof failure.stage !== "string" ||
+    !new Set<UpgradeStage>([...upgradePhaseOrder, "cleanup"]).has(failure.stage as UpgradeStage) ||
+    typeof failure.code !== "string" ||
+    !failureCodePattern.test(failure.code)
+  ) {
+    throw new Error("upgrade evidence failure is invalid");
+  }
+  const failureIndex = failure.stage === "cleanup" ? upgradePhaseOrder.length : upgradePhaseOrder.indexOf(failure.stage as (typeof upgradePhaseOrder)[number]);
+  if (failureIndex < phases.length) {
+    throw new Error("upgrade evidence failure precedes an already passed phase");
+  }
+  result.failure = { stage: failure.stage as UpgradeStage, code: failure.code };
+  return result;
+}
+
+export async function readAndValidateUpgradeEvidence(
+  evidencePath: string,
+  expected: UpgradeEvidenceExpectations,
+): Promise<{ evidence: UpgradeEvidence; sha256: string }> {
+  const stat = await lstat(evidencePath);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 64 * 1024) {
+    throw new Error("upgrade evidence must be a bounded regular file");
+  }
+  const raw = await readFile(evidencePath);
+  if (raw.byteLength !== stat.size || raw.byteLength > 64 * 1024) {
+    throw new Error("upgrade evidence changed during bounded read");
+  }
+  return {
+    evidence: validateUpgradeEvidence(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)) as unknown, expected),
+    sha256: createHash("sha256").update(raw).digest("hex"),
   };
 }
 

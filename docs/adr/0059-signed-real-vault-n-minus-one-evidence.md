@@ -19,6 +19,7 @@ The signing and upgrade workflows are separate trust zones. A manually supplied 
 - Install the old package and verify installed binary bytes against its receipt. Use the old probe to create and preflight-backup a real encrypted Vault. Install the candidate, verify its installed bytes, open the old Vault, and commit an optimistic retention revision.
 - Uninstall the candidate and prove the Vault remains readable. Reinstall the old package and require its old probe to read the candidate-mutated Vault. A direct rollback-read failure blocks promotion; current-binary restore evidence is not a substitute.
 - Uninstall the old package, purge the test Vault through the candidate probe, and emit a bounded path-free `talos.windows-upgrade-evidence/1` artifact. Embed the validated preflight facts and bind both preflight and package verification to the same public signer thumbprint. Failure evidence contains only a stage and stable code, never local paths, process output, tokens, or signing material.
+- Reparse the final artifact with an independent strict consumer before upload. Require the exact successful phase sequence for promotion, strictly increasing package versions, trusted run and commit identities, signer and preflight agreement, bounded regular-file input, and a passing status. Emit only a path-free verification summary and the evidence SHA-256.
 
 ## Consequences
 
@@ -33,5 +34,6 @@ A passing smoke proves the selected old-to-candidate path, uninstall retention, 
 - release-probe command parsing before durable runtime access;
 - runner-temp containment and duplicate-argument tests;
 - upgrade-runner contract, PowerShell parse, private-key absence, WebView2, clean-profile, and signer-binding source-contract tests;
+- final-evidence unknown-field, identity, version-order, phase-order, failure-shape, bounded-file, and path-free summary tests;
 - Windows workflow source-contract tests for key separation, pinned actions, bounded evidence upload, and legacy sentinel removal;
 - native signed old/candidate installation evidence remains a provisioned-runner gate.

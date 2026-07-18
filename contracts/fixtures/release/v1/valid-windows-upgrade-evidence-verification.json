@@ -1,0 +1,13 @@
+{
+  "schema": "talos.windows-upgrade-evidence-verification/1",
+  "status": "passed",
+  "architecture": "amd64",
+  "signer_thumbprint_sha1": "ffffffffffffffffffffffffffffffffffffffff",
+  "verifier_commit": "cccccccccccccccccccccccccccccccccccccccc",
+  "old_run_id": "101",
+  "new_run_id": "202",
+  "old_version": "0.33.0",
+  "new_version": "0.34.0",
+  "phase_count": 9,
+  "evidence_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+}

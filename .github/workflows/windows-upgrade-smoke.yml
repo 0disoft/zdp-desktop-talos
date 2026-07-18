@@ -104,12 +104,31 @@ jobs:
           --runner-preflight (Join-Path $env:RUNNER_TEMP 'talos-upgrade-runner-preflight.json')
           --evidence (Join-Path $env:RUNNER_TEMP 'talos-windows-upgrade-evidence.json')
 
+      - name: Validate emitted upgrade evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $requirePassed = if ('${{ steps.upgrade.outcome }}' -eq 'success') { 'true' } else { 'false' }
+          & bun tools/windows-upgrade-evidence.ts `
+            --evidence (Join-Path $env:RUNNER_TEMP 'talos-windows-upgrade-evidence.json') `
+            --old-run-id '${{ inputs.old_run_id }}' `
+            --new-run-id '${{ inputs.new_run_id }}' `
+            --old-source-commit '${{ steps.runs.outputs.old_source_commit }}' `
+            --new-source-commit '${{ steps.runs.outputs.new_source_commit }}' `
+            --verifier-commit '${{ steps.runs.outputs.verifier_commit }}' `
+            --expected-signer-thumbprint $env:TALOS_EXPECTED_SIGNER_SHA1 `
+            --require-passed $requirePassed `
+            --output (Join-Path $env:RUNNER_TEMP 'talos-windows-upgrade-evidence-verification.json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload bounded upgrade evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: talos-windows-upgrade-evidence-${{ inputs.new_run_id }}
-          path: ${{ runner.temp }}/talos-windows-upgrade-evidence.json
+          path: |
+            ${{ runner.temp }}/talos-windows-upgrade-evidence.json
+            ${{ runner.temp }}/talos-windows-upgrade-evidence-verification.json
           if-no-files-found: error
           retention-days: 90
           compression-level: 0

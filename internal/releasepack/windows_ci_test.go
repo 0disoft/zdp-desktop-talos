@@ -43,7 +43,7 @@ func TestWindowsCIHasNoSigningAuthority(t *testing.T) {
 		"runs-on: windows-2025",
 		"permissions:\n  contents: read",
 		"bun install --frozen-lockfile --ignore-scripts",
-		"bun test tools/windows-upgrade-contract.test.ts tools/windows-upgrade-runs.test.ts tools/windows-upgrade-smoke.test.ts",
+		"bun test tools/windows-upgrade-contract.test.ts tools/windows-upgrade-evidence.test.ts tools/windows-upgrade-runs.test.ts tools/windows-upgrade-smoke.test.ts",
 		"go test ./...",
 	} {
 		if !strings.Contains(workflow, required) {
@@ -114,6 +114,9 @@ func TestWindowsUpgradeRunsWithoutSigningKey(t *testing.T) {
 		"run-id: ${{ inputs.new_run_id }}",
 		"tools/windows-upgrade-runs.ts",
 		"tools/windows-upgrade-smoke.ts",
+		"tools/windows-upgrade-evidence.ts",
+		"--require-passed $requirePassed",
+		"--output (Join-Path $env:RUNNER_TEMP 'talos-windows-upgrade-evidence-verification.json')",
 		"talos-windows-upgrade-evidence",
 		"if-no-files-found: error",
 		"retention-days: 90",
@@ -138,8 +141,13 @@ func TestWindowsUpgradeRunsWithoutSigningKey(t *testing.T) {
 	preflightIndex := strings.Index(workflow, "verify-upgrade-runner.ps1")
 	resolveIndex := strings.Index(workflow, "tools/windows-upgrade-runs.ts")
 	downloadIndex := strings.Index(workflow, "actions/download-artifact@")
+	evidenceValidationIndex := strings.Index(workflow, "tools/windows-upgrade-evidence.ts")
+	evidenceUploadIndex := strings.Index(workflow, "actions/upload-artifact@")
 	if preflightIndex < 0 || resolveIndex < 0 || downloadIndex < 0 || preflightIndex > resolveIndex || preflightIndex > downloadIndex {
 		t.Fatal("upgrade-runner preflight must execute before signing-run resolution and package downloads")
+	}
+	if evidenceValidationIndex < 0 || evidenceUploadIndex < 0 || evidenceValidationIndex > evidenceUploadIndex {
+		t.Fatal("emitted upgrade evidence must be validated before upload")
 	}
 }
 
@@ -269,6 +277,18 @@ func TestSignedArtifactVerificationPinsCommitAndPublisher(t *testing.T) {
 			t.Errorf("windows-upgrade-smoke.ts is missing %q", required)
 		}
 	}
+
+	evidenceVerifier := readFile(t, filepath.Join(root, "tools", "windows-upgrade-evidence.ts"))
+	for _, required := range []string{
+		"readAndValidateUpgradeEvidence",
+		"--require-passed",
+		"evidence_sha256",
+		"talos.windows-upgrade-evidence-verification/1",
+	} {
+		if !strings.Contains(evidenceVerifier, required) {
+			t.Errorf("windows-upgrade-evidence.ts is missing %q", required)
+		}
+	}
 	for _, forbidden := range []string{
 		"preserve-me.txt",
 		"vault-data-must-survive-upgrade",
@@ -345,5 +365,17 @@ func TestWindowsUpgradeEvidenceContractIsStrictAndPathFree(t *testing.T) {
 	invalidContent := readFile(t, filepath.Join(root, "contracts", "fixtures", "release", "v1", "invalid-windows-upgrade-evidence-local-path.json"))
 	if !strings.Contains(invalidContent, `"local_path"`) {
 		t.Fatal("invalid Windows upgrade evidence fixture does not exercise local-path rejection")
+	}
+
+	verificationSchema := readFile(t, filepath.Join(root, "contracts", "jsonschema", "release", "v1", "windows-upgrade-evidence-verification.schema.json"))
+	for _, required := range []string{
+		`"additionalProperties": false`,
+		`"talos.windows-upgrade-evidence-verification/1"`,
+		`"signer_thumbprint_sha1"`,
+		`"evidence_sha256"`,
+	} {
+		if !strings.Contains(verificationSchema, required) {
+			t.Errorf("Windows upgrade evidence verification schema is missing %q", required)
+		}
 	}
 }

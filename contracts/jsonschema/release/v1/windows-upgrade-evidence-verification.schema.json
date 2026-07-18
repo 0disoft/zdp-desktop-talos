@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.0disoft.dev/talos/release/v1/windows-upgrade-evidence-verification.schema.json",
+  "title": "Talos Windows Upgrade Evidence Verification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "status",
+    "architecture",
+    "signer_thumbprint_sha1",
+    "verifier_commit",
+    "old_run_id",
+    "new_run_id",
+    "old_version",
+    "new_version",
+    "phase_count",
+    "evidence_sha256"
+  ],
+  "properties": {
+    "schema": { "const": "talos.windows-upgrade-evidence-verification/1" },
+    "status": { "enum": ["passed", "failed"] },
+    "architecture": { "const": "amd64" },
+    "signer_thumbprint_sha1": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "verifier_commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "old_run_id": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "new_run_id": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "old_version": {
+      "type": ["string", "null"],
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "new_version": {
+      "type": ["string", "null"],
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "phase_count": { "type": "integer", "minimum": 0, "maximum": 9 },
+    "evidence_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+  }
+}
