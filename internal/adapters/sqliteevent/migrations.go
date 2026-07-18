@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 17
+const currentSchemaVersion = 18
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -428,6 +428,42 @@ var migrations = []migration{
 			) STRICT`,
 		},
 	},
+	{
+		version: 18,
+		statements: []string{
+			`CREATE TABLE sync_replay_items (
+				pack_id TEXT NOT NULL REFERENCES sync_pack_receipts(pack_id) ON DELETE RESTRICT,
+				vault_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				device_seq INTEGER NOT NULL CHECK (device_seq > 0),
+				event_id TEXT NOT NULL CHECK (length(event_id) BETWEEN 1 AND 128),
+				event_hash TEXT NOT NULL CHECK (length(event_hash) = 64),
+				state TEXT NOT NULL CHECK (state IN ('applied','conflicted','quarantined')),
+				reason_code TEXT NOT NULL CHECK (length(reason_code) BETWEEN 1 AND 64),
+				recorded_at TEXT NOT NULL,
+				PRIMARY KEY(pack_id, device_seq),
+				FOREIGN KEY(vault_id, device_id) REFERENCES sync_devices(vault_id, device_id) ON DELETE RESTRICT,
+				UNIQUE(vault_id, device_id, device_seq)
+			) STRICT`,
+			`CREATE INDEX sync_replay_items_event_idx ON sync_replay_items(vault_id, event_id, state)`,
+			`CREATE TABLE sync_replay_batches (
+				pack_id TEXT PRIMARY KEY REFERENCES sync_pack_receipts(pack_id) ON DELETE RESTRICT,
+				vault_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				sequence_start INTEGER NOT NULL CHECK (sequence_start > 0),
+				sequence_end INTEGER NOT NULL CHECK (sequence_end >= sequence_start),
+				event_count INTEGER NOT NULL CHECK (event_count BETWEEN 1 AND 512 AND event_count = sequence_end - sequence_start + 1),
+				applied_count INTEGER NOT NULL CHECK (applied_count >= 0),
+				conflicted_count INTEGER NOT NULL CHECK (conflicted_count >= 0),
+				quarantined_count INTEGER NOT NULL CHECK (quarantined_count >= 0),
+				completed_at TEXT NOT NULL,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				FOREIGN KEY(vault_id, device_id) REFERENCES sync_devices(vault_id, device_id) ON DELETE RESTRICT,
+				CHECK (applied_count + conflicted_count + quarantined_count = event_count)
+			) STRICT`,
+			`CREATE INDEX sync_replay_batches_device_idx ON sync_replay_batches(vault_id, device_id, sequence_start, pack_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -482,6 +518,8 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT vault_id, device_id, next_sequence, updated_at FROM sync_export_heads LIMIT 0`,
 		`SELECT export_id, vault_id, device_id, sequence_start, sequence_end, event_count, state, pack_id, ciphertext_hash, pack_envelope, created_at, updated_at FROM sync_export_batches LIMIT 0`,
 		`SELECT export_id, event_id, device_seq FROM sync_export_batch_events LIMIT 0`,
+		`SELECT pack_id, vault_id, device_id, device_seq, event_id, event_hash, state, reason_code, recorded_at FROM sync_replay_items LIMIT 0`,
+		`SELECT pack_id, vault_id, device_id, sequence_start, sequence_end, event_count, applied_count, conflicted_count, quarantined_count, completed_at, event_id FROM sync_replay_batches LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

@@ -188,11 +188,16 @@ func (s *Store) loadPreparedExport(ctx context.Context, queryer syncReadQueryer,
 }
 
 func (s *Store) selectUnassignedExportEvents(ctx context.Context, tx *sql.Tx, vaultID string, limit int) ([]event.Record, error) {
+	filter, filterArguments := syncableEventFilter("e")
+	arguments := make([]any, 0, len(filterArguments)+2)
+	arguments = append(arguments, vaultID)
+	arguments = append(arguments, filterArguments...)
+	arguments = append(arguments, limit)
 	rows, err := tx.QueryContext(ctx, `SELECT e.event_id, e.vault_id, e.event_type, e.schema_version, e.sensitivity, e.payload_envelope, e.occurred_at
 		FROM events e
-		WHERE e.vault_id = ? AND e.event_type NOT LIKE 'sync.%'
+		WHERE e.vault_id = ? AND `+filter+`
 		AND NOT EXISTS (SELECT 1 FROM sync_event_origins o WHERE o.event_id = e.event_id)
-		ORDER BY e.occurred_at, e.event_id LIMIT ?`, vaultID, limit)
+		ORDER BY e.occurred_at, e.event_id LIMIT ?`, arguments...)
 	if err != nil {
 		return nil, fmt.Errorf("select sync export events: %w", err)
 	}

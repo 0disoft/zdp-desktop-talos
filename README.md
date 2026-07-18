@@ -23,10 +23,10 @@ Talos owns the installed desktop application, local Vault, task execution, Decis
 - protected Vault create, discovery, open, retention, lock, and restart-safe hard purge
 - canonical Git workspace inspection, revisioned Task Contracts, Decision Queue, permission review, owned worktrees, verification evidence, and explicit patch apply or discard
 - explicit model-egress consent, strict plan proposals, encrypted memory lifecycle, deterministic context evaluation, and public-only projection preview
-- signed encrypted sync packs with trusted device membership, DPAPI local signing identity, revocation, restart-safe validation/export journals, and fail-closed secret scanning
+- signed encrypted sync packs with trusted device membership, DPAPI local signing identity, revocation, restart-safe validation/export journals, explicit event allowlisting, canonical replay, durable conflict quarantine, and fail-closed secret scanning
 - fail-closed ZDP account status and offline unlink without exposing account or consent references to the renderer
 
-The current local evidence covers Windows amd64 source builds, schema migrations, DPAPI persistence, rotation, encrypted restart recovery, worker execution, Svelte diagnostics, and the packaging source contract. Production readiness remains false until a provisioned signing host produces and verifies a signed installer and passes native clean-install and N-1 upgrade checks. Shared account link creation remains blocked by upstream ZDP readiness, and manual sync does not yet apply remote events. Plaintext key-file fallback is forbidden.
+The current local evidence covers Windows amd64 source builds, schema migrations, DPAPI persistence, rotation, encrypted restart recovery, worker execution, Svelte diagnostics, and the packaging source contract. Production readiness remains false until a provisioned signing host produces and verifies a signed installer and passes native clean-install and N-1 upgrade checks. Shared account link creation remains blocked by upstream ZDP readiness. Verified packs can be replayed by the backend, but enrollment, Git exchange, workspace remapping, and the renderer workflow are not complete. Plaintext key-file fallback is forbidden.
 
 ## Start Here
 
@@ -40,4 +40,4 @@ The current local evidence covers Windows amd64 source builds, schema migrations
 - CLI contract: `docs/cli/command-contract.md`
 - Decisions: `docs/adr/`
 
-The repository now contains the local MVP loop from Vault and Task Contract through execution, verification, patch review, memory review, projection, sync-pack validation, local device signing identity, and restart-safe export creation. Remaining local product work is Vault enrollment transfer, ordered sync replay, conflict handling, and Git exchange. Shared account link creation, funded live-provider smoke, signed installer evidence, native upgrade evidence, hosted CI, and automatic update are external or later promotion gates rather than hidden completion claims.
+The repository now contains the local MVP loop from Vault and Task Contract through execution, verification, patch review, memory review, projection, sync-pack validation, local device signing identity, restart-safe export creation, and ordered canonical replay with conflict quarantine. Remaining local product work is Vault enrollment transfer, workspace remapping, Git exchange, and the renderer sync workflow. Shared account link creation, funded live-provider smoke, signed installer evidence, native upgrade evidence, hosted CI, and automatic update are external or later promotion gates rather than hidden completion claims.

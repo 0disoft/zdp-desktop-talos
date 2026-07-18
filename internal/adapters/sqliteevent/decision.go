@@ -17,23 +17,27 @@ import (
 )
 
 const (
-	decisionCreatedEventType    = "decision.created"
-	decisionAnsweredEventType   = "decision.answered"
-	decisionSupersededEventType = "decision.question.superseded"
-	decisionResolvedEventType   = "decision.conflict.resolved"
-	decisionEventSchemaVersion  = 1
+	decisionCreatedEventType         = "decision.created"
+	decisionAnsweredEventType        = "decision.answered"
+	decisionSupersededEventType      = "decision.question.superseded"
+	decisionResolvedEventType        = "decision.conflict.resolved"
+	decisionLegacyEventSchemaVersion = 1
+	decisionEventSchemaVersion       = 2
 )
 
 type decisionQuestionPayload struct {
-	DecisionID       string               `json:"decision_id"`
-	QuestionRevision int                  `json:"question_revision"`
-	Question         string               `json:"question"`
-	Reason           string               `json:"reason"`
-	RiskIfUnanswered string               `json:"risk_if_unanswered"`
-	SafeDefault      decision.SafeDefault `json:"safe_default"`
-	BlockingScopes   []string             `json:"blocking_scopes"`
-	Options          []decision.Option    `json:"options"`
-	CreatedAt        string               `json:"created_at"`
+	DecisionID                 string               `json:"decision_id"`
+	TaskID                     string               `json:"task_id,omitempty"`
+	Category                   decision.Category    `json:"category,omitempty"`
+	ExpectedRepositoryRevision string               `json:"expected_repository_revision,omitempty"`
+	QuestionRevision           int                  `json:"question_revision"`
+	Question                   string               `json:"question"`
+	Reason                     string               `json:"reason"`
+	RiskIfUnanswered           string               `json:"risk_if_unanswered"`
+	SafeDefault                decision.SafeDefault `json:"safe_default"`
+	BlockingScopes             []string             `json:"blocking_scopes"`
+	Options                    []decision.Option    `json:"options"`
+	CreatedAt                  string               `json:"created_at"`
 }
 
 type decisionAnswerPayload struct {
@@ -95,7 +99,7 @@ func (s *Store) CreateDecision(ctx context.Context, input decisionstore.CreateIn
 	if err != nil {
 		return decisionstore.Result{}, fmt.Errorf("generate decision id: %w", err)
 	}
-	payload := decisionQuestionPayload{DecisionID: decisionID, QuestionRevision: 1, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: append([]string(nil), input.BlockingScopes...), Options: append([]decision.Option(nil), input.Options...), CreatedAt: occurredAt.Format(time.RFC3339Nano)}
+	payload := decisionQuestionPayload{DecisionID: decisionID, TaskID: input.TaskID, Category: input.Category, ExpectedRepositoryRevision: input.ExpectedRepositoryRevision, QuestionRevision: 1, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: append([]string(nil), input.BlockingScopes...), Options: append([]decision.Option(nil), input.Options...), CreatedAt: occurredAt.Format(time.RFC3339Nano)}
 	record, err := s.decisionEvent(input.VaultID, decisionCreatedEventType, payload, occurredAt)
 	if err != nil {
 		return decisionstore.Result{}, err
@@ -330,7 +334,7 @@ func (s *Store) SupersedeDecision(ctx context.Context, input decisionstore.Super
 	if validation.Validate(category) != nil {
 		return decisionstore.Result{}, decisionstore.ErrInvalidCommand
 	}
-	payload := decisionQuestionPayload{DecisionID: input.DecisionID, QuestionRevision: nextRevision, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: append([]string(nil), input.BlockingScopes...), Options: append([]decision.Option(nil), input.Options...), CreatedAt: now.Format(time.RFC3339Nano)}
+	payload := decisionQuestionPayload{DecisionID: input.DecisionID, TaskID: pointer.taskID, Category: category, ExpectedRepositoryRevision: pointer.repositoryRevision, QuestionRevision: nextRevision, Question: input.Question, Reason: input.Reason, RiskIfUnanswered: input.RiskIfUnanswered, SafeDefault: input.SafeDefault, BlockingScopes: append([]string(nil), input.BlockingScopes...), Options: append([]decision.Option(nil), input.Options...), CreatedAt: now.Format(time.RFC3339Nano)}
 	record, err := s.decisionEvent(input.VaultID, decisionSupersededEventType, payload, now)
 	if err != nil {
 		return decisionstore.Result{}, err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 )
@@ -26,13 +27,24 @@ type PrepareImportResult struct {
 	Replay   bool
 }
 
+type ApplyImportResult struct {
+	Prepared PrepareImportResult
+	Replay   syncstate.ReplayResult
+	Replayed bool
+}
+
 type Importer struct {
 	codec *Codec
-	store syncstore.Store
+	store importerStore
 	now   func() time.Time
 }
 
-func NewImporter(codec *Codec, store syncstore.Store) (*Importer, error) {
+type importerStore interface {
+	syncstore.Store
+	syncstore.ReplayStore
+}
+
+func NewImporter(codec *Codec, store importerStore) (*Importer, error) {
 	if codec == nil || store == nil {
 		return nil, ErrInvalidPack
 	}
@@ -62,4 +74,28 @@ func (i *Importer) Prepare(ctx context.Context, input PrepareImportInput) (Prepa
 		return PrepareImportResult{}, err
 	}
 	return PrepareImportResult{Manifest: manifest, Events: events, Receipt: receipt, Replay: replay}, nil
+}
+
+func (i *Importer) Apply(ctx context.Context, input PrepareImportInput) (ApplyImportResult, error) {
+	prepared, err := i.Prepare(ctx, input)
+	if err != nil {
+		return ApplyImportResult{}, err
+	}
+	events := make([]syncstore.ReplayEvent, len(prepared.Events))
+	for index, candidate := range prepared.Events {
+		occurredAt, err := time.Parse(time.RFC3339Nano, candidate.OccurredAt)
+		if err != nil {
+			return ApplyImportResult{}, ErrInvalidPack
+		}
+		events[index] = syncstore.ReplayEvent{DeviceSeq: candidate.DeviceSeq, Record: event.Record{ID: candidate.EventID, VaultID: prepared.Manifest.VaultID, Type: candidate.Type, SchemaVersion: candidate.SchemaVersion, Sensitivity: candidate.Sensitivity, Payload: append([]byte(nil), candidate.Payload...), OccurredAt: occurredAt}}
+	}
+	completedAt := input.ReceivedAt
+	if completedAt.IsZero() {
+		completedAt = i.now()
+	}
+	replay, replayed, err := i.store.ApplyValidatedSyncPack(ctx, syncstore.ApplyReplayInput{PackID: prepared.Manifest.PackID, VaultID: prepared.Manifest.VaultID, DeviceID: prepared.Manifest.DeviceID, Events: events, CompletedAt: completedAt})
+	if err != nil {
+		return ApplyImportResult{}, err
+	}
+	return ApplyImportResult{Prepared: prepared, Replay: replay, Replayed: replayed}, nil
 }

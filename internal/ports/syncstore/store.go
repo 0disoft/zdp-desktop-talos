@@ -21,6 +21,8 @@ var (
 	ErrIdempotencyConflict = errors.New("sync command idempotency conflict")
 	ErrNoExportableEvents  = errors.New("no exportable events are available")
 	ErrExportConflict      = errors.New("sync export batch conflicts with stored state")
+	ErrReplayConflict      = errors.New("sync replay conflicts with validated pack state")
+	ErrReplayNotFound      = errors.New("sync replay was not found")
 )
 
 type RegisterDeviceInput struct {
@@ -76,6 +78,19 @@ type FinalizeExportInput struct {
 	OccurredAt     time.Time
 }
 
+type ReplayEvent struct {
+	DeviceSeq uint64
+	Record    event.Record
+}
+
+type ApplyReplayInput struct {
+	PackID      string
+	VaultID     string
+	DeviceID    string
+	Events      []ReplayEvent
+	CompletedAt time.Time
+}
+
 type Store interface {
 	RegisterSyncDevice(context.Context, RegisterDeviceInput) (syncstate.Device, error)
 	RevokeSyncDevice(context.Context, RevokeDeviceInput) (syncstate.Device, error)
@@ -85,4 +100,9 @@ type Store interface {
 	PrepareSyncExport(context.Context, PrepareExportInput) (PreparedExport, bool, error)
 	FinalizeSyncExport(context.Context, FinalizeExportInput) (syncstate.ExportBatch, []byte, bool, error)
 	GetSyncExport(context.Context, string, string) (syncstate.ExportBatch, []byte, error)
+}
+
+type ReplayStore interface {
+	ApplyValidatedSyncPack(context.Context, ApplyReplayInput) (syncstate.ReplayResult, bool, error)
+	GetSyncReplay(context.Context, string, string) (syncstate.ReplayResult, error)
 }

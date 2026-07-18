@@ -2,7 +2,7 @@
 
 - Status: implemented contract; signing-host execution pending
 - Installer: NSIS, current-user scope, Windows amd64
-- Product version: `0.20.0`
+- Product version: `0.21.0`
 
 The package source uses the build-asset generator from the exact Wails module pinned in `go.mod`. Generated Wails assets live only in `.artifacts/`; the repository owns the Talos NSIS overlay and release scripts.
 

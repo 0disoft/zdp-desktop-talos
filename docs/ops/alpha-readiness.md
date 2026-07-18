@@ -13,7 +13,7 @@
 | Decision and patch review | pass | encrypted decisions, conflict handling, fresh evidence, bounded diff review, explicit apply or discard |
 | Model boundary | pass locally | explicit egress consent, redaction, strict response validation, durable receipts; funded live-provider smoke remains external |
 | Memory boundary | pass locally | provenance, review gate, expiry, supersession, deterministic evaluation, public-only projection |
-| Manual sync foundation | partial | signed encrypted packs, trusted device membership, DPAPI local signing identity, revocation, contiguous validation and export journals, exact-pack recovery, and export secret scanning; Vault enrollment transfer, event replay, conflicts, and Git exchange are not complete |
+| Manual sync foundation | partial | signed encrypted packs, trusted device membership, DPAPI local signing identity, revocation, contiguous validation/export journals, explicit Task/Decision/Memory allowlist, schema-18 canonical replay, durable conflict/quarantine outcomes, exact-pack recovery, and export secret scanning pass; Vault enrollment transfer, workspace remapping, Git exchange, and renderer workflow are not complete |
 | Shared account boundary | blocked upstream | renderer-safe local status and offline unlink pass; live product-link route and production end-to-end are not approved |
 | Source build and migration | pass | Go suite, Svelte diagnostics and build, schema 0 through 16 migration, desktop/worker/CLI build, doctor |
 | Scaffold and package source contract | pass | strict ssealed validation and Windows package contract tests |

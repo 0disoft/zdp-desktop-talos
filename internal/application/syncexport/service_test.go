@@ -35,7 +35,7 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 	keys := &memoryKeys{values: map[keyvault.Reference][]byte{{VaultID: "vault-e2e", KeyID: "vault-kek-v1"}: append([]byte(nil), vaultKey...)}}
 	appendEvent := func(key, value string, at time.Time) {
 		t.Helper()
-		if _, err := store.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "task.outcome.observed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
+		if _, err := store.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "task.contract.created", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -45,7 +45,7 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 		t.Fatal(err)
 	}
 	first, err := exporter.ExportNext(ctx, "vault-e2e", 32)
-	if err != nil || first.Batch.SequenceStart != 1 || first.Batch.SequenceEnd != 2 || first.Manifest.DeviceID == "" || len(first.Encoded) == 0 {
+	if err != nil || first.Batch.SequenceStart != 1 || first.Batch.SequenceEnd != 1 || first.Manifest.DeviceID == "" || len(first.Encoded) == 0 {
 		t.Fatalf("first=%+v error=%v", first, err)
 	}
 	device, err := store.GetSyncDevice(ctx, "vault-e2e", first.Manifest.DeviceID)
@@ -53,7 +53,7 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 		t.Fatal(err)
 	}
 	manifest, imported, err := syncpack.New().Import(ctx, syncpack.ImportInput{Encoded: first.Encoded, VaultID: "vault-e2e", DeviceID: first.Manifest.DeviceID, EncryptionKey: vaultKey, VerifyKey: device.PublicKey})
-	if err != nil || manifest.PackID != first.Manifest.PackID || len(imported) != 2 || imported[0].Type != "vault.created" || imported[1].DeviceSeq != 2 {
+	if err != nil || manifest.PackID != first.Manifest.PackID || len(imported) != 1 || imported[0].Type != "task.contract.created" || imported[0].DeviceSeq != 1 {
 		t.Fatalf("manifest=%+v imported=%+v error=%v", manifest, imported, err)
 	}
 	if _, err := exporter.ExportNext(ctx, "vault-e2e", 32); !errors.Is(err, syncstore.ErrNoExportableEvents) {
@@ -67,7 +67,7 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 	defer reopened.Close()
 	appendEvent = func(key, value string, at time.Time) {
 		t.Helper()
-		if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "memory.reviewed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
+		if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "memory.state.changed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"value":"` + value + `"}`), OccurredAt: at, IdempotencyKey: key}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -77,13 +77,13 @@ func TestExporterPersistsOneDeviceIdentityAndContiguousReadyPacks(t *testing.T) 
 		t.Fatal(err)
 	}
 	second, err := restartedExporter.ExportNext(ctx, "vault-e2e", 32)
-	if err != nil || second.Manifest.DeviceID != first.Manifest.DeviceID || second.Batch.SequenceStart != 3 || second.Batch.SequenceEnd != 3 {
+	if err != nil || second.Manifest.DeviceID != first.Manifest.DeviceID || second.Batch.SequenceStart != 2 || second.Batch.SequenceEnd != 2 {
 		t.Fatalf("second=%+v error=%v", second, err)
 	}
 	if keys.putCount(syncidentity.SigningKeyID) != 1 {
 		t.Fatalf("sync signing key put count=%d", keys.putCount(syncidentity.SigningKeyID))
 	}
-	if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "terminal.output.captured", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"password":"test-only-marker"}`), OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "event-secret-finding"}); err != nil {
+	if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-e2e", Type: "memory.state.changed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"password":"test-only-marker"}`), OccurredAt: now.Add(3 * time.Second), IdempotencyKey: "event-secret-finding"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := restartedExporter.ExportNext(ctx, "vault-e2e", 32); !errors.Is(err, syncexport.ErrSecretFindings) {

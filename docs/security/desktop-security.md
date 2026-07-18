@@ -16,6 +16,7 @@ The model is an untrusted planner. Repository files, Git history, terminal outpu
 - remote HTML is not loaded in the privileged WebView; Markdown is sanitized and external links open outside the app;
 - update manifests and artifacts require publisher signatures;
 - redaction and secret scanning run before persistence, diagnostics, model egress, projection, and sync export;
+- sync export uses an explicit event-type/schema allowlist; imported, device-local, unsupported, and legacy events cannot silently cross or mutate another device boundary;
 - permission grants are `allow_once`, `allow_task`, `allow_workspace`, `deny`, or `require_review`; blanket shell permission is forbidden.
 
 ## Honest Limitation

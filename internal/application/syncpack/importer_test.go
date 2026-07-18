@@ -49,11 +49,16 @@ func TestImporterUsesMembershipKeyAndRecordsOnlyVerifiedPack(t *testing.T) {
 	if err != nil || result.Receipt.PackID == "" || len(result.Events) != 1 || store.recordCalls != 1 {
 		t.Fatalf("result=%+v calls=%d error=%v", result, store.recordCalls, err)
 	}
+	applied, err := importer.Apply(context.Background(), PrepareImportInput{Encoded: export(trustedPrivate), VaultID: "vault", DeviceID: "device", EncryptionKey: key, ReceivedAt: time.Date(2026, 7, 18, 11, 3, 0, 0, time.UTC)})
+	if err != nil || applied.Replay.Batch.AppliedCount != 1 || store.applyCalls != 1 || store.recordCalls != 2 {
+		t.Fatalf("applied=%+v recordCalls=%d applyCalls=%d error=%v", applied, store.recordCalls, store.applyCalls, err)
+	}
 }
 
 type importStore struct {
 	device      syncstate.Device
 	recordCalls int
+	applyCalls  int
 }
 
 func (s *importStore) GetSyncDevice(context.Context, string, string) (syncstate.Device, error) {
@@ -86,5 +91,16 @@ func (s *importStore) FinalizeSyncExport(context.Context, syncstore.FinalizeExpo
 }
 
 func (s *importStore) GetSyncExport(context.Context, string, string) (syncstate.ExportBatch, []byte, error) {
+	panic("not used")
+}
+
+func (s *importStore) ApplyValidatedSyncPack(_ context.Context, input syncstore.ApplyReplayInput) (syncstate.ReplayResult, bool, error) {
+	s.applyCalls++
+	item := syncstate.ReplayItem{PackID: input.PackID, VaultID: input.VaultID, DeviceID: input.DeviceID, DeviceSeq: input.Events[0].DeviceSeq, EventID: input.Events[0].Record.ID, EventHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: syncstate.ReplayApplied, ReasonCode: "applied", RecordedAt: input.CompletedAt}
+	batch := syncstate.ReplayBatch{PackID: input.PackID, VaultID: input.VaultID, DeviceID: input.DeviceID, SequenceStart: item.DeviceSeq, SequenceEnd: item.DeviceSeq, EventCount: 1, AppliedCount: 1, CompletedAt: input.CompletedAt, LastEventID: "replay-event"}
+	return syncstate.ReplayResult{Batch: batch, Items: []syncstate.ReplayItem{item}}, false, nil
+}
+
+func (s *importStore) GetSyncReplay(context.Context, string, string) (syncstate.ReplayResult, error) {
 	panic("not used")
 }
