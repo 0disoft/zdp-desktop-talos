@@ -31,6 +31,10 @@ For a later Task, Context Assembly queries only unexpired approved and stable re
 
 The desktop exposes statement, rationale, confidence, applicability terms, provenance count, lifecycle state, validity, and replacement identity through bounded review methods. Approval, rejection, quarantine, stable, stale, reapproval, deprecation, supersession, and expiry sweep are use-case-specific optimistic-revision commands with server-owned validity choices. A separate current-Task view shows only the active memories Context Assembly selected and the local match reason; it never exposes raw event payloads, SQL, or arbitrary transition arguments.
 
+## Projection
+
+The projection compiler consumes validated memory records after Vault decryption but includes only public records in reviewed non-quarantined lifecycle states. It omits Vault identity, workspace paths, raw evidence IDs, and generation time, sorts by memory ID, renders Markdown, YAML, and JSONL from one model, scans each complete file, and fails closed on any finding. File and bundle hashes bind the exact bytes. The Wails surface returns only a bounded preview and explicit completeness; it cannot choose a path, write files, or mutate Git.
+
 ## Decisions
 
 A Decision blocks only named steps or capabilities. Safe unrelated steps continue. Answers carry the question revision and expected repository revision. Concurrent incompatible answers become `conflicted`; last-write-wins is forbidden for security, privacy, license, public API, and deletion choices.

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.0disoft.com/talos/projection/v1/memory-projection-record.schema.json",
+  "title": "Talos Memory Projection Record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "memory_id", "kind", "state", "scope", "statement", "rationale", "goal_terms", "source_actor", "source_ref", "evidence_count", "confidence", "revision", "created_at", "updated_at", "reviewed_at"],
+  "properties": {
+    "schema": { "const": "talos.memory-projection-record/1" },
+    "memory_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "kind": { "enum": ["preference", "constraint", "decision", "procedure", "failure_pattern", "environment_fact"] },
+    "state": { "enum": ["approved", "stable", "stale", "deprecated", "superseded"] },
+    "scope": { "enum": ["vault", "workspace"] },
+    "statement": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "rationale": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "goal_terms": { "type": "array", "maxItems": 16, "items": { "type": "string", "minLength": 1, "maxLength": 128 }, "uniqueItems": true },
+    "source_actor": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "source_ref": { "type": "string", "pattern": "^event:[^\\s]{1,128}$" },
+    "evidence_count": { "type": "integer", "minimum": 1, "maximum": 32 },
+    "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "superseded_by": { "type": "string", "minLength": 1, "maxLength": 128 }
+  }
+}

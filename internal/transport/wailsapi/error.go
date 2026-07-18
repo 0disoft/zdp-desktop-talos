@@ -8,6 +8,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/application/executionruntime"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/memorycompile"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/memorykernel"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/memoryprojection"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/modelruntime"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchcommand"
 	"github.com/0disoft/zdp-desktop-talos/internal/application/patchreview"
@@ -51,6 +52,15 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, memoryprojection.ErrSecretFindings):
+		mapped.Code = "PROJECTION_SECRET_FINDINGS"
+		mapped.Message = "비밀정보로 보이는 내용이 있어 projection을 만들지 않았습니다."
+	case errors.Is(err, memoryprojection.ErrOutputLimit):
+		mapped.Code = "PROJECTION_OUTPUT_LIMIT"
+		mapped.Message = "Projection 결과가 안전한 크기 제한을 넘었습니다."
+	case errors.Is(err, memoryprojection.ErrInvalidRequest):
+		mapped.Code = "PROJECTION_REQUEST_INVALID"
+		mapped.Message = "Projection에 포함할 기억 상태를 확인해 주세요."
 	case errors.Is(err, errModelConsentRequired):
 		mapped.Code = "MODEL_EGRESS_CONSENT_REQUIRED"
 		mapped.Message = "현재 Workspace와 모델에 대한 외부 전송 내용을 확인해 주세요."

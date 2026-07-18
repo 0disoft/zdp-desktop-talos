@@ -73,6 +73,7 @@ func main() {
 			application.NewService(wailsapi.NewTaskService(vaultService, workspaceService)),
 			application.NewService(wailsapi.NewDecisionService(vaultService, workspaceService)),
 			application.NewService(wailsapi.NewMemoryService(vaultService, workspaceService)),
+			application.NewService(wailsapi.NewProjectionService(vaultService)),
 			application.NewService(planService),
 			application.NewService(wailsapi.NewPermissionService(vaultService)),
 			application.NewService(executionService),

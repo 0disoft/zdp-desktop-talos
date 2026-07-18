@@ -21,6 +21,7 @@
   import { applyPatch, discardPatch } from './lib/api/patch';
   import { changeMemoryLifecycle, compileTaskMemories, explainTaskMemory, listMemories, reviewMemory, sweepExpiredMemories, type AppliedMemory, type MemoryItem, type MemoryReviewOutcome } from './lib/api/memory';
   import { getModelProviderStatus, proposePlan, type ModelProviderStatus, type PlanProposal } from './lib/api/plan';
+  import { previewMemoryProjection, type ProjectionPreview } from './lib/api/projection';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -54,6 +55,8 @@
   let lifecycleMemories = $state<MemoryItem[]>([]);
   let memoryValidityDays = $state(90);
   let supersedeTargets = $state<Record<string, string>>({});
+  let projectionPreview = $state<ProjectionPreview | null>(null);
+  let selectedProjectionPath = $state('memory/memories.md');
   let modelProvider = $state<ModelProviderStatus>({ provider_key: 'openai-responses', credential_name: 'OPENAI_API_KEY', ready: false, reason_code: 'MODEL_PROVIDER_UNAVAILABLE' });
   let modelConsent = $state(false);
   let planProposal = $state<PlanProposal | null>(null);
@@ -450,9 +453,27 @@
     } finally { loading = false; }
   }
 
+  async function handleProjectionPreview() {
+    if (vault.state !== 'unlocked') return;
+    loading = true;
+    latestError = null;
+    try {
+      const result = await previewMemoryProjection();
+      if (result.error) latestError = result.error;
+      else {
+        projectionPreview = result;
+        if (!result.files.some((file) => file.path === selectedProjectionPath)) selectedProjectionPath = result.files[0]?.path ?? '';
+      }
+    } catch {
+      latestError = localError('PROJECTION_PREVIEW_FAILED', '기억 projection을 안전하게 만들지 못했습니다.');
+    } finally {
+      loading = false;
+    }
+  }
+
   function clearPrivateTaskState() {
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
-    memoryCandidates = []; lifecycleMemories = []; appliedMemories = []; memoryEligible = 0; supersedeTargets = {}; modelConsent = false; planProposal = null;
+    memoryCandidates = []; lifecycleMemories = []; appliedMemories = []; memoryEligible = 0; supersedeTargets = {}; projectionPreview = null; modelConsent = false; planProposal = null;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
@@ -817,6 +838,31 @@
           <p class="decision-empty">현재 Task에 선택된 기억이 없습니다.</p>
         {/each}
       </div>
+    </article>
+
+    <article class="status-card projection-card">
+      <div class="status-heading">
+        <span class:unlocked={projectionPreview !== null && projectionPreview.complete} class:error={projectionPreview !== null && !projectionPreview.complete} class="status-dot clear" aria-hidden="true"></span>
+        <h2>기억 Projection</h2>
+      </div>
+      <strong>{projectionPreview ? `${projectionPreview.included}개 공개 기억` : '미리보기 대기'}</strong>
+      <p>private·sensitive 기억과 검토 전 후보는 구조적으로 제외합니다. 비밀정보 의심 항목이 하나라도 나오면 결과 전체를 만들지 않습니다.</p>
+      <button type="button" onclick={handleProjectionPreview} disabled={loading || vault.state !== 'unlocked'}>Projection 미리보기</button>
+      {#if projectionPreview}
+        <div class="projection-summary">
+          <span>민감도 제외 {projectionPreview.excluded_sensitivity}</span>
+          <span>상태 제외 {projectionPreview.excluded_lifecycle}</span>
+          <span>{projectionPreview.complete ? '전체 범위' : '최대 200개 미리보기'}</span>
+          <code>{projectionPreview.bundle_sha256.slice(0, 16)}</code>
+        </div>
+        <label class="projection-picker"><span>파일</span><select bind:value={selectedProjectionPath} disabled={loading}>{#each projectionPreview.files as file (file.path)}<option value={file.path}>{file.path} · {file.size_bytes} bytes</option>{/each}</select></label>
+        {#each projectionPreview.files.filter((file) => file.path === selectedProjectionPath) as file (file.path)}
+          <section class="projection-preview">
+            <div><code>{file.sha256}</code>{#if file.truncated}<span>일부만 표시</span>{/if}</div>
+            <pre>{file.preview}</pre>
+          </section>
+        {/each}
+      {/if}
     </article>
 
     <article class="status-card">
