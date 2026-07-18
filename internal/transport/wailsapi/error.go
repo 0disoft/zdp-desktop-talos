@@ -65,6 +65,18 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, vaultbootstrap.ErrRestoreUnsupported):
+		mapped.Code = "VAULT_RESTORE_UNAVAILABLE"
+		mapped.Message = "이 기기에서 안전한 Vault 복원을 사용할 수 없습니다."
+	case errors.Is(err, vaultbootstrap.ErrRestoreRolledBack), errors.Is(err, vaultbackup.ErrRestoreRolledBack):
+		mapped.Code = "VAULT_RESTORE_ROLLED_BACK"
+		mapped.Message = "백업 복원에 실패해 기존 Vault를 다시 열었습니다."
+	case errors.Is(err, vaultbootstrap.ErrRestoreCleanup):
+		mapped.Code = "VAULT_RESTORE_CLEANUP_REQUIRED"
+		mapped.Message = "Vault는 복원됐지만 이전 세대 정리가 남았습니다. 앱을 다시 시작해 주세요."
+	case errors.Is(err, vaultbootstrap.ErrRestoreIncomplete), errors.Is(err, vaultbackup.ErrRestoreIncomplete), errors.Is(err, vaultbackup.ErrRestorePending):
+		mapped.Code = "VAULT_RESTORE_RECOVERY_REQUIRED"
+		mapped.Message = "Vault 복원이 중단됐습니다. 앱을 다시 시작하면 보호된 복원 저널에서 이어갑니다."
 	case errors.Is(err, vaultbootstrap.ErrBackupUnsupported):
 		mapped.Code = "VAULT_BACKUP_UNAVAILABLE"
 		mapped.Message = "이 기기에서 Vault 백업 저장소를 사용할 수 없습니다."

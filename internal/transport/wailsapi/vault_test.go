@@ -179,6 +179,59 @@ func TestVaultServiceCreatesBackupAndRunsIsolatedPreflight(t *testing.T) {
 	}
 }
 
+func TestVaultServiceRestoresExactPreflightAndKeepsOnlyBoundedReceipt(t *testing.T) {
+	t.Parallel()
+	keys := &serviceKeyStore{}
+	database := &serviceDatabase{}
+	backups := &serviceBackupStore{}
+	catalog := &serviceCatalog{}
+	creator, err := vaultbootstrap.NewCreator(keys, &serviceDatabaseFactory{database: database}, catalog, backups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewVaultService(creator, nil)
+	created := service.Create(90, "create")
+	if created.Error != nil || created.Vault == nil {
+		t.Fatalf("create=%+v", created)
+	}
+	backups.onReconcile = func() {
+		database.record.Revision = 1
+		database.record.RetentionDays = 30
+	}
+	restored := service.RestoreBackup(
+		`C:\Backups\vault.talos-backup`, "00000000-0000-7000-8000-0000000000e1",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", created.Vault.Revision,
+		created.Vault.VaultID, "restore",
+	)
+	if restored.Error != nil || restored.Restore == nil || restored.Vault == nil || restored.Restore.State != string(vaultbackup.RestoreStateRestored) || restored.Vault.RetentionDays != 30 {
+		t.Fatalf("restored=%+v", restored)
+	}
+	if restored.Restore.BackupID != backups.stageInput.ExpectedBackupID || restored.Restore.CiphertextSHA256 != backups.stageInput.ExpectedCiphertextSHA256 || restored.Restore.Schema != vaultbackup.RestoreSchema {
+		t.Fatalf("restore view=%+v stage=%+v", restored.Restore, backups.stageInput)
+	}
+	if !allZero(backups.stageInput.Key) || !allZero(backups.reconcileInput.Key) || backups.stageInput.Source != `C:\Backups\vault.talos-backup` {
+		t.Fatalf("restore inputs were not bounded or cleared: stage=%+v reconcile=%+v", backups.stageInput, backups.reconcileInput)
+	}
+}
+
+func TestVaultServiceSurfacesRolledBackRestoreWithoutLosingOpenVault(t *testing.T) {
+	t.Parallel()
+	keys := &serviceKeyStore{}
+	database := &serviceDatabase{}
+	backups := &serviceBackupStore{restoreState: vaultbackup.RestoreStateRolledBack}
+	creator, _ := vaultbootstrap.NewCreator(keys, &serviceDatabaseFactory{database: database}, &serviceCatalog{}, backups)
+	service := NewVaultService(creator, nil)
+	created := service.Create(30, "create")
+	result := service.RestoreBackup(
+		`C:\Backups\vault.talos-backup`, "00000000-0000-7000-8000-0000000000e1",
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", created.Vault.Revision,
+		created.Vault.VaultID, "restore",
+	)
+	if result.Error == nil || result.Error.Code != "VAULT_RESTORE_ROLLED_BACK" || result.Restore == nil || result.Vault == nil || service.Status().State != "unlocked" {
+		t.Fatalf("result=%+v status=%+v", result, service.Status())
+	}
+}
+
 func TestVaultServiceReportsBackupCapabilityAndIntegrityErrorsSafely(t *testing.T) {
 	t.Parallel()
 	database := &serviceDatabase{}
@@ -256,6 +309,10 @@ func (*serviceDatabaseFactory) Purge(context.Context, string) error  { return ni
 type serviceBackupStore struct {
 	createInput    vaultbackup.CreateInput
 	preflightInput vaultbackup.PreflightInput
+	stageInput     vaultbackup.StageRestoreInput
+	reconcileInput vaultbackup.ReconcileRestoreInput
+	restoreState   vaultbackup.RestoreState
+	onReconcile    func()
 }
 
 func (s *serviceBackupStore) CreateBackup(_ context.Context, input vaultbackup.CreateInput) (vaultbackup.Receipt, error) {
@@ -273,13 +330,46 @@ func (s *serviceBackupStore) PreflightBackup(_ context.Context, input vaultbacku
 	s.preflightInput = input
 	return vaultbackup.Preflight{
 		Schema: vaultbackup.PreflightSchema, BackupID: "00000000-0000-7000-8000-0000000000e1", VaultID: input.VaultID,
-		Path: input.Source, SourceApplicationVersion: input.ApplicationVersion, TargetApplicationVersion: input.ApplicationVersion,
+		Path: input.Source, SourceApplicationVersion: input.ApplicationVersion, MinimumRestoreVersion: input.ApplicationVersion, TargetApplicationVersion: input.ApplicationVersion,
 		SourceSchemaVersion: 23, TargetSchemaVersion: 23, CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC),
 		VerifiedAt: time.Date(2026, 7, 19, 4, 6, 6, 0, time.UTC), EncryptedSizeBytes: 4096,
 		CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DatabaseSizeBytes: 2048,
 		ArtifactCount: 2, EventCount: 7,
 	}, nil
 }
+
+func (s *serviceBackupStore) StageRestore(_ context.Context, input vaultbackup.StageRestoreInput) (vaultbackup.Preflight, error) {
+	s.stageInput = input
+	return vaultbackup.Preflight{
+		Schema: vaultbackup.PreflightSchema, BackupID: input.ExpectedBackupID, VaultID: input.VaultID,
+		Path: input.Source, SourceApplicationVersion: input.ApplicationVersion, MinimumRestoreVersion: input.ApplicationVersion,
+		TargetApplicationVersion: input.ApplicationVersion, SourceSchemaVersion: 23, TargetSchemaVersion: 23,
+		CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC), VerifiedAt: time.Date(2026, 7, 19, 4, 6, 6, 0, time.UTC),
+		EncryptedSizeBytes: 4096, CiphertextSHA256: input.ExpectedCiphertextSHA256, DatabaseSizeBytes: 2048,
+		ArtifactCount: 2, EventCount: 7,
+	}, nil
+}
+
+func (s *serviceBackupStore) ReconcileRestore(_ context.Context, input vaultbackup.ReconcileRestoreInput) (vaultbackup.Restore, error) {
+	s.reconcileInput = input
+	if s.onReconcile != nil {
+		s.onReconcile()
+	}
+	state := s.restoreState
+	if state == "" {
+		state = vaultbackup.RestoreStateRestored
+	}
+	return vaultbackup.Restore{
+		Schema: vaultbackup.RestoreSchema, State: state, BackupID: "00000000-0000-7000-8000-0000000000e1",
+		VaultID: input.VaultID, CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		SourceApplicationVersion: input.ApplicationVersion, TargetApplicationVersion: input.ApplicationVersion,
+		SourceSchemaVersion: 23, TargetSchemaVersion: 23, RestoredAt: time.Date(2026, 7, 19, 4, 7, 6, 0, time.UTC),
+		ArtifactCount: 2, EventCount: 7,
+	}, nil
+}
+
+func (*serviceBackupStore) FinalizeRestore(context.Context, string) error        { return nil }
+func (*serviceBackupStore) CleanupInactiveRestore(context.Context, string) error { return nil }
 
 func allZero(value []byte) bool {
 	for _, item := range value {
@@ -582,3 +672,33 @@ func (c *serviceCatalog) Add(_ context.Context, entry vaultcatalog.Entry) error 
 }
 func (*serviceCatalog) MarkPurgePending(context.Context, vaultcatalog.Entry) error { return nil }
 func (*serviceCatalog) Remove(context.Context, vaultcatalog.Entry) error           { return nil }
+
+func (c *serviceCatalog) PendingRestores(context.Context) ([]vaultcatalog.Entry, error) {
+	var pending []vaultcatalog.Entry
+	for _, entry := range c.entries {
+		if entry.State == vaultcatalog.StateRestorePending {
+			pending = append(pending, entry)
+		}
+	}
+	return pending, nil
+}
+
+func (c *serviceCatalog) MarkRestorePending(_ context.Context, target vaultcatalog.Entry) error {
+	for index := range c.entries {
+		if c.entries[index].VaultID == target.VaultID {
+			c.entries[index].State = vaultcatalog.StateRestorePending
+			return nil
+		}
+	}
+	return vaultcatalog.ErrNotFound
+}
+
+func (c *serviceCatalog) MarkActive(_ context.Context, target vaultcatalog.Entry) error {
+	for index := range c.entries {
+		if c.entries[index].VaultID == target.VaultID {
+			c.entries[index].State = vaultcatalog.StateActive
+			return nil
+		}
+	}
+	return vaultcatalog.ErrNotFound
+}

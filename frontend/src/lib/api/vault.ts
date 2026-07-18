@@ -54,6 +54,7 @@ export type VaultBackupPreflight = {
   vault_id: string;
   path: string;
   source_application_version: string;
+  minimum_restore_version: string;
   target_application_version: string;
   source_schema_version: number;
   target_schema_version: number;
@@ -67,8 +68,24 @@ export type VaultBackupPreflight = {
   event_count: number;
 };
 
+export type VaultRestore = {
+  schema: 'talos.vault-backup-restore/1';
+  state: 'restored' | 'rolled_back';
+  backup_id: string;
+  vault_id: string;
+  ciphertext_sha256: string;
+  source_application_version: string;
+  target_application_version: string;
+  source_schema_version: number;
+  target_schema_version: number;
+  restored_at: string;
+  artifact_count: number;
+  event_count: number;
+};
+
 export type VaultBackupResult = { receipt?: VaultBackupReceipt; error?: TalosError };
 export type VaultBackupPreflightResult = { preflight?: VaultBackupPreflight; error?: TalosError };
+export type VaultRestoreResult = { restore?: VaultRestore; vault?: VaultStatus; error?: TalosError };
 
 export async function getVaultStatus(): Promise<VaultStatus> {
   return parseStatus(await Call.ByName(`${service}.Status`));
@@ -114,6 +131,21 @@ export async function createVaultBackup(destination: string): Promise<VaultBacku
 export async function preflightVaultBackup(source: string): Promise<VaultBackupPreflightResult> {
   if (!validLocalPath(source)) throw new Error('VAULT_BACKUP_PATH_INVALID');
   return parseBackupPreflightResult(await Call.ByName(`${service}.PreflightBackup`, source, correlationID()));
+}
+
+export async function restoreVaultBackup(
+  source: string,
+  expectedBackupID: string,
+  expectedCiphertextSHA256: string,
+  expectedRevision: number,
+  confirmation: string,
+): Promise<VaultRestoreResult> {
+  if (!validLocalPath(source) || !uuidV7.test(expectedBackupID) || !/^[0-9a-f]{64}$/.test(expectedCiphertextSHA256) || !validPositiveInteger(expectedRevision) || !uuidV7.test(confirmation)) {
+    throw new Error('VAULT_RESTORE_REQUEST_INVALID');
+  }
+  return parseRestoreResult(await Call.ByName(
+    `${service}.RestoreBackup`, source, expectedBackupID, expectedCiphertextSHA256, expectedRevision, confirmation, correlationID(),
+  ));
 }
 
 function parseResult(value: unknown): VaultResult {
@@ -170,6 +202,18 @@ function parseBackupPreflightResult(value: unknown): VaultBackupPreflightResult 
   return result;
 }
 
+function parseRestoreResult(value: unknown): VaultRestoreResult {
+  if (!isObject(value)) throw new Error('VAULT_RESTORE_RESPONSE_INVALID');
+  const result: VaultRestoreResult = {};
+  if (value.restore !== undefined) result.restore = parseRestore(value.restore);
+  if (value.vault !== undefined) result.vault = parseStatus(value.vault);
+  if (value.error !== undefined) result.error = parseError(value.error);
+  if (result.restore !== undefined && result.vault === undefined) throw new Error('VAULT_RESTORE_RESPONSE_INVALID');
+  if (result.error === undefined && (result.restore === undefined || result.vault === undefined)) throw new Error('VAULT_RESTORE_RESPONSE_INVALID');
+  if (result.restore === undefined && result.vault !== undefined && result.error === undefined) throw new Error('VAULT_RESTORE_RESPONSE_INVALID');
+  return result;
+}
+
 function parseBackupReceipt(value: unknown): VaultBackupReceipt {
   if (
     !validBackupCommon(value) ||
@@ -187,6 +231,7 @@ function parseBackupPreflight(value: unknown): VaultBackupPreflight {
     value.schema !== 'talos.vault-backup-preflight/1' ||
     !validPositiveInteger(value.source_schema_version) ||
     typeof value.target_application_version !== 'string' || !validVersion(value.target_application_version) ||
+    typeof value.minimum_restore_version !== 'string' || !validVersion(value.minimum_restore_version) ||
     !validPositiveInteger(value.target_schema_version) ||
     typeof value.migration_required !== 'boolean' ||
     typeof value.verified_at !== 'string' || !validDate(value.verified_at)
@@ -194,6 +239,24 @@ function parseBackupPreflight(value: unknown): VaultBackupPreflight {
     throw new Error('VAULT_BACKUP_RESPONSE_INVALID');
   }
   return value as VaultBackupPreflight;
+}
+
+function parseRestore(value: unknown): VaultRestore {
+  if (
+    !isObject(value) || value.schema !== 'talos.vault-backup-restore/1' ||
+    (value.state !== 'restored' && value.state !== 'rolled_back') ||
+    typeof value.backup_id !== 'string' || !uuidV7.test(value.backup_id) ||
+    typeof value.vault_id !== 'string' || !uuidV7.test(value.vault_id) ||
+    typeof value.ciphertext_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(value.ciphertext_sha256) ||
+    typeof value.source_application_version !== 'string' || !validVersion(value.source_application_version) ||
+    typeof value.target_application_version !== 'string' || !validVersion(value.target_application_version) ||
+    !validPositiveInteger(value.source_schema_version) || !validPositiveInteger(value.target_schema_version) ||
+    typeof value.restored_at !== 'string' || !validDate(value.restored_at) ||
+    !validNonNegativeInteger(value.artifact_count) || !validPositiveInteger(value.event_count)
+  ) {
+    throw new Error('VAULT_RESTORE_RESPONSE_INVALID');
+  }
+  return value as VaultRestore;
 }
 
 function parseSummary(value: unknown): VaultSummary {

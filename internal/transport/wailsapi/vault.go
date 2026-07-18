@@ -56,6 +56,7 @@ type VaultBackupPreflightView struct {
 	VaultID                  string `json:"vault_id"`
 	Path                     string `json:"path"`
 	SourceApplicationVersion string `json:"source_application_version"`
+	MinimumRestoreVersion    string `json:"minimum_restore_version"`
 	TargetApplicationVersion string `json:"target_application_version"`
 	SourceSchemaVersion      int    `json:"source_schema_version"`
 	TargetSchemaVersion      int    `json:"target_schema_version"`
@@ -77,6 +78,27 @@ type VaultBackupResult struct {
 type VaultBackupPreflightResult struct {
 	Preflight *VaultBackupPreflightView `json:"preflight,omitempty"`
 	Error     *TalosError               `json:"error,omitempty"`
+}
+
+type VaultRestoreView struct {
+	Schema                   string `json:"schema"`
+	State                    string `json:"state"`
+	BackupID                 string `json:"backup_id"`
+	VaultID                  string `json:"vault_id"`
+	CiphertextSHA256         string `json:"ciphertext_sha256"`
+	SourceApplicationVersion string `json:"source_application_version"`
+	TargetApplicationVersion string `json:"target_application_version"`
+	SourceSchemaVersion      int    `json:"source_schema_version"`
+	TargetSchemaVersion      int    `json:"target_schema_version"`
+	RestoredAt               string `json:"restored_at"`
+	ArtifactCount            int    `json:"artifact_count"`
+	EventCount               int    `json:"event_count"`
+}
+
+type VaultRestoreResult struct {
+	Restore *VaultRestoreView `json:"restore,omitempty"`
+	Vault   *VaultStatus      `json:"vault,omitempty"`
+	Error   *TalosError       `json:"error,omitempty"`
 }
 
 type VaultService struct {
@@ -242,6 +264,34 @@ func (s *VaultService) PreflightBackup(source, correlationID string) VaultBackup
 	return VaultBackupPreflightResult{Preflight: &view}
 }
 
+func (s *VaultService) RestoreBackup(source, expectedBackupID, expectedCiphertextSHA256 string, expectedRevision int, confirmation, correlationID string) VaultRestoreResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil {
+		mapped := MapError(vaultbootstrap.ErrNotOpen, correlationID)
+		return VaultRestoreResult{Error: &mapped}
+	}
+	restored, err := s.creator.RestoreBackup(context.Background(), s.session, vaultbootstrap.RestoreBackupInput{
+		Source: source, ExpectedBackupID: expectedBackupID, ExpectedCiphertextSHA256: expectedCiphertextSHA256,
+		ExpectedRevision: expectedRevision, Confirmation: confirmation, ApplicationVersion: version.Application,
+	})
+	s.session = restored.Session
+	result := VaultRestoreResult{}
+	if restored.Restore.Schema != "" {
+		view := backupRestoreView(restored.Restore)
+		result.Restore = &view
+	}
+	if s.session != nil {
+		status := s.statusLocked()
+		result.Vault = &status
+	}
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		result.Error = &mapped
+	}
+	return result
+}
+
 func (s *VaultService) Lock(correlationID string) VaultResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -296,11 +346,22 @@ func backupReceiptView(receipt vaultbackup.Receipt) VaultBackupReceiptView {
 func backupPreflightView(preflight vaultbackup.Preflight) VaultBackupPreflightView {
 	return VaultBackupPreflightView{
 		Schema: preflight.Schema, BackupID: preflight.BackupID, VaultID: preflight.VaultID, Path: preflight.Path,
-		SourceApplicationVersion: preflight.SourceApplicationVersion, TargetApplicationVersion: preflight.TargetApplicationVersion,
-		SourceSchemaVersion: preflight.SourceSchemaVersion, TargetSchemaVersion: preflight.TargetSchemaVersion,
+		SourceApplicationVersion: preflight.SourceApplicationVersion, MinimumRestoreVersion: preflight.MinimumRestoreVersion,
+		TargetApplicationVersion: preflight.TargetApplicationVersion,
+		SourceSchemaVersion:      preflight.SourceSchemaVersion, TargetSchemaVersion: preflight.TargetSchemaVersion,
 		MigrationRequired: preflight.MigrationRequired, CreatedAt: preflight.CreatedAt.UTC().Format(time.RFC3339Nano),
 		VerifiedAt: preflight.VerifiedAt.UTC().Format(time.RFC3339Nano), EncryptedSizeBytes: preflight.EncryptedSizeBytes,
 		CiphertextSHA256: preflight.CiphertextSHA256, DatabaseSizeBytes: preflight.DatabaseSizeBytes,
 		ArtifactCount: preflight.ArtifactCount, EventCount: preflight.EventCount,
+	}
+}
+
+func backupRestoreView(restored vaultbackup.Restore) VaultRestoreView {
+	return VaultRestoreView{
+		Schema: restored.Schema, State: string(restored.State), BackupID: restored.BackupID, VaultID: restored.VaultID,
+		CiphertextSHA256: restored.CiphertextSHA256, SourceApplicationVersion: restored.SourceApplicationVersion,
+		TargetApplicationVersion: restored.TargetApplicationVersion, SourceSchemaVersion: restored.SourceSchemaVersion,
+		TargetSchemaVersion: restored.TargetSchemaVersion, RestoredAt: restored.RestoredAt.UTC().Format(time.RFC3339Nano),
+		ArtifactCount: restored.ArtifactCount, EventCount: restored.EventCount,
 	}
 }

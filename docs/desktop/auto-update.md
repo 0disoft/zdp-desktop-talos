@@ -4,7 +4,7 @@
 
 Alpha uses manual signed downloads. Automatic update is enabled only after the client verifies a signed manifest and signed artifact, creates an encrypted pre-migration backup, performs a migration preflight, retains a rollback artifact, and passes N-1 upgrade recovery tests.
 
-The desktop now exposes manual encrypted backup creation and isolated migration preflight. The updater does not call either operation, bind a receipt to an update manifest, or stop installation when preflight is absent. That wiring and its failure recovery remain Beta gates.
+The desktop now exposes manual encrypted backup creation, isolated migration preflight, and journaled live restore. The updater does not call these operations, bind a receipt to an update manifest, or stop installation when preflight is absent. That wiring and its failure recovery remain Beta gates.
 
 The Phase 0 Windows work adds only a signed manual installer and a package receipt. It does not add an update endpoint, background downloader, manifest parser, automatic installer launch, or rollback mutation. Passing the Windows packaging contract therefore does not advance this document's status.
 

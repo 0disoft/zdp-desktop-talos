@@ -14,22 +14,24 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultbackup"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/version"
 )
 
 func TestCreatorRestoresBackupOnlyAfterExactConfirmation(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	creator, _, _, session, receipt := newRestoreApplicationFixture(t)
+	t.Cleanup(func() { _ = session.Close() })
 	invalid, err := creator.RestoreBackup(ctx, session, RestoreBackupInput{
 		Source: receipt.Path, ExpectedBackupID: receipt.BackupID, ExpectedCiphertextSHA256: receipt.CiphertextSHA256,
-		ExpectedRevision: session.Record.Revision, Confirmation: "wrong-vault", ApplicationVersion: "0.31.1",
+		ExpectedRevision: session.Record.Revision, Confirmation: "wrong-vault", ApplicationVersion: version.Application,
 	})
-	if !errors.Is(err, ErrInvalidInput) || invalid.Session != nil || session.database == nil {
+	if !errors.Is(err, ErrInvalidInput) || invalid.Session != session || session.database == nil {
 		t.Fatalf("invalid result=%+v err=%v", invalid, err)
 	}
 	restored, err := creator.RestoreBackup(ctx, session, RestoreBackupInput{
 		Source: receipt.Path, ExpectedBackupID: receipt.BackupID, ExpectedCiphertextSHA256: receipt.CiphertextSHA256,
-		ExpectedRevision: session.Record.Revision, Confirmation: session.Record.ID, ApplicationVersion: "0.31.1",
+		ExpectedRevision: session.Record.Revision, Confirmation: session.Record.ID, ApplicationVersion: version.Application,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +53,7 @@ func TestCreatorReconcilesJournaledRestoreAfterRestart(t *testing.T) {
 	}
 	defer clear(key)
 	if _, err := databases.StageRestore(ctx, vaultbackup.StageRestoreInput{
-		VaultID: session.Record.ID, KeyID: VaultKeyID, Key: key, Source: receipt.Path, ApplicationVersion: "0.31.1",
+		VaultID: session.Record.ID, KeyID: VaultKeyID, Key: key, Source: receipt.Path, ApplicationVersion: version.Application,
 		ExpectedBackupID: receipt.BackupID, ExpectedCiphertextSHA256: receipt.CiphertextSHA256,
 	}); err != nil {
 		t.Fatal(err)
@@ -63,7 +65,7 @@ func TestCreatorReconcilesJournaledRestoreAfterRestart(t *testing.T) {
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := creator.ReconcileRestores(ctx, "0.31.1"); err != nil {
+	if err := creator.ReconcileRestores(ctx, version.Application); err != nil {
 		t.Fatal(err)
 	}
 	opened, err := creator.Open(ctx, entry.VaultID)
@@ -107,7 +109,7 @@ func newRestoreApplicationFixture(t *testing.T) (*Creator, *enrollmentKeyStore, 
 		t.Fatal(err)
 	}
 	backupPath := filepath.Join(root, "application.talos-backup")
-	receipt, err := session.CreateBackup(ctx, backupPath, "0.31.1")
+	receipt, err := session.CreateBackup(ctx, backupPath, version.Application)
 	if err != nil {
 		t.Fatal(err)
 	}

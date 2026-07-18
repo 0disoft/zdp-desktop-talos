@@ -53,7 +53,9 @@ Enrollment uses a separately transferred 32-byte random bearer capability, not a
 
 Backup creation asks SQLite for an online snapshot, then treats that completed database as the authority for the exact immutable blob set. It packages the database, blobs, and versioned manifest into a bounded archive and encrypts it as independently authenticated 1 MiB frames under a random data key wrapped by the current Vault key. Publication uses a same-directory staging file, full isolated preflight, and no-clobber promotion.
 
-Preflight decrypts only into an app-owned temporary directory, validates archive paths and hashes, runs SQLite integrity checks, decrypts every event and blob, opens the copy through the current migration path, and checkpoints it before cleanup. Neither operation exposes a generic filesystem service. The renderer supplies one explicit absolute backup path, receives a bounded receipt, and clears paths and receipts when the Vault changes or locks. Live Vault replacement and root-key recovery remain separate, unimplemented boundaries.
+Preflight decrypts only into an app-owned temporary directory, validates archive paths and hashes, runs SQLite integrity checks, decrypts every event and blob, opens the copy through the current migration path, and checkpoints it before cleanup. Neither backup nor preflight exposes a generic filesystem service or mutates live data. The renderer supplies one explicit absolute backup path, receives a bounded receipt, and clears paths and receipts when the Vault changes or locks.
+
+Live restore is now a separate confirmation-bound state machine. It authenticates a deterministic staged generation, moves the protected catalog from `active` to `restore_pending`, preserves the complete live generation, activates database and blob components, and validates the promoted generation before returning to `active`. File presence is the idempotent step cursor. Startup resumes interrupted moves; invalid promoted data triggers a validated rollback. The Wails response exposes only backup identity, outcome, versions, schema numbers, counts, and time. Root-key recovery remains unimplemented.
 
 ## Decisions
 

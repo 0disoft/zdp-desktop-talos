@@ -114,10 +114,38 @@ func backupCheck(ctx context.Context) (Check, error) {
 		preflight.ArtifactCount != 1 || preflight.EventCount <= 0 {
 		return Check{}, fmt.Errorf("backup self-test receipt and preflight disagree")
 	}
+	if _, err := factory.StageRestore(ctx, vaultbackup.StageRestoreInput{
+		VaultID: doctorBackupVaultID, KeyID: doctorBackupKeyID, Key: key, Source: backupPath,
+		ApplicationVersion: version.Application, ExpectedBackupID: receipt.BackupID,
+		ExpectedCiphertextSHA256: receipt.CiphertextSHA256,
+	}); err != nil {
+		return Check{}, fmt.Errorf("stage journaled backup self-test restore: %w", err)
+	}
 	if err := database.Close(); err != nil {
 		return Check{}, fmt.Errorf("close backup self-test Vault: %w", err)
 	}
 	closed = true
+	restored, err := factory.ReconcileRestore(ctx, vaultbackup.ReconcileRestoreInput{
+		VaultID: doctorBackupVaultID, KeyID: doctorBackupKeyID, Key: key, ApplicationVersion: version.Application,
+	})
+	if err != nil {
+		return Check{}, fmt.Errorf("activate journaled backup self-test restore: %w", err)
+	}
+	if restored.State != vaultbackup.RestoreStateRestored || restored.BackupID != receipt.BackupID {
+		return Check{}, fmt.Errorf("activate journaled backup self-test restore: unexpected state %s", restored.State)
+	}
+	if err := factory.FinalizeRestore(ctx, doctorBackupVaultID); err != nil {
+		return Check{}, fmt.Errorf("finalize backup self-test restore: %w", err)
+	}
+	reopened, err := factory.Open(ctx, doctorBackupVaultID, doctorBackupKeyID, key)
+	if err != nil {
+		return Check{}, fmt.Errorf("open restored backup self-test Vault: %w", err)
+	}
+	restoredRecord, recordErr := reopened.GetVault(ctx, doctorBackupVaultID)
+	closeErr := reopened.Close()
+	if recordErr != nil || closeErr != nil || restoredRecord.RetentionDays != created.RetentionDays || restoredRecord.Revision != created.Revision {
+		return Check{}, fmt.Errorf("restored backup self-test Vault differs from snapshot: record_error=%v close_error=%v", recordErr, closeErr)
+	}
 
 	return Check{Name: "vault_backup", Status: "passed", Details: map[string]any{
 		"online_snapshot":         true,
@@ -127,6 +155,8 @@ func backupCheck(ctx context.Context) (Check, error) {
 		"plaintext_marker_absent": true,
 		"isolated_preflight":      true,
 		"live_vault_unchanged":    true,
+		"journaled_live_restore":  true,
+		"restored_revision":       restoredRecord.Revision,
 		"source_schema":           preflight.SourceSchemaVersion,
 		"target_schema":           preflight.TargetSchemaVersion,
 	}}, nil

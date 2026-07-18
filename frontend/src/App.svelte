@@ -914,6 +914,6 @@
   </section>
 
   <AccountBoundary vaultState={vault.state} vaultID={vault.vault_id ?? ''} disabled={loading} onerror={(error) => latestError = error} />
-  <VaultBackup vaultState={vault.state} vaultID={vault.vault_id ?? ''} disabled={loading} onerror={(error) => latestError = error} />
+  <VaultBackup vaultState={vault.state} vaultID={vault.vault_id ?? ''} vaultRevision={vault.revision ?? 0} disabled={loading} onerror={(error) => latestError = error} onvaultchange={(status) => { vault = status; retentionDays = status.retention_days ?? retentionDays; selectedVaultID = status.vault_id ?? selectedVaultID; }} />
   <SyncWorkspace vaultState={vault.state} vaultID={vault.vault_id ?? ''} disabled={loading} onerror={(error) => latestError = error} onvaultchange={(status) => { vault = status; retentionDays = status.retention_days ?? retentionDays; selectedVaultID = status.vault_id ?? selectedVaultID; }} />
 </main>

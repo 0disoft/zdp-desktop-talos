@@ -1134,18 +1134,18 @@ func (c *Creator) RestoreBackup(ctx context.Context, session *Session, input Res
 	}
 	restorer, journal, err := c.restoreDependencies()
 	if err != nil {
-		return RestoredBackup{}, err
+		return RestoredBackup{Session: session}, err
 	}
 	if input.ExpectedRevision != session.Record.Revision {
-		return RestoredBackup{}, vaultstore.ErrRevisionConflict
+		return RestoredBackup{Session: session}, vaultstore.ErrRevisionConflict
 	}
 	if input.Confirmation != session.Record.ID || strings.TrimSpace(input.Source) == "" || strings.TrimSpace(input.ApplicationVersion) == "" {
-		return RestoredBackup{}, ErrInvalidInput
+		return RestoredBackup{Session: session}, ErrInvalidInput
 	}
 	keyRef := keyvault.Reference{VaultID: session.Record.ID, KeyID: VaultKeyID}
 	key, err := c.keys.Get(ctx, keyRef)
 	if err != nil {
-		return RestoredBackup{}, fmt.Errorf("load Vault key for restore: %w", err)
+		return RestoredBackup{Session: session}, fmt.Errorf("load Vault key for restore: %w", err)
 	}
 	defer clear(key)
 	staged, err := restorer.StageRestore(ctx, vaultbackup.StageRestoreInput{
@@ -1154,12 +1154,12 @@ func (c *Creator) RestoreBackup(ctx context.Context, session *Session, input Res
 		ExpectedCiphertextSHA256: input.ExpectedCiphertextSHA256,
 	})
 	if err != nil {
-		return RestoredBackup{}, err
+		return RestoredBackup{Session: session}, err
 	}
 	entry := vaultcatalog.Entry{VaultID: session.Record.ID, CreatedAt: session.Record.CreatedAt, State: vaultcatalog.StateActive}
 	if err := journal.MarkRestorePending(ctx, entry); err != nil {
 		cleanupErr := restorer.CleanupInactiveRestore(context.WithoutCancel(ctx), entry.VaultID)
-		return RestoredBackup{}, errors.Join(fmt.Errorf("record Vault restore intent: %w", err), cleanupErr)
+		return RestoredBackup{Session: session}, errors.Join(fmt.Errorf("record Vault restore intent: %w", err), cleanupErr)
 	}
 	entry.State = vaultcatalog.StateRestorePending
 	if err := session.Close(); err != nil {
