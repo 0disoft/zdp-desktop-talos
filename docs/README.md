@@ -14,6 +14,7 @@
 - Desktop auto-update source: docs/desktop/auto-update.md
 - Desktop local data source: docs/desktop/local-data.md
 - Desktop OS support source: docs/desktop/os-support.md
+- Alpha readiness source: docs/ops/alpha-readiness.md
 - CLI command contract source: docs/cli/command-contract.md
 - CLI config source: docs/cli/configuration.md
 - CLI output and exit-code source: docs/cli/output-and-exit-codes.md

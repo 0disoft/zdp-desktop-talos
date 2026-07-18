@@ -1,6 +1,6 @@
 # Talos Agent
 
-- Status: Phase 0 implementation baseline
+- Status: private-alpha engineering baseline
 - Visibility: Private
 - Repository type: desktop application with a companion CLI
 
@@ -10,7 +10,7 @@ Talos Agent is a local-first coding-agent runtime that remembers durable develop
 
 Talos owns the installed desktop application, local Vault, task execution, Decision Queue, verification evidence, memory compilation, and human-readable projections. ZDP owns shared signup, account identity, consent, membership, and platform audit contracts. Signup links the user identity; it does not upload repositories, prompts, terminal logs, or memories by default.
 
-## Implemented Phase 0 Runtime
+## Implemented Local Runtime
 
 - Wails `v3.0.0-alpha.2.117` desktop shell, isolated at the root and transport boundary
 - Svelte `5.56.4`, Vite `8.1.4`, and TypeScript `6.0.3` renderer
@@ -20,8 +20,13 @@ Talos owns the installed desktop application, local Vault, task execution, Decis
 - Windows current-user DPAPI storage for Vault key-encryption keys
 - a 4 MiB-bounded, length-prefixed JSON worker protocol over stdio
 - a per-user Windows NSIS packaging contract with mandatory release signing and artifact receipts
+- protected Vault create, discovery, open, retention, lock, and restart-safe hard purge
+- canonical Git workspace inspection, revisioned Task Contracts, Decision Queue, permission review, owned worktrees, verification evidence, and explicit patch apply or discard
+- explicit model-egress consent, strict plan proposals, encrypted memory lifecycle, deterministic context evaluation, and public-only projection preview
+- signed encrypted sync packs with trusted device membership, revocation, and a restart-safe contiguous validation journal
+- fail-closed ZDP account status and offline unlink without exposing account or consent references to the renderer
 
-The current local evidence covers Windows amd64 source builds, DPAPI persistence, rotation, reference binding, plaintext-marker checks, and the packaging source contract. Production readiness remains false until a provisioned signing host produces and verifies a signed installer and passes native clean-install and N-1 upgrade checks. Plaintext key-file fallback is forbidden.
+The current local evidence covers Windows amd64 source builds, schema migrations, DPAPI persistence, rotation, encrypted restart recovery, worker execution, Svelte diagnostics, and the packaging source contract. Production readiness remains false until a provisioned signing host produces and verifies a signed installer and passes native clean-install and N-1 upgrade checks. Shared account link creation remains blocked by upstream ZDP readiness, and manual sync does not yet apply remote events. Plaintext key-file fallback is forbidden.
 
 ## Start Here
 
@@ -31,7 +36,8 @@ The current local evidence covers Windows amd64 source builds, DPAPI persistence
 - Security boundary: `docs/security/desktop-security.md`
 - Local data: `docs/desktop/local-data.md`
 - Windows installer: `docs/desktop/installers.md`
+- Alpha readiness: `docs/ops/alpha-readiness.md`
 - CLI contract: `docs/cli/command-contract.md`
 - Decisions: `docs/adr/`
 
-The repository contains the Phase 0 architecture spine and executable probes. Vault UI workflows, task execution, model providers, Git worktrees, memory compilation, signup integration, and sync remain later phases. Automatic update also remains deferred; the Windows package is a manual signed-distribution contract only.
+The repository now contains the local MVP loop from Vault and Task Contract through execution, verification, patch review, memory review, projection, and sync-pack validation. Remaining local product work is ordered sync replay and conflict handling. Shared account link creation, funded live-provider smoke, signed installer evidence, native upgrade evidence, hosted CI, and automatic update are external or later promotion gates rather than hidden completion claims.

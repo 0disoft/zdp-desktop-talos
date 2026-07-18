@@ -1,11 +1,11 @@
 # Development
 
-- Status: Phase 0 implementation baseline
+- Status: private-alpha engineering baseline
 - Technical owner: ZDP/Talos maintainers
 
 ## Current Phase
 
-The repository now proves the Phase 0 executable spine: the renderer builds, desktop/worker/CLI binaries compile, worker IPC is versioned and bounded, encrypted events survive a SQLite restart, ledger schemas migrate forward with request-bound idempotency, Windows current-user DPAPI protects Vault key-encryption keys, and the Windows NSIS/signing source contract is tested. A provisioned signing-host run and native clean-install/N-1-upgrade evidence remain explicit release blockers.
+The repository now proves the local MVP loop through schema 16: the renderer builds, desktop/worker/CLI binaries compile, Vault and encrypted state survive restart, Task/Decision/permission/execution/patch/memory flows are revisioned and evidence-bound, model egress is explicit, and signed sync packs are validated against durable device membership. A provisioned signing-host run, native clean-install/N-1-upgrade evidence, upstream product-link promotion, and ordered sync replay remain explicit blockers rather than implied functionality.
 
 ## Current Layout
 
@@ -35,7 +35,7 @@ docs/
 - Dependency installation, network egress, Git remote writes, and schema migrations require explicit policy and evidence.
 - Do not claim a validation passed while the generated Taskfile command is still intentionally unconfigured.
 
-## Definition of Phase 0 Done
+## Current engineering baseline
 
 - desktop, worker, and CLI executables build on Windows amd64;
 - desktop and worker negotiate a versioned length-prefixed IPC handshake;
@@ -44,5 +44,8 @@ docs/
 - selected dependency versions and current platform evidence are recorded in ADRs;
 - `talosctl doctor --json` proves Windows DPAPI persistence and reports remaining production blockers explicitly.
 - Windows packaging scripts parse and their per-user, signing, companion-binary, prerequisite, and Vault-retention contracts pass static tests.
+- the full local coding loop preserves Task scope, permission decisions, verification freshness, patch review, and memory provenance;
+- account status is fail-closed and cannot enable link creation while upstream readiness is blocked;
+- sync validation rejects untrusted, revoked, duplicate-conflicting, gapped, or tampered packs without claiming remote event application.
 
-Phase 0 is not release-ready until a provisioned Windows host produces signed artifacts, verifies the package receipt, and passes clean-install and N-1 upgrade smoke checks.
+Private alpha distribution is not ready until a provisioned Windows host produces signed artifacts, verifies the package receipt, and passes clean-install and N-1 upgrade smoke checks. See `docs/ops/alpha-readiness.md` for the evidence matrix and rollback boundary.
