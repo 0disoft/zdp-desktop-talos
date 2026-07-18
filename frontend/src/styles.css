@@ -559,6 +559,25 @@ h1 {
   margin-top: 16px;
 }
 
+.memory-toolbar label,
+.memory-lifecycle-list label {
+  display: grid;
+  gap: 5px;
+  color: #8792a4;
+  font-size: 0.74rem;
+}
+
+.memory-toolbar select,
+.memory-lifecycle-list select {
+  min-height: 38px;
+  max-width: 22rem;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #d7deea;
+  background: #111620;
+}
+
 .memory-toolbar button,
 .memory-actions button {
   min-height: 38px;
@@ -605,6 +624,67 @@ h1 {
   margin-top: 24px;
   padding-top: 20px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.memory-lifecycle-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.memory-lifecycle-list > h3,
+.memory-lifecycle-list section > p {
+  margin: 0;
+}
+
+.memory-lifecycle-list > h3 {
+  color: #d7deea;
+  font-size: 0.86rem;
+}
+
+.memory-lifecycle-list section {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(122, 162, 255, 0.22);
+  border-radius: 10px;
+  background: rgba(31, 52, 91, 0.16);
+}
+
+.memory-lifecycle-list section > p,
+.memory-lifecycle-list section > .decision-meta {
+  flex: 1 1 100%;
+}
+
+.memory-lifecycle-list section > small {
+  flex: 1 1 100%;
+  color: #92a9cc;
+}
+
+.memory-lifecycle-list button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  color: #d7deea;
+  background: transparent;
+  cursor: pointer;
+}
+
+.memory-lifecycle-list button.danger {
+  color: #fff4f2;
+  border-color: rgba(255, 112, 98, 0.55);
+  background: #9e2f29;
+}
+
+.memory-lifecycle-list button:disabled,
+.memory-lifecycle-list select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .applied-memory-list h3,

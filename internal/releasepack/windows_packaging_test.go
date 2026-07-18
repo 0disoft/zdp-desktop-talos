@@ -23,7 +23,6 @@ func TestWindowsPackagingPowerShellParses(t *testing.T) {
 	for _, name := range scripts {
 		name := name
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
 			path := filepath.Join(root, "packaging", "windows", name)
 			escapedPath := strings.ReplaceAll(path, `'`, `''`)
 			parser := `$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile('` + escapedPath + `',[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count -gt 0){$errors|ForEach-Object{[Console]::Error.WriteLine($_.Message)};exit 1}`
@@ -100,8 +99,8 @@ func TestWindowsPackagingVersionIsSynchronized(t *testing.T) {
 		"windows-signing.yml": signingWorkflow,
 		"packaging/README.md": packagingReadme,
 	} {
-		if !strings.Contains(content, "0.14.0") {
-			t.Errorf("%s does not contain release version 0.14.0", path)
+		if !strings.Contains(content, "0.15.0") {
+			t.Errorf("%s does not contain release version 0.15.0", path)
 		}
 	}
 }

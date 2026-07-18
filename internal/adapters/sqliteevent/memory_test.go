@@ -91,3 +91,56 @@ func TestMemoryCandidateRejectsMissingOrCrossVaultEvidence(t *testing.T) {
 		t.Fatalf("cross-Vault evidence error=%v", err)
 	}
 }
+
+func TestMemoryExpiryAndSupersessionAreAtomicAndContextSafe(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 4, 0, 0, 0, time.UTC)
+	store := openTestStore(t, filepath.Join(t.TempDir(), "memory-lifecycle.db"))
+	defer store.Close()
+	vaultID := "00000000-0000-7000-8000-000000000001"
+	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: vaultID, RetentionDays: 30, OccurredAt: now, IdempotencyKey: "vault"}); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := store.Append(ctx, eventstore.AppendInput{VaultID: vaultID, Type: "decision.answer.recorded", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"safe":true}`), OccurredAt: now.Add(time.Second), IdempotencyKey: "evidence"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceRoot := filepath.Join(t.TempDir(), "repo")
+	create := func(key, statement string, at time.Time) memory.Record {
+		record, err := store.CreateMemoryCandidate(ctx, memorystore.CreateCandidateInput{VaultID: vaultID, Kind: memory.KindDecision, Scope: memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceRoot: workspaceRoot}, Statement: statement, Rationale: "user-confirmed decision", EvidenceEventIDs: []string{evidence.ID}, SourceActor: "user", Confidence: 100, Sensitivity: event.SensitivityPrivate, OccurredAt: at, IdempotencyKey: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return record
+	}
+	old := create("old", "Use the old rule.", now.Add(2*time.Second))
+	replacement := create("replacement", "Use the replacement rule.", now.Add(3*time.Second))
+	old, err = store.TransitionMemory(ctx, memorystore.TransitionInput{VaultID: vaultID, MemoryID: old.ID, ExpectedRevision: 1, NextState: memory.StateApproved, Reason: "approved", ExpiresAt: now.Add(10*time.Minute + 900*time.Millisecond), OccurredAt: now.Add(4 * time.Second), IdempotencyKey: "approve-old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement, err = store.TransitionMemory(ctx, memorystore.TransitionInput{VaultID: vaultID, MemoryID: replacement.ID, ExpectedRevision: 1, NextState: memory.StateApproved, Reason: "approved", OccurredAt: now.Add(5 * time.Second), IdempotencyKey: "approve-replacement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.ListActiveMemories(ctx, memorystore.ListActiveInput{VaultID: vaultID, WorkspaceRoot: workspaceRoot, Limit: 10, At: now.Add(9 * time.Minute)})
+	if err != nil || len(active) != 2 {
+		t.Fatalf("active=%+v error=%v", active, err)
+	}
+	active, err = store.ListActiveMemories(ctx, memorystore.ListActiveInput{VaultID: vaultID, WorkspaceRoot: workspaceRoot, Limit: 10, At: now.Add(10*time.Minute + 950*time.Millisecond)})
+	if err != nil || len(active) != 1 || active[0].ID != replacement.ID {
+		t.Fatalf("subsecond post-expiry active=%+v error=%v", active, err)
+	}
+	active, err = store.ListActiveMemories(ctx, memorystore.ListActiveInput{VaultID: vaultID, WorkspaceRoot: workspaceRoot, Limit: 10, At: now.Add(11 * time.Minute)})
+	if err != nil || len(active) != 1 || active[0].ID != replacement.ID {
+		t.Fatalf("post-expiry active=%+v error=%v", active, err)
+	}
+	old, err = store.TransitionMemory(ctx, memorystore.TransitionInput{VaultID: vaultID, MemoryID: old.ID, ExpectedRevision: old.Revision, NextState: memory.StateSuperseded, SupersededBy: replacement.ID, Reason: "replacement approved", OccurredAt: now.Add(12 * time.Minute), IdempotencyKey: "supersede-old"})
+	if err != nil || old.State != memory.StateSuperseded || old.SupersededBy != replacement.ID || old.Revision != 3 {
+		t.Fatalf("old=%+v error=%v", old, err)
+	}
+	all, err := store.ListMemories(ctx, memorystore.ListInput{VaultID: vaultID, Limit: 10})
+	if err != nil || len(all) != 2 {
+		t.Fatalf("all=%+v error=%v", all, err)
+	}
+}

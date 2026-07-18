@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
@@ -16,20 +17,22 @@ var ErrInvalidRequest = errors.New("invalid memory context request")
 
 type Service struct {
 	store memorystore.Reader
+	now   func() time.Time
 }
 
 func New(store memorystore.Reader) (*Service, error) {
 	if store == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &Service{store: store}, nil
+	return &Service{store: store, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
 func (s *Service) Assemble(ctx context.Context, request memorycontext.Request) (memorycontext.Result, error) {
 	if ctx == nil || strings.TrimSpace(request.VaultID) == "" || strings.TrimSpace(request.WorkspaceRoot) == "" || strings.TrimSpace(request.Goal) == "" || request.MaxCandidates < 1 || request.MaxCandidates > 200 || request.MaxItems < 1 || request.MaxItems > 32 || request.MaxCandidates < request.MaxItems || request.MaxBytes < 256 || request.MaxBytes > 256<<10 {
 		return memorycontext.Result{}, ErrInvalidRequest
 	}
-	records, err := s.store.ListActiveMemories(ctx, memorystore.ListActiveInput{VaultID: request.VaultID, WorkspaceRoot: request.WorkspaceRoot, Limit: request.MaxCandidates})
+	now := s.now().UTC()
+	records, err := s.store.ListActiveMemories(ctx, memorystore.ListActiveInput{VaultID: request.VaultID, WorkspaceRoot: request.WorkspaceRoot, Limit: request.MaxCandidates, At: now})
 	if err != nil {
 		return memorycontext.Result{}, err
 	}
@@ -42,6 +45,9 @@ func (s *Service) Assemble(ctx context.Context, request memorycontext.Request) (
 	for _, record := range records {
 		if record.Validate() != nil || record.VaultID != request.VaultID {
 			return memorycontext.Result{}, ErrInvalidRequest
+		}
+		if record.IsExpired(now) {
+			continue
 		}
 		if record.Scope.Kind == memory.ScopeWorkspace {
 			recordWorkspaceHash, err := permission.WorkspaceHash(record.Scope.WorkspaceRoot)

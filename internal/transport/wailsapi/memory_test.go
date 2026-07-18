@@ -59,9 +59,25 @@ func TestMemoryServiceCompilesReviewsAndExplainsTaskMemory(t *testing.T) {
 	if listed.Error != nil || len(listed.Memories) != 1 || listed.Memories[0].EvidenceEventIDs[1] != "answer-event" || listed.Memories[0].Sensitivity != string(event.SensitivityPrivate) {
 		t.Fatalf("listed=%+v", listed)
 	}
-	reviewed := service.Review(MemoryReviewRequest{MemoryID: listed.Memories[0].MemoryID, ExpectedRevision: 1, Outcome: string(memory.StateApproved), Reason: "사용자 결정과 일치함", RequestID: "review-1", CorrelationID: "review"})
-	if reviewed.Error != nil || reviewed.Memory == nil || reviewed.Memory.State != string(memory.StateApproved) || reviewed.Memory.Revision != 2 {
+	reviewed := service.Review(MemoryReviewRequest{MemoryID: listed.Memories[0].MemoryID, ExpectedRevision: 1, Outcome: string(memory.StateApproved), Reason: "사용자 결정과 일치함", ValidityDays: 90, RequestID: "review-1", CorrelationID: "review"})
+	if reviewed.Error != nil || reviewed.Memory == nil || reviewed.Memory.State != string(memory.StateApproved) || reviewed.Memory.Revision != 2 || reviewed.Memory.ExpiresAt == "" {
 		t.Fatalf("reviewed=%+v", reviewed)
+	}
+	stable := service.ChangeLifecycle(MemoryLifecycleRequest{MemoryID: reviewed.Memory.MemoryID, ExpectedRevision: 2, NextState: string(memory.StateStable), Reason: "반복 확인됨", RequestID: "stable-1"})
+	if stable.Error != nil || stable.Memory == nil || stable.Memory.State != string(memory.StateStable) {
+		t.Fatalf("stable=%+v", stable)
+	}
+	stale := service.ChangeLifecycle(MemoryLifecycleRequest{MemoryID: stable.Memory.MemoryID, ExpectedRevision: 3, NextState: string(memory.StateStale), Reason: "재확인 필요", RequestID: "stale-1"})
+	if stale.Error != nil || stale.Memory == nil || stale.Memory.State != string(memory.StateStale) {
+		t.Fatalf("stale=%+v", stale)
+	}
+	reapproved := service.ChangeLifecycle(MemoryLifecycleRequest{MemoryID: stale.Memory.MemoryID, ExpectedRevision: 4, NextState: string(memory.StateApproved), Reason: "다시 확인함", ValidityDays: 30, RequestID: "reapprove-1"})
+	if reapproved.Error != nil || reapproved.Memory == nil || reapproved.Memory.State != string(memory.StateApproved) || reapproved.Memory.ExpiresAt == "" {
+		t.Fatalf("reapproved=%+v", reapproved)
+	}
+	all := service.ListAll("all")
+	if all.Error != nil || len(all.Memories) != 1 || all.Memories[0].Revision != 5 {
+		t.Fatalf("all=%+v", all)
 	}
 	contextResult := service.ExplainCurrentTask("task-1", "context")
 	if contextResult.Error != nil || contextResult.Considered != 1 || len(contextResult.Items) != 1 || contextResult.Items[0].MemoryID != reviewed.Memory.MemoryID || !strings.Contains(contextResult.Items[0].Reason, "goal term") {

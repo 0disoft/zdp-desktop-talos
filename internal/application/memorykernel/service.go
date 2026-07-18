@@ -3,7 +3,9 @@ package memorykernel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
@@ -61,4 +63,38 @@ func (s *Service) ListCandidates(ctx context.Context, vaultID string, limit int)
 		return nil, ErrInvalidRequest
 	}
 	return s.store.ListMemoryCandidates(ctx, vaultID, limit)
+}
+
+func (s *Service) ListAll(ctx context.Context, vaultID string, limit int) ([]memory.Record, error) {
+	if ctx == nil || strings.TrimSpace(vaultID) == "" || limit < 1 || limit > 200 {
+		return nil, ErrInvalidRequest
+	}
+	return s.store.ListMemories(ctx, memorystore.ListInput{VaultID: vaultID, Limit: limit})
+}
+
+func (s *Service) ExpireDue(ctx context.Context, vaultID string, at time.Time, limit int) ([]memory.Record, error) {
+	if ctx == nil || strings.TrimSpace(vaultID) == "" || at.IsZero() || limit < 1 || limit > 200 {
+		return nil, ErrInvalidRequest
+	}
+	at = at.UTC()
+	records, err := s.store.ListMemories(ctx, memorystore.ListInput{VaultID: vaultID, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]memory.Record, 0)
+	for _, record := range records {
+		if (record.State != memory.StateApproved && record.State != memory.StateStable) || !record.IsExpired(at) {
+			continue
+		}
+		updated, err := s.store.TransitionMemory(ctx, memorystore.TransitionInput{
+			VaultID: vaultID, MemoryID: record.ID, ExpectedRevision: record.Revision, NextState: memory.StateStale,
+			Reason: "memory validity period expired", OccurredAt: at,
+			IdempotencyKey: fmt.Sprintf("memory-expire:%s:%d:%d", record.ID, record.Revision, record.ExpiresAt.UnixNano()),
+		})
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, updated)
+	}
+	return result, nil
 }

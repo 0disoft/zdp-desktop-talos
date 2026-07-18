@@ -40,6 +40,8 @@ type TransitionInput struct {
 	ExpectedRevision int
 	NextState        memory.State
 	Reason           string
+	ExpiresAt        time.Time
+	SupersededBy     string
 	OccurredAt       time.Time
 	IdempotencyKey   string
 }
@@ -48,12 +50,19 @@ type ListActiveInput struct {
 	VaultID       string
 	WorkspaceRoot string
 	Limit         int
+	At            time.Time
+}
+
+type ListInput struct {
+	VaultID string
+	Limit   int
 }
 
 type Reader interface {
 	GetMemory(context.Context, string, string) (memory.Record, error)
 	ListMemoryCandidates(context.Context, string, int) ([]memory.Record, error)
 	ListActiveMemories(context.Context, ListActiveInput) ([]memory.Record, error)
+	ListMemories(context.Context, ListInput) ([]memory.Record, error)
 }
 
 type Store interface {

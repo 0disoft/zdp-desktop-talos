@@ -36,6 +36,8 @@ type MemoryDTO struct {
 	Revision         int      `json:"revision"`
 	CreatedAt        string   `json:"created_at"`
 	UpdatedAt        string   `json:"updated_at"`
+	ExpiresAt        string   `json:"expires_at,omitempty"`
+	SupersededBy     string   `json:"superseded_by,omitempty"`
 }
 
 type MemoryContextDTO struct {
@@ -69,8 +71,26 @@ type MemoryReviewRequest struct {
 	ExpectedRevision int    `json:"expected_revision"`
 	Outcome          string `json:"outcome"`
 	Reason           string `json:"reason"`
+	ValidityDays     int    `json:"validity_days,omitempty"`
 	RequestID        string `json:"request_id"`
 	CorrelationID    string `json:"correlation_id"`
+}
+
+type MemoryLifecycleRequest struct {
+	MemoryID         string `json:"memory_id"`
+	ExpectedRevision int    `json:"expected_revision"`
+	NextState        string `json:"next_state"`
+	Reason           string `json:"reason"`
+	ValidityDays     int    `json:"validity_days,omitempty"`
+	SupersededBy     string `json:"superseded_by,omitempty"`
+	RequestID        string `json:"request_id"`
+	CorrelationID    string `json:"correlation_id"`
+}
+
+type MemorySweepResult struct {
+	Updated  []MemoryDTO `json:"updated"`
+	Memories []MemoryDTO `json:"memories"`
+	Error    *TalosError `json:"error,omitempty"`
 }
 
 type MemoryResult struct {
@@ -122,6 +142,18 @@ func (s *MemoryService) ListCandidates(correlationID string) MemoryListResult {
 	return MemoryListResult{Memories: memoryDTOs(records)}
 }
 
+func (s *MemoryService) ListAll(correlationID string) MemoryListResult {
+	correlationID = normalizeCorrelationID(correlationID)
+	if s.vault == nil {
+		return memoryListError(memorykernel.ErrInvalidRequest, correlationID)
+	}
+	records, err := s.vault.listAllMemories(maxMemoryCandidates)
+	if err != nil {
+		return memoryListError(err, correlationID)
+	}
+	return MemoryListResult{Memories: memoryDTOs(records)}
+}
+
 func (s *MemoryService) Review(request MemoryReviewRequest) MemoryResult {
 	correlationID := normalizeCorrelationID(request.CorrelationID)
 	if s.vault == nil || strings.TrimSpace(request.MemoryID) == "" || request.ExpectedRevision < 1 || strings.TrimSpace(request.Reason) == "" || strings.TrimSpace(request.RequestID) == "" {
@@ -131,9 +163,14 @@ func (s *MemoryService) Review(request MemoryReviewRequest) MemoryResult {
 	if nextState != memory.StateApproved && nextState != memory.StateRejected && nextState != memory.StateQuarantined {
 		return memoryError(memorykernel.ErrReviewRequired, correlationID)
 	}
+	expiresAt, err := validityExpiry(request.ValidityDays)
+	if err != nil {
+		return memoryError(err, correlationID)
+	}
 	record, err := s.vault.reviewMemory(memorystore.TransitionInput{
 		MemoryID: strings.TrimSpace(request.MemoryID), ExpectedRevision: request.ExpectedRevision,
 		NextState: nextState, Reason: strings.TrimSpace(request.Reason),
+		ExpiresAt:      expiresAt,
 		IdempotencyKey: "memory-review:" + strings.TrimSpace(request.RequestID),
 	})
 	if err != nil {
@@ -141,6 +178,41 @@ func (s *MemoryService) Review(request MemoryReviewRequest) MemoryResult {
 	}
 	dto := memoryDTO(record)
 	return MemoryResult{Memory: &dto}
+}
+
+func (s *MemoryService) ChangeLifecycle(request MemoryLifecycleRequest) MemoryResult {
+	correlationID := normalizeCorrelationID(request.CorrelationID)
+	if s.vault == nil || strings.TrimSpace(request.MemoryID) == "" || request.ExpectedRevision < 1 || strings.TrimSpace(request.Reason) == "" || strings.TrimSpace(request.RequestID) == "" {
+		return memoryError(memorystore.ErrInvalidCommand, correlationID)
+	}
+	expiresAt, err := validityExpiry(request.ValidityDays)
+	if err != nil {
+		return memoryError(err, correlationID)
+	}
+	record, err := s.vault.changeMemoryLifecycle(memorystore.TransitionInput{
+		MemoryID: strings.TrimSpace(request.MemoryID), ExpectedRevision: request.ExpectedRevision,
+		NextState: memory.State(request.NextState), Reason: strings.TrimSpace(request.Reason), ExpiresAt: expiresAt,
+		SupersededBy: strings.TrimSpace(request.SupersededBy), IdempotencyKey: "memory-lifecycle:" + strings.TrimSpace(request.RequestID),
+	})
+	if err != nil {
+		return memoryError(err, correlationID)
+	}
+	dto := memoryDTO(record)
+	return MemoryResult{Memory: &dto}
+}
+
+func (s *MemoryService) SweepExpired(requestID, correlationID string) MemorySweepResult {
+	correlationID = normalizeCorrelationID(correlationID)
+	if s.vault == nil || strings.TrimSpace(requestID) == "" {
+		mapped := MapError(memorykernel.ErrInvalidRequest, correlationID)
+		return MemorySweepResult{Error: &mapped}
+	}
+	updated, records, err := s.vault.sweepExpiredMemories(time.Now().UTC(), maxMemoryCandidates)
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		return MemorySweepResult{Error: &mapped}
+	}
+	return MemorySweepResult{Updated: memoryDTOs(updated), Memories: memoryDTOs(records)}
 }
 
 func (s *MemoryService) ExplainCurrentTask(taskID, correlationID string) MemoryContextResult {
@@ -198,6 +270,20 @@ func (s *VaultService) listMemoryCandidates(limit int) ([]memory.Record, error) 
 	return kernel.ListCandidates(context.Background(), vaultID, limit)
 }
 
+func (s *VaultService) listAllMemories(limit int) ([]memory.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	database, vaultID, err := s.memoryDatabaseLocked()
+	if err != nil {
+		return nil, err
+	}
+	kernel, err := memorykernel.New(database)
+	if err != nil {
+		return nil, err
+	}
+	return kernel.ListAll(context.Background(), vaultID, limit)
+}
+
 func (s *VaultService) reviewMemory(input memorystore.TransitionInput) (memory.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -211,6 +297,40 @@ func (s *VaultService) reviewMemory(input memorystore.TransitionInput) (memory.R
 		return memory.Record{}, err
 	}
 	return kernel.ReviewCandidate(context.Background(), input)
+}
+
+func (s *VaultService) changeMemoryLifecycle(input memorystore.TransitionInput) (memory.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	database, vaultID, err := s.memoryDatabaseLocked()
+	if err != nil {
+		return memory.Record{}, err
+	}
+	input.VaultID = vaultID
+	kernel, err := memorykernel.New(database)
+	if err != nil {
+		return memory.Record{}, err
+	}
+	return kernel.ChangeLifecycle(context.Background(), input)
+}
+
+func (s *VaultService) sweepExpiredMemories(at time.Time, limit int) ([]memory.Record, []memory.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	database, vaultID, err := s.memoryDatabaseLocked()
+	if err != nil {
+		return nil, nil, err
+	}
+	kernel, err := memorykernel.New(database)
+	if err != nil {
+		return nil, nil, err
+	}
+	updated, err := kernel.ExpireDue(context.Background(), vaultID, at, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	records, err := kernel.ListAll(context.Background(), vaultID, limit)
+	return updated, records, err
 }
 
 func (s *VaultService) explainTaskMemory(taskID, workspaceRoot, baselineCommit string) (memorycontext.Result, error) {
@@ -258,7 +378,22 @@ func memoryDTOs(records []memory.Record) []MemoryDTO {
 }
 
 func memoryDTO(record memory.Record) MemoryDTO {
-	return MemoryDTO{MemoryID: record.ID, Kind: string(record.Kind), State: string(record.State), Scope: string(record.Scope.Kind), Statement: record.Statement, Rationale: record.Rationale, GoalTerms: append([]string(nil), record.Applicability.GoalTerms...), EvidenceEventIDs: append([]string(nil), record.EvidenceEventIDs...), SourceActor: record.SourceActor, Confidence: record.Confidence, Sensitivity: string(record.Sensitivity), Revision: record.Revision, CreatedAt: record.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	expiresAt := ""
+	if !record.ExpiresAt.IsZero() {
+		expiresAt = record.ExpiresAt.UTC().Format(time.RFC3339Nano)
+	}
+	return MemoryDTO{MemoryID: record.ID, Kind: string(record.Kind), State: string(record.State), Scope: string(record.Scope.Kind), Statement: record.Statement, Rationale: record.Rationale, GoalTerms: append([]string(nil), record.Applicability.GoalTerms...), EvidenceEventIDs: append([]string(nil), record.EvidenceEventIDs...), SourceActor: record.SourceActor, Confidence: record.Confidence, Sensitivity: string(record.Sensitivity), Revision: record.Revision, CreatedAt: record.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: record.UpdatedAt.UTC().Format(time.RFC3339Nano), ExpiresAt: expiresAt, SupersededBy: record.SupersededBy}
+}
+
+func validityExpiry(days int) (time.Time, error) {
+	switch days {
+	case 0:
+		return time.Time{}, nil
+	case 30, 90, 365:
+		return time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour), nil
+	default:
+		return time.Time{}, memorystore.ErrInvalidCommand
+	}
 }
 
 func memoryCompileError(err error, correlationID string) MemoryCompileResult {

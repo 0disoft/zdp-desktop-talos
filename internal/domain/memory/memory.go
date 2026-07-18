@@ -154,6 +154,8 @@ type Record struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	ReviewedAt       time.Time
+	ExpiresAt        time.Time
+	SupersededBy     string
 	CreatedEventID   string
 	LastEventID      string
 }
@@ -189,7 +191,21 @@ func (r Record) Validate() error {
 			return ErrInvalidRecord
 		}
 	}
+	if !r.ExpiresAt.IsZero() && !r.ExpiresAt.After(r.CreatedAt) {
+		return ErrInvalidRecord
+	}
+	if r.State == StateSuperseded {
+		if strings.TrimSpace(r.SupersededBy) == "" || r.SupersededBy == r.ID || len(r.SupersededBy) > 128 {
+			return ErrInvalidRecord
+		}
+	} else if r.SupersededBy != "" {
+		return ErrInvalidRecord
+	}
 	return nil
+}
+
+func (r Record) IsExpired(at time.Time) bool {
+	return !r.ExpiresAt.IsZero() && !at.Before(r.ExpiresAt)
 }
 
 func sameTerms(left, right []string) bool {

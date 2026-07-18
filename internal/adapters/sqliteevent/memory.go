@@ -38,14 +38,16 @@ type memoryPayload struct {
 	CreatedAt        string               `json:"created_at"`
 	UpdatedAt        string               `json:"updated_at"`
 	ReviewedAt       string               `json:"reviewed_at,omitempty"`
+	ExpiresAt        string               `json:"expires_at,omitempty"`
+	SupersededBy     string               `json:"superseded_by,omitempty"`
 	CreatedEventID   string               `json:"created_event_id"`
 	TransitionReason string               `json:"transition_reason,omitempty"`
 }
 
 type memoryPointer struct {
-	memoryID, vaultID, kind, state, scopeKind, workspaceRootHash, sensitivity string
-	createdAt, updatedAt, reviewedAt, createdEventID, lastEventID             string
-	confidence, revision                                                      int
+	memoryID, vaultID, kind, state, scopeKind, workspaceRootHash, sensitivity              string
+	createdAt, updatedAt, reviewedAt, expiresAt, supersededBy, createdEventID, lastEventID string
+	confidence, revision                                                                   int
 }
 
 func (s *Store) CreateMemoryCandidate(ctx context.Context, input memorystore.CreateCandidateInput) (memory.Record, error) {
@@ -119,8 +121,8 @@ func (s *Store) CreateMemoryCandidate(ctx context.Context, input memorystore.Cre
 			return memory.Record{}, memorystore.ErrInvalidCommand
 		}
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_records(memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, created_event_id, last_event_id)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, payload.MemoryID, input.VaultID, string(payload.Kind), string(payload.State), string(payload.Scope.Kind), workspaceHash, string(payload.Sensitivity), payload.Confidence, payload.Revision, payload.CreatedAt, payload.UpdatedAt, payload.ReviewedAt, eventRecord.ID, eventRecord.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_records(memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, payload.MemoryID, input.VaultID, string(payload.Kind), string(payload.State), string(payload.Scope.Kind), workspaceHash, string(payload.Sensitivity), payload.Confidence, payload.Revision, payload.CreatedAt, payload.UpdatedAt, payload.ReviewedAt, payload.ExpiresAt, payload.SupersededBy, eventRecord.ID, eventRecord.ID); err != nil {
 		return memory.Record{}, fmt.Errorf("insert memory pointer: %w", err)
 	}
 	if err := claimIdempotency(ctx, tx, input.IdempotencyKey, eventRecord.ID, requestHash); err != nil {
@@ -133,7 +135,7 @@ func (s *Store) CreateMemoryCandidate(ctx context.Context, input memorystore.Cre
 }
 
 func (s *Store) TransitionMemory(ctx context.Context, input memorystore.TransitionInput) (memory.Record, error) {
-	if input.VaultID == "" || input.MemoryID == "" || input.ExpectedRevision < 1 || input.NextState.Validate() != nil || strings.TrimSpace(input.Reason) == "" || len(input.Reason) > 1024 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+	if input.VaultID == "" || input.MemoryID == "" || input.ExpectedRevision < 1 || input.NextState.Validate() != nil || strings.TrimSpace(input.Reason) == "" || len(input.Reason) > 1024 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || (input.NextState == memory.StateSuperseded) != (strings.TrimSpace(input.SupersededBy) != "") || input.SupersededBy == input.MemoryID || len(input.SupersededBy) > 128 {
 		return memory.Record{}, memorystore.ErrInvalidCommand
 	}
 	requestHash, err := memoryCommandHash(input)
@@ -145,6 +147,12 @@ func (s *Store) TransitionMemory(ctx context.Context, input memorystore.Transiti
 		occurredAt = s.now()
 	}
 	occurredAt = occurredAt.UTC()
+	if !input.ExpiresAt.IsZero() {
+		input.ExpiresAt = input.ExpiresAt.UTC()
+		if !input.ExpiresAt.After(occurredAt) || (input.NextState != memory.StateApproved && input.NextState != memory.StateStable) {
+			return memory.Record{}, memorystore.ErrInvalidCommand
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return memory.Record{}, fmt.Errorf("begin memory transition transaction: %w", err)
@@ -184,6 +192,29 @@ func (s *Store) TransitionMemory(ctx context.Context, input memorystore.Transiti
 	if occurredAt.Before(current.UpdatedAt) {
 		return memory.Record{}, memorystore.ErrInvalidCommand
 	}
+	if input.NextState == memory.StateSuperseded {
+		replacement, err := scanMemoryPointer(tx.QueryRowContext(ctx, memorySelect+" WHERE memory_id = ? AND vault_id = ?", input.SupersededBy, input.VaultID))
+		if err != nil {
+			return memory.Record{}, err
+		}
+		replacementExpired := false
+		if replacement.expiresAt != "" {
+			replacementExpiry, parseErr := time.Parse(time.RFC3339Nano, replacement.expiresAt)
+			if parseErr != nil {
+				return memory.Record{}, memorystore.ErrInvalidCommand
+			}
+			replacementExpired = !replacementExpiry.After(occurredAt)
+		}
+		if replacement.state != string(memory.StateApproved) && replacement.state != string(memory.StateStable) || replacement.scopeKind != pointer.scopeKind || replacement.workspaceRootHash != pointer.workspaceRootHash || replacementExpired {
+			return memory.Record{}, memorystore.ErrTransitionRejected
+		}
+		current.SupersededBy = input.SupersededBy
+	}
+	if input.NextState == memory.StateApproved {
+		current.ExpiresAt = input.ExpiresAt
+	} else if !input.ExpiresAt.IsZero() {
+		current.ExpiresAt = input.ExpiresAt
+	}
 	current.State = input.NextState
 	current.Revision++
 	current.UpdatedAt = occurredAt
@@ -199,7 +230,7 @@ func (s *Store) TransitionMemory(ctx context.Context, input memorystore.Transiti
 	if err := s.insertEvent(ctx, tx, eventRecord); err != nil {
 		return memory.Record{}, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE memory_records SET state = ?, revision = ?, updated_at = ?, reviewed_at = ?, last_event_id = ? WHERE memory_id = ? AND vault_id = ? AND revision = ?`, string(current.State), current.Revision, payload.UpdatedAt, payload.ReviewedAt, eventRecord.ID, input.MemoryID, input.VaultID, input.ExpectedRevision)
+	result, err := tx.ExecContext(ctx, `UPDATE memory_records SET state = ?, revision = ?, updated_at = ?, reviewed_at = ?, expires_at = ?, superseded_by_memory_id = ?, last_event_id = ? WHERE memory_id = ? AND vault_id = ? AND revision = ?`, string(current.State), current.Revision, payload.UpdatedAt, payload.ReviewedAt, payload.ExpiresAt, payload.SupersededBy, eventRecord.ID, input.MemoryID, input.VaultID, input.ExpectedRevision)
 	if err != nil {
 		return memory.Record{}, fmt.Errorf("update memory pointer: %w", err)
 	}
@@ -249,8 +280,19 @@ func (s *Store) ListActiveMemories(ctx context.Context, input memorystore.ListAc
 	if err != nil {
 		return nil, memorystore.ErrInvalidCommand
 	}
-	return s.listMemories(ctx, memorySelect+` WHERE vault_id = ? AND state IN (?, ?) AND (scope_kind = ? OR (scope_kind = ? AND workspace_root_hash = ?))
-		ORDER BY CASE state WHEN 'stable' THEN 0 ELSE 1 END, confidence DESC, updated_at DESC, memory_id LIMIT ?`, input.VaultID, string(memory.StateApproved), string(memory.StateStable), string(memory.ScopeVault), string(memory.ScopeWorkspace), workspaceHash, input.Limit)
+	at := input.At.UTC()
+	if at.IsZero() {
+		at = s.now().UTC()
+	}
+	return s.listMemories(ctx, memorySelect+` WHERE vault_id = ? AND state IN (?, ?) AND (expires_at = '' OR julianday(expires_at) > julianday(?)) AND (scope_kind = ? OR (scope_kind = ? AND workspace_root_hash = ?))
+		ORDER BY CASE state WHEN 'stable' THEN 0 ELSE 1 END, confidence DESC, updated_at DESC, memory_id LIMIT ?`, input.VaultID, string(memory.StateApproved), string(memory.StateStable), at.Format(time.RFC3339Nano), string(memory.ScopeVault), string(memory.ScopeWorkspace), workspaceHash, input.Limit)
+}
+
+func (s *Store) ListMemories(ctx context.Context, input memorystore.ListInput) ([]memory.Record, error) {
+	if input.VaultID == "" || input.Limit < 1 || input.Limit > 200 {
+		return nil, memorystore.ErrInvalidCommand
+	}
+	return s.listMemories(ctx, memorySelect+" WHERE vault_id = ? ORDER BY updated_at DESC, memory_id LIMIT ?", input.VaultID, input.Limit)
 }
 
 func (s *Store) listMemories(ctx context.Context, query string, arguments ...any) ([]memory.Record, error) {
@@ -320,13 +362,17 @@ func memoryPayloadFromRecord(record memory.Record) memoryPayload {
 	if !record.ReviewedAt.IsZero() {
 		reviewedAt = record.ReviewedAt.Format(time.RFC3339Nano)
 	}
+	expiresAt := ""
+	if !record.ExpiresAt.IsZero() {
+		expiresAt = record.ExpiresAt.Format(time.RFC3339Nano)
+	}
 	return memoryPayload{
 		MemoryID: record.ID, Kind: record.Kind, State: record.State, Scope: record.Scope,
 		Statement: record.Statement, Rationale: record.Rationale, Applicability: record.Applicability,
 		EvidenceEventIDs: append([]string(nil), record.EvidenceEventIDs...), SourceActor: record.SourceActor,
 		Confidence: record.Confidence, Sensitivity: record.Sensitivity, Revision: record.Revision,
 		CreatedAt: record.CreatedAt.Format(time.RFC3339Nano), UpdatedAt: record.UpdatedAt.Format(time.RFC3339Nano),
-		ReviewedAt: reviewedAt, CreatedEventID: record.CreatedEventID,
+		ReviewedAt: reviewedAt, ExpiresAt: expiresAt, SupersededBy: record.SupersededBy, CreatedEventID: record.CreatedEventID,
 	}
 }
 
@@ -353,6 +399,13 @@ func memoryFromEvent(record event.Record) (memory.Record, error) {
 			return memory.Record{}, memorystore.ErrInvalidCommand
 		}
 	}
+	expiresAt := time.Time{}
+	if payload.ExpiresAt != "" {
+		expiresAt, err = time.Parse(time.RFC3339Nano, payload.ExpiresAt)
+		if err != nil {
+			return memory.Record{}, memorystore.ErrInvalidCommand
+		}
+	}
 	createdEventID := payload.CreatedEventID
 	if createdEventID == "" && record.Type == memoryCandidateCreatedEventType {
 		createdEventID = record.ID
@@ -362,7 +415,7 @@ func memoryFromEvent(record event.Record) (memory.Record, error) {
 		Statement: payload.Statement, Rationale: payload.Rationale, Applicability: payload.Applicability,
 		EvidenceEventIDs: payload.EvidenceEventIDs, SourceActor: payload.SourceActor, Confidence: payload.Confidence,
 		Sensitivity: payload.Sensitivity, Revision: payload.Revision, CreatedAt: createdAt, UpdatedAt: updatedAt,
-		ReviewedAt: reviewedAt, CreatedEventID: createdEventID, LastEventID: record.ID,
+		ReviewedAt: reviewedAt, ExpiresAt: expiresAt, SupersededBy: payload.SupersededBy, CreatedEventID: createdEventID, LastEventID: record.ID,
 	}
 	if result.Sensitivity != record.Sensitivity || result.Validate() != nil {
 		return memory.Record{}, memorystore.ErrInvalidCommand
@@ -370,11 +423,11 @@ func memoryFromEvent(record event.Record) (memory.Record, error) {
 	return result, nil
 }
 
-const memorySelect = `SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, created_event_id, last_event_id FROM memory_records`
+const memorySelect = `SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id FROM memory_records`
 
 func scanMemoryPointer(row scanner) (memoryPointer, error) {
 	var pointer memoryPointer
-	if err := row.Scan(&pointer.memoryID, &pointer.vaultID, &pointer.kind, &pointer.state, &pointer.scopeKind, &pointer.workspaceRootHash, &pointer.sensitivity, &pointer.confidence, &pointer.revision, &pointer.createdAt, &pointer.updatedAt, &pointer.reviewedAt, &pointer.createdEventID, &pointer.lastEventID); err != nil {
+	if err := row.Scan(&pointer.memoryID, &pointer.vaultID, &pointer.kind, &pointer.state, &pointer.scopeKind, &pointer.workspaceRootHash, &pointer.sensitivity, &pointer.confidence, &pointer.revision, &pointer.createdAt, &pointer.updatedAt, &pointer.reviewedAt, &pointer.expiresAt, &pointer.supersededBy, &pointer.createdEventID, &pointer.lastEventID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return memoryPointer{}, memorystore.ErrNotFound
 		}

@@ -319,6 +319,18 @@ func (d *serviceDatabase) TransitionMemory(_ context.Context, input memorystore.
 	if !memory.CanTransition(record.State, input.NextState) {
 		return memory.Record{}, memorystore.ErrTransitionRejected
 	}
+	if input.NextState == memory.StateSuperseded {
+		replacement, exists := d.memoryRecords[input.SupersededBy]
+		if !exists || replacement.VaultID != input.VaultID || (replacement.State != memory.StateApproved && replacement.State != memory.StateStable) {
+			return memory.Record{}, memorystore.ErrTransitionRejected
+		}
+		record.SupersededBy = input.SupersededBy
+	}
+	if input.NextState == memory.StateApproved {
+		record.ExpiresAt = input.ExpiresAt
+	} else if !input.ExpiresAt.IsZero() {
+		record.ExpiresAt = input.ExpiresAt
+	}
 	if input.OccurredAt.IsZero() {
 		input.OccurredAt = record.UpdatedAt.Add(time.Nanosecond)
 	}
@@ -355,7 +367,19 @@ func (d *serviceDatabase) ListActiveMemories(_ context.Context, input memorystor
 		if record.Scope.Kind == memory.ScopeWorkspace && record.Scope.WorkspaceRoot != input.WorkspaceRoot {
 			continue
 		}
+		if !input.At.IsZero() && record.IsExpired(input.At) {
+			continue
+		}
 		result = append(result, record)
+	}
+	return result, nil
+}
+func (d *serviceDatabase) ListMemories(_ context.Context, input memorystore.ListInput) ([]memory.Record, error) {
+	result := make([]memory.Record, 0, input.Limit)
+	for _, record := range d.memoryRecords {
+		if record.VaultID == input.VaultID && len(result) < input.Limit {
+			result = append(result, record)
+		}
 	}
 	return result, nil
 }

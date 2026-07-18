@@ -49,6 +49,8 @@
 - memory evidence IDs must already exist in the same Vault; candidate creation cannot invent or borrow provenance from another Vault;
 - only explicit optimistic-revision transitions can approve, reject, quarantine, stabilize, stale, deprecate, or supersede memory;
 - rejected, quarantined, superseded, and deprecated memories never re-enter active context;
+- expired approved or stable memories never enter active context; an explicit idempotent sweep may move them to stale without rewriting their encrypted provenance;
+- supersession names a different approved or stable replacement in the same Vault and exact Vault/workspace scope; replacement lookup and the old-record transition commit atomically;
 - materialized memory state contains lifecycle and scope hashes only; statements, rationales, applicability terms, and evidence lists remain encrypted event payloads;
 - a secret value cannot enter event payloads;
 - imported data must pass schema, signature, sequence, sensitivity, and memory gates.

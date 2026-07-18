@@ -19,7 +19,7 @@
   import { executeVerification, type ExecutionStatus } from './lib/api/execution';
   import { getTaskReview, type PatchReview } from './lib/api/review';
   import { applyPatch, discardPatch } from './lib/api/patch';
-  import { compileTaskMemories, explainTaskMemory, listMemoryCandidates, reviewMemory, type AppliedMemory, type MemoryItem, type MemoryReviewOutcome } from './lib/api/memory';
+  import { changeMemoryLifecycle, compileTaskMemories, explainTaskMemory, listMemories, reviewMemory, sweepExpiredMemories, type AppliedMemory, type MemoryItem, type MemoryReviewOutcome } from './lib/api/memory';
   import { getModelProviderStatus, proposePlan, type ModelProviderStatus, type PlanProposal } from './lib/api/plan';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
@@ -51,6 +51,9 @@
   let memoryCandidates = $state<MemoryItem[]>([]);
   let appliedMemories = $state<AppliedMemory[]>([]);
   let memoryEligible = $state(0);
+  let lifecycleMemories = $state<MemoryItem[]>([]);
+  let memoryValidityDays = $state(90);
+  let supersedeTargets = $state<Record<string, string>>({});
   let modelProvider = $state<ModelProviderStatus>({ provider_key: 'openai-responses', credential_name: 'OPENAI_API_KEY', ready: false, reason_code: 'MODEL_PROVIDER_UNAVAILABLE' });
   let modelConsent = $state(false);
   let planProposal = $state<PlanProposal | null>(null);
@@ -379,9 +382,12 @@
   async function refreshMemories() {
     if (!task || vault.state !== 'unlocked') { memoryCandidates = []; appliedMemories = []; return; }
     try {
-      const [candidateResult, contextResult] = await Promise.all([listMemoryCandidates(), explainTaskMemory(task.task_id)]);
+      const [candidateResult, contextResult] = await Promise.all([listMemories(), explainTaskMemory(task.task_id)]);
       if (candidateResult.error) latestError = candidateResult.error;
-      else memoryCandidates = candidateResult.memories;
+      else {
+        memoryCandidates = candidateResult.memories.filter((item) => item.state === 'candidate');
+        lifecycleMemories = candidateResult.memories.filter((item) => item.state !== 'candidate' && item.state !== 'rejected' && item.state !== 'quarantined');
+      }
       if (contextResult.error) latestError = contextResult.error;
       else appliedMemories = contextResult.items;
     } catch {
@@ -408,7 +414,7 @@
     loading = true; latestError = null;
     const reasons: Record<MemoryReviewOutcome, string> = { approved: '현재 프로젝트 규칙으로 승인함', rejected: '지속적으로 적용할 기억이 아님', quarantined: '출처 또는 내용에 보안 검토가 필요함' };
     try {
-      const result = await reviewMemory(item.memory_id, item.revision, outcome, reasons[outcome]);
+      const result = await reviewMemory(item.memory_id, item.revision, outcome, reasons[outcome], outcome === 'approved' ? memoryValidityDays : 0);
       if (result.error) latestError = result.error;
       else await refreshMemories();
     } catch {
@@ -416,9 +422,37 @@
     } finally { loading = false; }
   }
 
+  async function handleMemoryLifecycle(item: MemoryItem, nextState: 'approved' | 'stable' | 'stale' | 'deprecated' | 'superseded') {
+    loading = true; latestError = null;
+    const replacement = nextState === 'superseded' ? (supersedeTargets[item.memory_id] ?? '') : '';
+    const reasons = { approved: '현재 근거를 다시 확인해 활성화함', stable: '반복 확인된 프로젝트 규칙으로 명시 승격함', stale: '현재 프로젝트 기준과 다시 확인이 필요함', deprecated: '더 이상 적용하지 않는 규칙으로 폐기함', superseded: '새 기억이 이 규칙을 대체함' };
+    try {
+      const result = await changeMemoryLifecycle(item.memory_id, item.revision, nextState, reasons[nextState], replacement, nextState === 'approved' ? memoryValidityDays : 0);
+      if (result.error) latestError = result.error;
+      else await refreshMemories();
+    } catch {
+      latestError = localError('MEMORY_LIFECYCLE_FAILED', '기억 상태를 변경하지 못했습니다.');
+    } finally { loading = false; }
+  }
+
+  async function handleMemorySweep() {
+    loading = true; latestError = null;
+    try {
+      const result = await sweepExpiredMemories();
+      if (result.error) latestError = result.error;
+      else {
+        memoryCandidates = result.memories.filter((item) => item.state === 'candidate');
+        lifecycleMemories = result.memories.filter((item) => item.state !== 'candidate' && item.state !== 'rejected' && item.state !== 'quarantined');
+        await refreshMemories();
+      }
+    } catch {
+      latestError = localError('MEMORY_SWEEP_FAILED', '만료된 기억 상태를 갱신하지 못했습니다.');
+    } finally { loading = false; }
+  }
+
   function clearPrivateTaskState() {
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
-    memoryCandidates = []; appliedMemories = []; memoryEligible = 0; modelConsent = false; planProposal = null;
+    memoryCandidates = []; lifecycleMemories = []; appliedMemories = []; memoryEligible = 0; supersedeTargets = {}; modelConsent = false; planProposal = null;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
   }
@@ -729,8 +763,10 @@
       <strong>{memoryCandidates.length}개 후보</strong>
       <p>{memoryEligible > 0 ? `최근 확인한 Decision ${memoryEligible}개` : '답변된 Decision만 검토 후보가 됩니다.'}</p>
       <div class="memory-toolbar">
+        <label><span>승인 유효기간</span><select bind:value={memoryValidityDays} disabled={loading}><option value={30}>30일</option><option value={90}>90일</option><option value={365}>365일</option><option value={0}>만료 없음</option></select></label>
         <button type="button" onclick={handleMemoryCompile} disabled={loading || !task || !decisions.some((item) => item.state === 'answered')}>Decision에서 후보 만들기</button>
         <button type="button" class="secondary" onclick={refreshMemories} disabled={loading || !task}>새로고침</button>
+        <button type="button" class="secondary" onclick={handleMemorySweep} disabled={loading || !task}>만료 상태 갱신</button>
       </div>
       <div class="decision-list">
         {#each memoryCandidates as item (item.memory_id)}
@@ -748,6 +784,26 @@
           </section>
         {:else}
           <p class="decision-empty">검토할 기억 후보가 없습니다.</p>
+        {/each}
+      </div>
+      <div class="memory-lifecycle-list">
+        <h3>기억 수명주기</h3>
+        {#each lifecycleMemories as item (item.memory_id)}
+          <section>
+            <div class="decision-meta"><span>{item.kind}</span><span>{item.state}</span><span>rev {item.revision}</span>{#if item.expires_at}<span>{new Date(item.expires_at).toLocaleDateString('ko-KR')}까지</span>{/if}</div>
+            <p>{item.statement}</p>
+            {#if item.superseded_by}<small>{item.superseded_by}로 대체됨</small>{/if}
+            {#if item.state === 'approved'}<button type="button" class="secondary" onclick={() => handleMemoryLifecycle(item, 'stable')} disabled={loading}>stable 승격</button>{/if}
+            {#if item.state === 'approved' || item.state === 'stable'}<button type="button" class="secondary" onclick={() => handleMemoryLifecycle(item, 'stale')} disabled={loading}>재확인 필요</button>{/if}
+            {#if item.state === 'stale'}<button type="button" class="secondary" onclick={() => handleMemoryLifecycle(item, 'approved')} disabled={loading}>다시 승인</button>{/if}
+            {#if item.state === 'approved' || item.state === 'stable' || item.state === 'stale'}
+              <button type="button" class="danger" onclick={() => handleMemoryLifecycle(item, 'deprecated')} disabled={loading}>폐기</button>
+              <label><span>대체 기억</span><select bind:value={supersedeTargets[item.memory_id]} disabled={loading}><option value="">선택</option>{#each lifecycleMemories.filter((candidate) => candidate.memory_id !== item.memory_id && (candidate.state === 'approved' || candidate.state === 'stable')) as candidate}<option value={candidate.memory_id}>{candidate.statement.slice(0, 72)}</option>{/each}</select></label>
+              <button type="button" class="secondary" onclick={() => handleMemoryLifecycle(item, 'superseded')} disabled={loading || !supersedeTargets[item.memory_id]}>대체 확정</button>
+            {/if}
+          </section>
+        {:else}
+          <p class="decision-empty">수명주기를 관리할 기억이 없습니다.</p>
         {/each}
       </div>
       <div class="applied-memory-list">

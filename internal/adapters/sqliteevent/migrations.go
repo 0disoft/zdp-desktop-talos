@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 14
+const currentSchemaVersion = 15
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -340,6 +340,14 @@ var migrations = []migration{
 			`CREATE INDEX memory_records_context_idx ON memory_records(vault_id, state, scope_kind, workspace_root_hash, confidence, updated_at, memory_id)`,
 		},
 	},
+	{
+		version: 15,
+		statements: []string{
+			`ALTER TABLE memory_records ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''`,
+			`ALTER TABLE memory_records ADD COLUMN superseded_by_memory_id TEXT NOT NULL DEFAULT ''`,
+			`CREATE INDEX memory_records_expiry_idx ON memory_records(vault_id, state, expires_at, memory_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -387,7 +395,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT task_id, status, action_id, completed_at, event_id FROM task_outcomes LIMIT 0`,
 		`SELECT vault_id, membership_id, state, revision, created_at, updated_at, last_event_id FROM account_links LIMIT 0`,
 		`SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts LIMIT 0`,
-		`SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, created_event_id, last_event_id FROM memory_records LIMIT 0`,
+		`SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id FROM memory_records LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

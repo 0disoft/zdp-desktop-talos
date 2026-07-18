@@ -46,5 +46,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0037-gated-memory-lifecycle-and-context-assembly.md`: encrypted candidate lifecycle, provenance gates, bounded applicability, and explainable plan context
 - `0038-decision-derived-memory-review-surface.md`: deterministic user-Decision extraction, idempotent candidate replay, explicit review, and current-Task reasons
 - `0039-explicit-openai-plan-proposal-boundary.md`: fixed-host Responses adapter, environment credential handle, exact egress consent, and review-only proposals
+- `0040-memory-expiry-supersession-and-evaluation.md`: schema-15 validity periods, explicit replacement links, lifecycle UI, and retrieval precision/recall
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

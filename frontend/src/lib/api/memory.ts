@@ -20,15 +20,22 @@ export type MemoryItem = {
   revision: number;
   created_at: string;
   updated_at: string;
+  expires_at?: string;
+  superseded_by?: string;
 };
 export type AppliedMemory = { memory_id: string; revision: number; statement: string; reason: string; source_ref: string; sensitivity: 'public' | 'private' | 'sensitive' };
 export type MemoryListResult = { memories: MemoryItem[]; error?: TalosError };
 export type MemoryCompileResult = { eligible: number; memories: MemoryItem[]; error?: TalosError };
 export type MemoryResult = { memory?: MemoryItem; error?: TalosError };
 export type MemoryContextResult = { considered: number; selected_bytes: number; items: AppliedMemory[]; error?: TalosError };
+export type MemorySweepResult = { updated: MemoryItem[]; memories: MemoryItem[]; error?: TalosError };
 
 export async function listMemoryCandidates(): Promise<MemoryListResult> {
   return parseList(await Call.ByName(`${service}.ListCandidates`, correlationID()));
+}
+
+export async function listMemories(): Promise<MemoryListResult> {
+  return parseList(await Call.ByName(`${service}.ListAll`, correlationID()));
 }
 
 export async function compileTaskMemories(taskID: string): Promise<MemoryCompileResult> {
@@ -36,9 +43,21 @@ export async function compileTaskMemories(taskID: string): Promise<MemoryCompile
   return parseCompile(await Call.ByName(`${service}.CompileTask`, { task_id: taskID, request_id: correlationID(), correlation_id: correlationID() }));
 }
 
-export async function reviewMemory(memoryID: string, expectedRevision: number, outcome: MemoryReviewOutcome, reason: string): Promise<MemoryResult> {
+export async function reviewMemory(memoryID: string, expectedRevision: number, outcome: MemoryReviewOutcome, reason: string, validityDays = 0): Promise<MemoryResult> {
   if (!memoryID || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !reason.trim()) throw new Error('MEMORY_REVIEW_INVALID');
-  return parseResult(await Call.ByName(`${service}.Review`, { memory_id: memoryID, expected_revision: expectedRevision, outcome, reason: reason.trim(), request_id: correlationID(), correlation_id: correlationID() }));
+  return parseResult(await Call.ByName(`${service}.Review`, { memory_id: memoryID, expected_revision: expectedRevision, outcome, reason: reason.trim(), validity_days: validityDays, request_id: correlationID(), correlation_id: correlationID() }));
+}
+
+export async function changeMemoryLifecycle(memoryID: string, expectedRevision: number, nextState: 'approved' | 'stable' | 'stale' | 'deprecated' | 'superseded', reason: string, supersededBy = '', validityDays = 0): Promise<MemoryResult> {
+  if (!memoryID || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !reason.trim() || (nextState === 'superseded') !== Boolean(supersededBy)) throw new Error('MEMORY_LIFECYCLE_INVALID');
+  return parseResult(await Call.ByName(`${service}.ChangeLifecycle`, { memory_id: memoryID, expected_revision: expectedRevision, next_state: nextState, reason: reason.trim(), superseded_by: supersededBy, validity_days: validityDays, request_id: correlationID(), correlation_id: correlationID() }));
+}
+
+export async function sweepExpiredMemories(): Promise<MemorySweepResult> {
+  const value = await Call.ByName(`${service}.SweepExpired`, correlationID(), correlationID());
+  if (!isObject(value)) throw new Error('MEMORY_RESPONSE_INVALID');
+  if (value.error !== undefined) return { updated: [], memories: [], error: parseError(value.error) };
+  return { updated: parseMemories(value.updated), memories: parseMemories(value.memories) };
 }
 
 export async function explainTaskMemory(taskID: string): Promise<MemoryContextResult> {
@@ -81,7 +100,7 @@ function parseMemories(value: unknown): MemoryItem[] {
 }
 
 function parseMemory(value: unknown): MemoryItem {
-  if (!isObject(value) || typeof value.memory_id !== 'string' || !value.memory_id || !memoryKind(value.kind) || !memoryState(value.state) || (value.scope !== 'vault' && value.scope !== 'workspace') || typeof value.statement !== 'string' || !value.statement || value.statement.length > 4096 || typeof value.rationale !== 'string' || !value.rationale || value.rationale.length > 2048 || !stringArray(value.goal_terms, 16) || !stringArray(value.evidence_event_ids, 32) || value.evidence_event_ids.length < 1 || typeof value.source_actor !== 'string' || !value.source_actor || value.source_actor.length > 64 || !Number.isSafeInteger(value.confidence) || (value.confidence as number) < 0 || (value.confidence as number) > 100 || (value.sensitivity !== 'public' && value.sensitivity !== 'private' && value.sensitivity !== 'sensitive') || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1 || typeof value.created_at !== 'string' || Number.isNaN(Date.parse(value.created_at)) || typeof value.updated_at !== 'string' || Number.isNaN(Date.parse(value.updated_at))) throw new Error('MEMORY_RESPONSE_INVALID');
+  if (!isObject(value) || typeof value.memory_id !== 'string' || !value.memory_id || !memoryKind(value.kind) || !memoryState(value.state) || (value.scope !== 'vault' && value.scope !== 'workspace') || typeof value.statement !== 'string' || !value.statement || value.statement.length > 4096 || typeof value.rationale !== 'string' || !value.rationale || value.rationale.length > 2048 || !stringArray(value.goal_terms, 16) || !stringArray(value.evidence_event_ids, 32) || value.evidence_event_ids.length < 1 || typeof value.source_actor !== 'string' || !value.source_actor || value.source_actor.length > 64 || !Number.isSafeInteger(value.confidence) || (value.confidence as number) < 0 || (value.confidence as number) > 100 || (value.sensitivity !== 'public' && value.sensitivity !== 'private' && value.sensitivity !== 'sensitive') || !Number.isSafeInteger(value.revision) || (value.revision as number) < 1 || typeof value.created_at !== 'string' || Number.isNaN(Date.parse(value.created_at)) || typeof value.updated_at !== 'string' || Number.isNaN(Date.parse(value.updated_at)) || (value.expires_at !== undefined && (typeof value.expires_at !== 'string' || Number.isNaN(Date.parse(value.expires_at)))) || (value.superseded_by !== undefined && (typeof value.superseded_by !== 'string' || !value.superseded_by))) throw new Error('MEMORY_RESPONSE_INVALID');
   return value as MemoryItem;
 }
 

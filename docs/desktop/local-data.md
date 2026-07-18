@@ -13,6 +13,8 @@ Event and state updates share one database transaction. WAL files, checkpoints, 
 
 The schema-version-3 Vault read model stores retention and lifecycle metadata with optimistic revisions and a reference to its last event. It does not store whether a Vault is unlocked. Unlock authority is process-local and must be re-established from the OS key store after every restart.
 
+Schema version 15 adds optional expiry and replacement identifiers to materialized memory lifecycle state. Statements, rationale, applicability, evidence, and transition reasons remain only in encrypted events. Expired active rows are excluded from context queries before an explicit sweep transitions them to `stale`.
+
 Schema version 5 adds Task metadata and immutable contract-revision pointers. The actual workspace path, contract goals, scopes, forbidden actions, and acceptance criteria remain only in encrypted event payloads; plaintext tables retain a workspace-path hash, baseline, and provenance needed for bounded lifecycle queries and integrity constraints.
 
 Schema version 6 adds Decision state and answer pointers. Question text, rationale, safe defaults, scopes, options, and answer values remain encrypted; plaintext rows retain revisions, repository baselines, answer hashes, state, and provenance required for stale-answer and conflict enforcement.

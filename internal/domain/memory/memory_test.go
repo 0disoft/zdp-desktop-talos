@@ -45,3 +45,19 @@ func TestStateTransitionsKeepTerminalStatesClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestExpiryAndSupersessionRemainExplicit(t *testing.T) {
+	now := time.Date(2026, 7, 18, 1, 0, 0, 0, time.UTC)
+	record := Record{ID: "memory-old", VaultID: "vault", Kind: KindDecision, State: StateApproved, Scope: Scope{Kind: ScopeVault}, Statement: "Use revision checks.", Rationale: "User decision.", EvidenceEventIDs: []string{"event"}, SourceActor: "user", Confidence: 100, Sensitivity: event.SensitivityPrivate, Revision: 2, CreatedAt: now, UpdatedAt: now, ReviewedAt: now, ExpiresAt: now.Add(time.Hour), CreatedEventID: "created", LastEventID: "last"}
+	if record.Validate() != nil || record.IsExpired(now.Add(59*time.Minute)) || !record.IsExpired(now.Add(time.Hour)) {
+		t.Fatalf("record=%+v", record)
+	}
+	record.State = StateSuperseded
+	if record.Validate() == nil {
+		t.Fatal("superseded memory without replacement was accepted")
+	}
+	record.SupersededBy = "memory-new"
+	if err := record.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
