@@ -33,6 +33,43 @@ export type VaultListResult = {
   error?: TalosError;
 };
 
+export type VaultBackupReceipt = {
+  schema: 'talos.vault-backup-receipt/1';
+  backup_id: string;
+  vault_id: string;
+  path: string;
+  source_application_version: string;
+  source_schema_version: number;
+  created_at: string;
+  encrypted_size_bytes: number;
+  ciphertext_sha256: string;
+  database_size_bytes: number;
+  artifact_count: number;
+  event_count: number;
+};
+
+export type VaultBackupPreflight = {
+  schema: 'talos.vault-backup-preflight/1';
+  backup_id: string;
+  vault_id: string;
+  path: string;
+  source_application_version: string;
+  target_application_version: string;
+  source_schema_version: number;
+  target_schema_version: number;
+  migration_required: boolean;
+  created_at: string;
+  verified_at: string;
+  encrypted_size_bytes: number;
+  ciphertext_sha256: string;
+  database_size_bytes: number;
+  artifact_count: number;
+  event_count: number;
+};
+
+export type VaultBackupResult = { receipt?: VaultBackupReceipt; error?: TalosError };
+export type VaultBackupPreflightResult = { preflight?: VaultBackupPreflight; error?: TalosError };
+
 export async function getVaultStatus(): Promise<VaultStatus> {
   return parseStatus(await Call.ByName(`${service}.Status`));
 }
@@ -69,6 +106,16 @@ export async function hardPurgeVault(expectedRevision: number, confirmation: str
   );
 }
 
+export async function createVaultBackup(destination: string): Promise<VaultBackupResult> {
+  if (!validLocalPath(destination)) throw new Error('VAULT_BACKUP_PATH_INVALID');
+  return parseBackupResult(await Call.ByName(`${service}.CreateBackup`, destination, correlationID()));
+}
+
+export async function preflightVaultBackup(source: string): Promise<VaultBackupPreflightResult> {
+  if (!validLocalPath(source)) throw new Error('VAULT_BACKUP_PATH_INVALID');
+  return parseBackupPreflightResult(await Call.ByName(`${service}.PreflightBackup`, source, correlationID()));
+}
+
 function parseResult(value: unknown): VaultResult {
   if (!isObject(value)) {
     throw new Error('VAULT_RESPONSE_INVALID');
@@ -103,6 +150,50 @@ function parseListResult(value: unknown): VaultListResult {
     throw new Error('VAULT_RESPONSE_INVALID');
   }
   return { vaults: value.vaults.map(parseSummary) };
+}
+
+function parseBackupResult(value: unknown): VaultBackupResult {
+  if (!isObject(value)) throw new Error('VAULT_BACKUP_RESPONSE_INVALID');
+  const result: VaultBackupResult = {};
+  if (value.receipt !== undefined) result.receipt = parseBackupReceipt(value.receipt);
+  if (value.error !== undefined) result.error = parseError(value.error);
+  if ((result.receipt === undefined) === (result.error === undefined)) throw new Error('VAULT_BACKUP_RESPONSE_INVALID');
+  return result;
+}
+
+function parseBackupPreflightResult(value: unknown): VaultBackupPreflightResult {
+  if (!isObject(value)) throw new Error('VAULT_BACKUP_RESPONSE_INVALID');
+  const result: VaultBackupPreflightResult = {};
+  if (value.preflight !== undefined) result.preflight = parseBackupPreflight(value.preflight);
+  if (value.error !== undefined) result.error = parseError(value.error);
+  if ((result.preflight === undefined) === (result.error === undefined)) throw new Error('VAULT_BACKUP_RESPONSE_INVALID');
+  return result;
+}
+
+function parseBackupReceipt(value: unknown): VaultBackupReceipt {
+  if (
+    !validBackupCommon(value) ||
+    value.schema !== 'talos.vault-backup-receipt/1' ||
+    !validPositiveInteger(value.source_schema_version)
+  ) {
+    throw new Error('VAULT_BACKUP_RESPONSE_INVALID');
+  }
+  return value as VaultBackupReceipt;
+}
+
+function parseBackupPreflight(value: unknown): VaultBackupPreflight {
+  if (
+    !validBackupCommon(value) ||
+    value.schema !== 'talos.vault-backup-preflight/1' ||
+    !validPositiveInteger(value.source_schema_version) ||
+    typeof value.target_application_version !== 'string' || !validVersion(value.target_application_version) ||
+    !validPositiveInteger(value.target_schema_version) ||
+    typeof value.migration_required !== 'boolean' ||
+    typeof value.verified_at !== 'string' || !validDate(value.verified_at)
+  ) {
+    throw new Error('VAULT_BACKUP_RESPONSE_INVALID');
+  }
+  return value as VaultBackupPreflight;
 }
 
 function parseSummary(value: unknown): VaultSummary {
@@ -159,6 +250,42 @@ function parseError(value: unknown): TalosError {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validLocalPath(value: string): boolean {
+  return value.trim() === value && value.length > 0 && value.length <= 32767 && !value.includes('\0');
+}
+
+function validBackupCommon(value: unknown): value is Record<string, unknown> {
+  return (
+    isObject(value) &&
+    typeof value.backup_id === 'string' && uuidV7.test(value.backup_id) &&
+    typeof value.vault_id === 'string' && uuidV7.test(value.vault_id) &&
+    typeof value.path === 'string' && validLocalPath(value.path) &&
+    typeof value.source_application_version === 'string' && validVersion(value.source_application_version) &&
+    typeof value.created_at === 'string' && validDate(value.created_at) &&
+    validPositiveInteger(value.encrypted_size_bytes) &&
+    typeof value.ciphertext_sha256 === 'string' && /^[0-9a-f]{64}$/.test(value.ciphertext_sha256) &&
+    validPositiveInteger(value.database_size_bytes) &&
+    validNonNegativeInteger(value.artifact_count) &&
+    validPositiveInteger(value.event_count)
+  );
+}
+
+function validVersion(value: string): boolean {
+  return /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(value);
+}
+
+function validDate(value: string): boolean {
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+function validPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function validNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function correlationID(): string {

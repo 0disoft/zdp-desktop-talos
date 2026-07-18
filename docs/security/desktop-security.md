@@ -18,6 +18,7 @@ The model is an untrusted planner. Repository files, Git history, terminal outpu
 - redaction and secret scanning run before persistence, diagnostics, model egress, projection, and sync export;
 - sync export uses an explicit event-type/schema allowlist; imported, device-local, unsupported, and legacy events cannot silently cross or mutate another device boundary;
 - Git sync prepares only encrypted packs in a clean canonical repository, imports only tracked packs from an unchanged clean commit, and never runs commit, pull, push, merge, remote, credential, or configuration writes;
+- Vault backup uses an online SQLite snapshot, exact hash-verified blobs, a bounded chunk-authenticated encrypted stream, same-directory no-clobber publication, and isolated preflight; it never embeds the Vault root key or replaces live data;
 - permission grants are `allow_once`, `allow_task`, `allow_workspace`, `deny`, or `require_review`; blanket shell permission is forbidden.
 
 ## Honest Limitation

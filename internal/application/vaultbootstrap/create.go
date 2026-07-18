@@ -39,6 +39,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultbackup"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -60,6 +61,7 @@ var (
 	ErrTaskWorkspaceMismatch = errors.New("task does not belong to the current workspace snapshot")
 	ErrEnrollmentConflict    = errors.New("sync enrollment conflicts with local Vault state")
 	ErrEnrollmentUnsupported = errors.New("Vault database does not support sync enrollment")
+	ErrBackupUnsupported     = errors.New("Vault backup storage is unavailable")
 )
 
 type CreateInput struct {
@@ -250,6 +252,7 @@ type Session struct {
 	Record   vault.Record
 	database vaultdb.Database
 	keys     keyvault.Store
+	backups  vaultbackup.Store
 }
 
 type ExecutionDatabase interface {
@@ -640,6 +643,40 @@ func (s *Session) Close() error {
 	return err
 }
 
+func (s *Session) CreateBackup(ctx context.Context, destination, applicationVersion string) (vaultbackup.Receipt, error) {
+	if s == nil || s.database == nil || s.keys == nil {
+		return vaultbackup.Receipt{}, ErrNotOpen
+	}
+	if s.backups == nil {
+		return vaultbackup.Receipt{}, ErrBackupUnsupported
+	}
+	key, err := s.keys.Get(ctx, keyvault.Reference{VaultID: s.Record.ID, KeyID: VaultKeyID})
+	if err != nil {
+		return vaultbackup.Receipt{}, fmt.Errorf("load Vault key for backup: %w", err)
+	}
+	defer clear(key)
+	return s.backups.CreateBackup(ctx, vaultbackup.CreateInput{
+		VaultID: s.Record.ID, KeyID: VaultKeyID, Key: key, Destination: destination, ApplicationVersion: applicationVersion,
+	})
+}
+
+func (s *Session) PreflightBackup(ctx context.Context, source, applicationVersion string) (vaultbackup.Preflight, error) {
+	if s == nil || s.database == nil || s.keys == nil {
+		return vaultbackup.Preflight{}, ErrNotOpen
+	}
+	if s.backups == nil {
+		return vaultbackup.Preflight{}, ErrBackupUnsupported
+	}
+	key, err := s.keys.Get(ctx, keyvault.Reference{VaultID: s.Record.ID, KeyID: VaultKeyID})
+	if err != nil {
+		return vaultbackup.Preflight{}, fmt.Errorf("load Vault key for backup preflight: %w", err)
+	}
+	defer clear(key)
+	return s.backups.PreflightBackup(ctx, vaultbackup.PreflightInput{
+		VaultID: s.Record.ID, KeyID: VaultKeyID, Key: key, Source: source, ApplicationVersion: applicationVersion,
+	})
+}
+
 func (s *Session) UpdateRetention(ctx context.Context, input UpdateRetentionInput) (vault.Record, error) {
 	if s == nil || s.database == nil {
 		return vault.Record{}, ErrNotOpen
@@ -787,18 +824,24 @@ type Creator struct {
 	keys      keyvault.Store
 	databases vaultdb.Factory
 	catalog   vaultcatalog.Catalog
+	backups   vaultbackup.Store
 	random    io.Reader
 	now       func() time.Time
 }
 
-func NewCreator(keys keyvault.Store, databases vaultdb.Factory, catalog vaultcatalog.Catalog) (*Creator, error) {
-	if keys == nil || databases == nil || catalog == nil {
+func NewCreator(keys keyvault.Store, databases vaultdb.Factory, catalog vaultcatalog.Catalog, backupStores ...vaultbackup.Store) (*Creator, error) {
+	if keys == nil || databases == nil || catalog == nil || len(backupStores) > 1 || len(backupStores) == 1 && backupStores[0] == nil {
 		return nil, ErrInvalidInput
+	}
+	var backups vaultbackup.Store
+	if len(backupStores) == 1 {
+		backups = backupStores[0]
 	}
 	return &Creator{
 		keys:      keys,
 		databases: databases,
 		catalog:   catalog,
+		backups:   backups,
 		random:    rand.Reader,
 		now:       func() time.Time { return time.Now().UTC() },
 	}, nil
@@ -841,7 +884,7 @@ func (c *Creator) Create(ctx context.Context, input CreateInput) (*Session, erro
 	if err := c.catalog.Add(ctx, entry); err != nil {
 		return nil, c.compensate(ctx, fmt.Errorf("register Vault in catalog: %w", err), entry, keyRef, database)
 	}
-	return &Session{Record: record, database: database, keys: c.keys}, nil
+	return c.newSession(record, database), nil
 }
 
 func (c *Creator) AcceptEnrollmentOffer(ctx context.Context, input AcceptEnrollmentOfferInput) (AcceptedEnrollment, error) {
@@ -957,7 +1000,7 @@ func (c *Creator) AcceptEnrollmentOffer(ctx context.Context, input AcceptEnrollm
 			return AcceptedEnrollment{}, err
 		}
 		keepOpen = true
-		return AcceptedEnrollment{Session: &Session{Record: record, database: database, keys: c.keys}, EnrollmentID: offer.EnrollmentID, EncodedAcceptance: response, SourceDeviceID: offer.SourceDeviceID, TargetDeviceID: local.Device.DeviceID, Replay: true}, nil
+		return AcceptedEnrollment{Session: c.newSession(record, database), EnrollmentID: offer.EnrollmentID, EncodedAcceptance: response, SourceDeviceID: offer.SourceDeviceID, TargetDeviceID: local.Device.DeviceID, Replay: true}, nil
 	} else if !errors.Is(getErr, enrollmentstore.ErrNotFound) {
 		return AcceptedEnrollment{}, getErr
 	}
@@ -975,7 +1018,7 @@ func (c *Creator) AcceptEnrollmentOffer(ctx context.Context, input AcceptEnrollm
 		return AcceptedEnrollment{}, err
 	}
 	keepOpen = true
-	return AcceptedEnrollment{Session: &Session{Record: record, database: database, keys: c.keys}, EnrollmentID: offer.EnrollmentID, EncodedAcceptance: storedResponse, SourceDeviceID: offer.SourceDeviceID, TargetDeviceID: local.Device.DeviceID, Replay: replay}, nil
+	return AcceptedEnrollment{Session: c.newSession(record, database), EnrollmentID: offer.EnrollmentID, EncodedAcceptance: storedResponse, SourceDeviceID: offer.SourceDeviceID, TargetDeviceID: local.Device.DeviceID, Replay: replay}, nil
 }
 
 func (c *Creator) List(ctx context.Context) ([]vaultcatalog.Entry, error) {
@@ -1019,7 +1062,11 @@ func (c *Creator) Open(ctx context.Context, vaultID string) (*Session, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("%w: stored Vault identity or state is invalid", ErrNotCataloged)
 	}
-	return &Session{Record: record, database: database, keys: c.keys}, nil
+	return c.newSession(record, database), nil
+}
+
+func (c *Creator) newSession(record vault.Record, database vaultdb.Database) *Session {
+	return &Session{Record: record, database: database, keys: c.keys, backups: c.backups}
 }
 
 func (c *Creator) HardPurge(ctx context.Context, session *Session, input HardPurgeInput) error {

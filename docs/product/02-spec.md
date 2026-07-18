@@ -32,6 +32,7 @@ Unlinking removes active account references from the current device-local member
 ## MVP Capabilities
 
 - local Vault creation, lock, unlock, retention settings, and hard-purge workflow;
+- explicit same-profile encrypted Vault backup and isolated restore/migration preflight without live replacement;
 - one active Run per repository;
 - immutable Task Contract revisions with baseline commit and allowed paths;
 - capability-based file, process, network, credential, and Git permission decisions;

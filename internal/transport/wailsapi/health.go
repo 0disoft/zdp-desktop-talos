@@ -3,10 +3,11 @@ package wailsapi
 import (
 	"runtime"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/version"
 	"github.com/0disoft/zdp-desktop-talos/internal/workeripc"
 )
 
-const ApplicationVersion = "0.30.0"
+const ApplicationVersion = version.Application
 
 type HealthSnapshot struct {
 	Application     string `json:"application"`

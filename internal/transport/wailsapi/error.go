@@ -34,6 +34,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncexchange"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultbackup"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/workerruntime"
@@ -64,6 +65,24 @@ func MapError(err error, correlationID string) TalosError {
 		CorrelationID: normalizeCorrelationID(correlationID),
 	}
 	switch {
+	case errors.Is(err, vaultbootstrap.ErrBackupUnsupported):
+		mapped.Code = "VAULT_BACKUP_UNAVAILABLE"
+		mapped.Message = "이 기기에서 Vault 백업 저장소를 사용할 수 없습니다."
+	case errors.Is(err, vaultbackup.ErrAlreadyExists):
+		mapped.Code = "VAULT_BACKUP_ALREADY_EXISTS"
+		mapped.Message = "같은 위치에 파일이 이미 있습니다. 기존 백업은 덮어쓰지 않았습니다."
+	case errors.Is(err, vaultbackup.ErrWrongVault):
+		mapped.Code = "VAULT_BACKUP_WRONG_VAULT"
+		mapped.Message = "현재 열린 Vault에서 만든 백업이 아닙니다."
+	case errors.Is(err, vaultbackup.ErrMigrationPreflight):
+		mapped.Code = "VAULT_BACKUP_PREFLIGHT_FAILED"
+		mapped.Message = "백업을 별도 위치에서 열고 마이그레이션하는 검증에 실패했습니다."
+	case errors.Is(err, vaultbackup.ErrCorrupt), errors.Is(err, vaultbackup.ErrUnsupportedFormat):
+		mapped.Code = "VAULT_BACKUP_INVALID"
+		mapped.Message = "백업의 암호화, 무결성 또는 호환성을 확인할 수 없습니다."
+	case errors.Is(err, vaultbackup.ErrInvalidRequest), errors.Is(err, vaultbackup.ErrUnsafePath):
+		mapped.Code = "VAULT_BACKUP_REQUEST_INVALID"
+		mapped.Message = "절대 경로의 .talos-backup 파일을 선택해 주세요."
 	case errors.Is(err, errAccountLinkUpstreamNotReady), errors.Is(err, accountidentity.ErrDisabled):
 		mapped.Code = "PRODUCT_LINK_UPSTREAM_NOT_READY"
 		mapped.Message = "ZDP 계정 연결은 아직 사용할 수 없습니다. 로컬 기능은 계속 사용할 수 있습니다."

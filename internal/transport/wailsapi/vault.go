@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/application/vaultbootstrap"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultbackup"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/version"
 )
 
 type VaultStatus struct {
@@ -31,6 +33,50 @@ type VaultSummary struct {
 type VaultListResult struct {
 	Vaults []VaultSummary `json:"vaults,omitempty"`
 	Error  *TalosError    `json:"error,omitempty"`
+}
+
+type VaultBackupReceiptView struct {
+	Schema                   string `json:"schema"`
+	BackupID                 string `json:"backup_id"`
+	VaultID                  string `json:"vault_id"`
+	Path                     string `json:"path"`
+	SourceApplicationVersion string `json:"source_application_version"`
+	SourceSchemaVersion      int    `json:"source_schema_version"`
+	CreatedAt                string `json:"created_at"`
+	EncryptedSizeBytes       int64  `json:"encrypted_size_bytes"`
+	CiphertextSHA256         string `json:"ciphertext_sha256"`
+	DatabaseSizeBytes        int64  `json:"database_size_bytes"`
+	ArtifactCount            int    `json:"artifact_count"`
+	EventCount               int    `json:"event_count"`
+}
+
+type VaultBackupPreflightView struct {
+	Schema                   string `json:"schema"`
+	BackupID                 string `json:"backup_id"`
+	VaultID                  string `json:"vault_id"`
+	Path                     string `json:"path"`
+	SourceApplicationVersion string `json:"source_application_version"`
+	TargetApplicationVersion string `json:"target_application_version"`
+	SourceSchemaVersion      int    `json:"source_schema_version"`
+	TargetSchemaVersion      int    `json:"target_schema_version"`
+	MigrationRequired        bool   `json:"migration_required"`
+	CreatedAt                string `json:"created_at"`
+	VerifiedAt               string `json:"verified_at"`
+	EncryptedSizeBytes       int64  `json:"encrypted_size_bytes"`
+	CiphertextSHA256         string `json:"ciphertext_sha256"`
+	DatabaseSizeBytes        int64  `json:"database_size_bytes"`
+	ArtifactCount            int    `json:"artifact_count"`
+	EventCount               int    `json:"event_count"`
+}
+
+type VaultBackupResult struct {
+	Receipt *VaultBackupReceiptView `json:"receipt,omitempty"`
+	Error   *TalosError             `json:"error,omitempty"`
+}
+
+type VaultBackupPreflightResult struct {
+	Preflight *VaultBackupPreflightView `json:"preflight,omitempty"`
+	Error     *TalosError               `json:"error,omitempty"`
 }
 
 type VaultService struct {
@@ -164,6 +210,38 @@ func (s *VaultService) HardPurge(expectedRevision int, confirmation, correlation
 	return VaultResult{Vault: &status}
 }
 
+func (s *VaultService) CreateBackup(destination, correlationID string) VaultBackupResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil {
+		mapped := MapError(vaultbootstrap.ErrNotOpen, correlationID)
+		return VaultBackupResult{Error: &mapped}
+	}
+	receipt, err := s.session.CreateBackup(context.Background(), destination, version.Application)
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		return VaultBackupResult{Error: &mapped}
+	}
+	view := backupReceiptView(receipt)
+	return VaultBackupResult{Receipt: &view}
+}
+
+func (s *VaultService) PreflightBackup(source, correlationID string) VaultBackupPreflightResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil {
+		mapped := MapError(vaultbootstrap.ErrNotOpen, correlationID)
+		return VaultBackupPreflightResult{Error: &mapped}
+	}
+	preflight, err := s.session.PreflightBackup(context.Background(), source, version.Application)
+	if err != nil {
+		mapped := MapError(err, correlationID)
+		return VaultBackupPreflightResult{Error: &mapped}
+	}
+	view := backupPreflightView(preflight)
+	return VaultBackupPreflightResult{Preflight: &view}
+}
+
 func (s *VaultService) Lock(correlationID string) VaultResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -203,4 +281,26 @@ func (s *VaultService) unavailableError(correlationID string) TalosError {
 	mapped.Code = "VAULT_STORAGE_UNAVAILABLE"
 	mapped.Message = "이 기기에서 안전한 Vault 저장소를 사용할 수 없습니다."
 	return mapped
+}
+
+func backupReceiptView(receipt vaultbackup.Receipt) VaultBackupReceiptView {
+	return VaultBackupReceiptView{
+		Schema: receipt.Schema, BackupID: receipt.BackupID, VaultID: receipt.VaultID, Path: receipt.Path,
+		SourceApplicationVersion: receipt.SourceApplicationVersion, SourceSchemaVersion: receipt.SourceSchemaVersion,
+		CreatedAt: receipt.CreatedAt.UTC().Format(time.RFC3339Nano), EncryptedSizeBytes: receipt.EncryptedSizeBytes,
+		CiphertextSHA256: receipt.CiphertextSHA256, DatabaseSizeBytes: receipt.DatabaseSizeBytes,
+		ArtifactCount: receipt.ArtifactCount, EventCount: receipt.EventCount,
+	}
+}
+
+func backupPreflightView(preflight vaultbackup.Preflight) VaultBackupPreflightView {
+	return VaultBackupPreflightView{
+		Schema: preflight.Schema, BackupID: preflight.BackupID, VaultID: preflight.VaultID, Path: preflight.Path,
+		SourceApplicationVersion: preflight.SourceApplicationVersion, TargetApplicationVersion: preflight.TargetApplicationVersion,
+		SourceSchemaVersion: preflight.SourceSchemaVersion, TargetSchemaVersion: preflight.TargetSchemaVersion,
+		MigrationRequired: preflight.MigrationRequired, CreatedAt: preflight.CreatedAt.UTC().Format(time.RFC3339Nano),
+		VerifiedAt: preflight.VerifiedAt.UTC().Format(time.RFC3339Nano), EncryptedSizeBytes: preflight.EncryptedSizeBytes,
+		CiphertextSHA256: preflight.CiphertextSHA256, DatabaseSizeBytes: preflight.DatabaseSizeBytes,
+		ArtifactCount: preflight.ArtifactCount, EventCount: preflight.EventCount,
+	}
 }

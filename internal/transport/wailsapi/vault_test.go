@@ -26,6 +26,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/patchstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultbackup"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -145,6 +146,56 @@ func TestVaultServiceDoesNotReportOpenAfterCloseFailure(t *testing.T) {
 	}
 }
 
+func TestVaultServiceCreatesBackupAndRunsIsolatedPreflight(t *testing.T) {
+	t.Parallel()
+	keys := &serviceKeyStore{}
+	database := &serviceDatabase{}
+	backups := &serviceBackupStore{}
+	creator, err := vaultbootstrap.NewCreator(keys, &serviceDatabaseFactory{database: database}, &serviceCatalog{}, backups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewVaultService(creator, nil)
+	created := service.Create(30, "create")
+	if created.Error != nil || created.Vault == nil {
+		t.Fatalf("create = %+v", created)
+	}
+
+	backup := service.CreateBackup(`C:\Backups\vault.talos-backup`, "backup")
+	if backup.Error != nil || backup.Receipt == nil || backup.Receipt.Schema != vaultbackup.ReceiptSchema || backup.Receipt.Path != `C:\Backups\vault.talos-backup` || backup.Receipt.EventCount != 7 {
+		t.Fatalf("backup = %+v", backup)
+	}
+	if backups.createInput.VaultID != created.Vault.VaultID || backups.createInput.ApplicationVersion != "0.31.0" || !allZero(backups.createInput.Key) {
+		t.Fatalf("backup input was not bounded or cleared: %+v", backups.createInput)
+	}
+
+	preflight := service.PreflightBackup(`C:\Backups\vault.talos-backup`, "preflight")
+	if preflight.Error != nil || preflight.Preflight == nil || preflight.Preflight.Schema != vaultbackup.PreflightSchema || preflight.Preflight.TargetSchemaVersion != 23 || preflight.Preflight.MigrationRequired {
+		t.Fatalf("preflight = %+v", preflight)
+	}
+	if backups.preflightInput.VaultID != created.Vault.VaultID || backups.preflightInput.ApplicationVersion != "0.31.0" || !allZero(backups.preflightInput.Key) {
+		t.Fatalf("preflight input was not bounded or cleared: %+v", backups.preflightInput)
+	}
+}
+
+func TestVaultServiceReportsBackupCapabilityAndIntegrityErrorsSafely(t *testing.T) {
+	t.Parallel()
+	database := &serviceDatabase{}
+	creator, _ := vaultbootstrap.NewCreator(&serviceKeyStore{}, &serviceDatabaseFactory{database: database}, &serviceCatalog{})
+	service := NewVaultService(creator, nil)
+	if result := service.Create(30, "create"); result.Error != nil {
+		t.Fatalf("create = %+v", result)
+	}
+	unavailable := service.CreateBackup(`C:\Backups\vault.talos-backup`, "backup")
+	if unavailable.Error == nil || unavailable.Error.Code != "VAULT_BACKUP_UNAVAILABLE" {
+		t.Fatalf("unavailable = %+v", unavailable)
+	}
+	mapped := MapError(errors.Join(vaultbackup.ErrCorrupt, errors.New(`C:\private\vault.db`)), "corrupt")
+	if mapped.Code != "VAULT_BACKUP_INVALID" || mapped.Message == `C:\private\vault.db` {
+		t.Fatalf("mapped = %+v", mapped)
+	}
+}
+
 func TestMapErrorPrioritizesIncompleteCleanup(t *testing.T) {
 	t.Parallel()
 	mapped := MapError(errors.Join(vaultbootstrap.ErrCompensationFailed, vaultbootstrap.ErrInvalidInput), "cleanup")
@@ -200,6 +251,43 @@ func (f *serviceDatabaseFactory) Open(context.Context, string, string, []byte) (
 }
 func (*serviceDatabaseFactory) Remove(context.Context, string) error { return nil }
 func (*serviceDatabaseFactory) Purge(context.Context, string) error  { return nil }
+
+type serviceBackupStore struct {
+	createInput    vaultbackup.CreateInput
+	preflightInput vaultbackup.PreflightInput
+}
+
+func (s *serviceBackupStore) CreateBackup(_ context.Context, input vaultbackup.CreateInput) (vaultbackup.Receipt, error) {
+	s.createInput = input
+	return vaultbackup.Receipt{
+		Schema: vaultbackup.ReceiptSchema, BackupID: "00000000-0000-7000-8000-0000000000e1", VaultID: input.VaultID,
+		Path: input.Destination, SourceApplicationVersion: input.ApplicationVersion, SourceSchemaVersion: 23,
+		CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC), EncryptedSizeBytes: 4096,
+		CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DatabaseSizeBytes: 2048,
+		ArtifactCount: 2, EventCount: 7,
+	}, nil
+}
+
+func (s *serviceBackupStore) PreflightBackup(_ context.Context, input vaultbackup.PreflightInput) (vaultbackup.Preflight, error) {
+	s.preflightInput = input
+	return vaultbackup.Preflight{
+		Schema: vaultbackup.PreflightSchema, BackupID: "00000000-0000-7000-8000-0000000000e1", VaultID: input.VaultID,
+		Path: input.Source, SourceApplicationVersion: "0.31.0", TargetApplicationVersion: input.ApplicationVersion,
+		SourceSchemaVersion: 23, TargetSchemaVersion: 23, CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC),
+		VerifiedAt: time.Date(2026, 7, 19, 4, 6, 6, 0, time.UTC), EncryptedSizeBytes: 4096,
+		CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DatabaseSizeBytes: 2048,
+		ArtifactCount: 2, EventCount: 7,
+	}, nil
+}
+
+func allZero(value []byte) bool {
+	for _, item := range value {
+		if item != 0 {
+			return false
+		}
+	}
+	return true
+}
 
 type serviceDatabase struct {
 	closed             bool

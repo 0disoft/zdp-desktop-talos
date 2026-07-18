@@ -27,7 +27,7 @@ func NewVaultCreator(localDataRoot string) (*vaultbootstrap.Creator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize protected Vault catalog: %w", err)
 	}
-	creator, err := vaultbootstrap.NewCreator(keys, databases, catalog)
+	creator, err := vaultbootstrap.NewCreator(keys, databases, catalog, databases)
 	if err != nil {
 		return nil, fmt.Errorf("initialize Vault creator: %w", err)
 	}

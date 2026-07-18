@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -85,22 +86,31 @@ func TestWindowsPackagingVersionIsSynchronized(t *testing.T) {
 	project := readFile(t, filepath.Join(root, "packaging", "windows", "project.nsi"))
 	taskfile := readFile(t, filepath.Join(root, "Taskfile.yml"))
 	packageJSON := readFile(t, filepath.Join(root, "frontend", "package.json"))
+	versionSource := readFile(t, filepath.Join(root, "internal", "version", "version.go"))
 	worker := readFile(t, filepath.Join(root, "internal", "workeripc", "server.go"))
 	health := readFile(t, filepath.Join(root, "internal", "transport", "wailsapi", "health.go"))
 	signingWorkflow := readFile(t, filepath.Join(root, ".github", "workflows", "windows-signing.yml"))
 	packagingReadme := readFile(t, filepath.Join(root, "packaging", "windows", "README.md"))
+	match := regexp.MustCompile(`Application\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"`).FindStringSubmatch(versionSource)
+	if len(match) != 2 {
+		t.Fatal("internal/version/version.go does not contain one semantic application version")
+	}
+	releaseVersion := match[1]
 	for path, content := range map[string]string{
 		"config.yml":          config,
 		"project.nsi":         project,
 		"Taskfile.yml":        taskfile,
 		"package.json":        packageJSON,
-		"worker.go":           worker,
-		"health.go":           health,
 		"windows-signing.yml": signingWorkflow,
 		"packaging/README.md": packagingReadme,
 	} {
-		if !strings.Contains(content, "0.30.0") {
-			t.Errorf("%s does not contain release version 0.30.0", path)
+		if !strings.Contains(content, releaseVersion) {
+			t.Errorf("%s does not contain release version %s", path, releaseVersion)
+		}
+	}
+	for path, content := range map[string]string{"worker.go": worker, "health.go": health} {
+		if !strings.Contains(content, "version.Application") {
+			t.Errorf("%s does not use the central application version", path)
 		}
 	}
 }

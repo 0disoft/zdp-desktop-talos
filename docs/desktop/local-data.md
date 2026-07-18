@@ -11,6 +11,8 @@ Artifact ciphertext is stored under the opaque per-Vault database path in a sibl
 
 Event and state updates share one database transaction. WAL files, checkpoints, backups, and crash recovery are part of the durability contract, not implementation trivia.
 
+Manual Vault backup uses the SQLite online backup API and captures the exact ready artifact blobs referenced by the resulting snapshot. The snapshot, blobs, and manifest are contained in a chunk-authenticated encrypted `.talos-backup` file; the DPAPI-protected Vault root key is not included. Isolated preflight verifies and forward-migrates a temporary copy with the current binary, then removes it. It does not replace the live Vault or turn the backup into cross-profile recovery media.
+
 The schema-version-3 Vault read model stores retention and lifecycle metadata with optimistic revisions and a reference to its last event. It does not store whether a Vault is unlocked. Unlock authority is process-local and must be re-established from the OS key store after every restart.
 
 Schema version 15 adds optional expiry and replacement identifiers to materialized memory lifecycle state. Statements, rationale, applicability, evidence, and transition reasons remain only in encrypted events. Expired active rows are excluded from context queries before an explicit sweep transitions them to `stale`.

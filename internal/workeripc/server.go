@@ -10,10 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/version"
 	"github.com/0disoft/zdp-desktop-talos/internal/workerexec"
 )
 
-const WorkerVersion = "0.30.0"
+const WorkerVersion = version.Application
 
 type StartRunPayload struct {
 	RunID        string                 `json:"run_id"`
