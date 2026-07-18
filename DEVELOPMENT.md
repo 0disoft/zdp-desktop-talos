@@ -5,7 +5,7 @@
 
 ## Current Phase
 
-The repository now proves the local MVP loop through schema 16: the renderer builds, desktop/worker/CLI binaries compile, Vault and encrypted state survive restart, Task/Decision/permission/execution/patch/memory flows are revisioned and evidence-bound, model egress is explicit, and signed sync packs are validated against durable device membership. A provisioned signing-host run, native clean-install/N-1-upgrade evidence, upstream product-link promotion, and ordered sync replay remain explicit blockers rather than implied functionality.
+The repository now proves the local MVP loop through schema 17: the renderer builds, desktop/worker/CLI binaries compile, Vault and encrypted state survive restart, Task/Decision/permission/execution/patch/memory flows are revisioned and evidence-bound, model egress is explicit, and signed sync packs have durable validation plus export journals and a DPAPI local signing identity. A provisioned signing-host run, native clean-install/N-1-upgrade evidence, upstream product-link promotion, Vault enrollment transfer, ordered sync replay, and Git exchange remain explicit blockers rather than implied functionality.
 
 ## Current Layout
 
@@ -47,5 +47,6 @@ docs/
 - the full local coding loop preserves Task scope, permission decisions, verification freshness, patch review, and memory provenance;
 - account status is fail-closed and cannot enable link creation while upstream readiness is blocked;
 - sync validation rejects untrusted, revoked, duplicate-conflicting, gapped, or tampered packs without claiming remote event application.
+- sync export reuses one DPAPI signing identity, reserves contiguous event ranges atomically, blocks likely secrets, and restores exact ready pack bytes after restart.
 
 Private alpha distribution is not ready until a provisioned Windows host produces signed artifacts, verifies the package receipt, and passes clean-install and N-1 upgrade smoke checks. See `docs/ops/alpha-readiness.md` for the evidence matrix and rollback boundary.

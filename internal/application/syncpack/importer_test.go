@@ -76,3 +76,15 @@ func (s *importStore) RevokeSyncDevice(context.Context, syncstore.RevokeDeviceIn
 func (s *importStore) GetValidatedSyncPack(context.Context, string, string) (syncstate.PackReceipt, []byte, error) {
 	panic("not used")
 }
+
+func (s *importStore) PrepareSyncExport(context.Context, syncstore.PrepareExportInput) (syncstore.PreparedExport, bool, error) {
+	panic("not used")
+}
+
+func (s *importStore) FinalizeSyncExport(context.Context, syncstore.FinalizeExportInput) (syncstate.ExportBatch, []byte, bool, error) {
+	panic("not used")
+}
+
+func (s *importStore) GetSyncExport(context.Context, string, string) (syncstate.ExportBatch, []byte, error) {
+	panic("not used")
+}

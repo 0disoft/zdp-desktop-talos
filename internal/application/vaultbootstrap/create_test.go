@@ -470,6 +470,15 @@ func (*fakeDatabase) RecordValidatedSyncPack(context.Context, syncstore.RecordPa
 func (*fakeDatabase) GetValidatedSyncPack(context.Context, string, string) (syncstate.PackReceipt, []byte, error) {
 	return syncstate.PackReceipt{}, nil, syncstore.ErrPackConflict
 }
+func (*fakeDatabase) PrepareSyncExport(context.Context, syncstore.PrepareExportInput) (syncstore.PreparedExport, bool, error) {
+	return syncstore.PreparedExport{}, false, syncstore.ErrNoExportableEvents
+}
+func (*fakeDatabase) FinalizeSyncExport(context.Context, syncstore.FinalizeExportInput) (syncstate.ExportBatch, []byte, bool, error) {
+	return syncstate.ExportBatch{}, nil, false, syncstore.ErrExportConflict
+}
+func (*fakeDatabase) GetSyncExport(context.Context, string, string) (syncstate.ExportBatch, []byte, error) {
+	return syncstate.ExportBatch{}, nil, syncstore.ErrExportConflict
+}
 func (d *fakeDatabase) Close() error { d.closed = true; return nil }
 
 type fakeCatalog struct {

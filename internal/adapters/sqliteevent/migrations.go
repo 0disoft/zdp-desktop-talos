@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 16
+const currentSchemaVersion = 17
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -381,6 +381,53 @@ var migrations = []migration{
 			`CREATE INDEX sync_pack_receipts_device_idx ON sync_pack_receipts(vault_id, device_id, sequence_start, pack_id)`,
 		},
 	},
+	{
+		version: 17,
+		statements: []string{
+			`CREATE TABLE sync_event_origins (
+				event_id TEXT PRIMARY KEY REFERENCES events(event_id) ON DELETE RESTRICT,
+				vault_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				device_seq INTEGER NOT NULL CHECK (device_seq > 0),
+				origin_kind TEXT NOT NULL CHECK (origin_kind IN ('local','imported')),
+				FOREIGN KEY(vault_id, device_id) REFERENCES sync_devices(vault_id, device_id) ON DELETE RESTRICT,
+				UNIQUE(vault_id, device_id, device_seq)
+			) STRICT`,
+			`CREATE TABLE sync_export_heads (
+				vault_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				next_sequence INTEGER NOT NULL CHECK (next_sequence > 0),
+				updated_at TEXT NOT NULL,
+				PRIMARY KEY(vault_id, device_id),
+				FOREIGN KEY(vault_id, device_id) REFERENCES sync_devices(vault_id, device_id) ON DELETE RESTRICT
+			) STRICT`,
+			`CREATE TABLE sync_export_batches (
+				export_id TEXT PRIMARY KEY,
+				vault_id TEXT NOT NULL,
+				device_id TEXT NOT NULL,
+				sequence_start INTEGER NOT NULL CHECK (sequence_start > 0),
+				sequence_end INTEGER NOT NULL CHECK (sequence_end >= sequence_start),
+				event_count INTEGER NOT NULL CHECK (event_count BETWEEN 1 AND 512 AND event_count = sequence_end - sequence_start + 1),
+				state TEXT NOT NULL CHECK (state IN ('preparing','ready')),
+				pack_id TEXT NOT NULL DEFAULT '',
+				ciphertext_hash TEXT NOT NULL DEFAULT '',
+				pack_envelope BLOB NOT NULL DEFAULT X'',
+				created_at TEXT NOT NULL,
+				updated_at TEXT NOT NULL,
+				FOREIGN KEY(vault_id, device_id) REFERENCES sync_devices(vault_id, device_id) ON DELETE RESTRICT,
+				UNIQUE(vault_id, device_id, sequence_start),
+				CHECK ((state = 'preparing' AND pack_id = '' AND ciphertext_hash = '' AND length(pack_envelope) = 0) OR (state = 'ready' AND length(pack_id) = 71 AND length(ciphertext_hash) = 64 AND length(pack_envelope) > 0))
+			) STRICT`,
+			`CREATE UNIQUE INDEX sync_export_batches_one_preparing_idx ON sync_export_batches(vault_id, device_id) WHERE state = 'preparing'`,
+			`CREATE INDEX sync_export_batches_ready_idx ON sync_export_batches(vault_id, device_id, state, sequence_start, export_id)`,
+			`CREATE TABLE sync_export_batch_events (
+				export_id TEXT NOT NULL REFERENCES sync_export_batches(export_id) ON DELETE RESTRICT,
+				event_id TEXT NOT NULL UNIQUE REFERENCES events(event_id) ON DELETE RESTRICT,
+				device_seq INTEGER NOT NULL CHECK (device_seq > 0),
+				PRIMARY KEY(export_id, device_seq)
+			) STRICT`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -431,6 +478,10 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id FROM memory_records LIMIT 0`,
 		`SELECT vault_id, device_id, public_key, state, revision, next_sequence, created_at, updated_at, last_event_id FROM sync_devices LIMIT 0`,
 		`SELECT pack_id, vault_id, device_id, sequence_start, sequence_end, event_count, ciphertext_hash, pack_envelope, state, received_at, event_id FROM sync_pack_receipts LIMIT 0`,
+		`SELECT event_id, vault_id, device_id, device_seq, origin_kind FROM sync_event_origins LIMIT 0`,
+		`SELECT vault_id, device_id, next_sequence, updated_at FROM sync_export_heads LIMIT 0`,
+		`SELECT export_id, vault_id, device_id, sequence_start, sequence_end, event_count, state, pack_id, ciphertext_hash, pack_envelope, created_at, updated_at FROM sync_export_batches LIMIT 0`,
+		`SELECT export_id, event_id, device_seq FROM sync_export_batch_events LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

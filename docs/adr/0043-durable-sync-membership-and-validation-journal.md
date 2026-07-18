@@ -18,11 +18,11 @@ A cryptographically valid pack is not enough to authorize an import. The verifie
 
 ## Consequences
 
-Talos can now authenticate a sending device and durably journal contiguous immutable packs without duplicate delivery. It still cannot claim completed multi-device sync. Local signing-key provisioning, Vault sync-key enrollment, ordered event application, conflict surfacing, export journals, Git transport, and cross-device revocation propagation remain separate work.
+Talos can now authenticate a sending device and durably journal contiguous immutable packs without duplicate delivery. ADR 0045 supplies local signing-key persistence and export journaling. Talos still cannot claim completed multi-device sync until Vault enrollment transfer, ordered event application, conflict surfacing, Git transport, and cross-device revocation propagation exist.
 
 ## Verification
 
-- schema 15 upgrades to schema 16 with both sync tables;
+- schema 15 upgrades through schema 17 with validation and export state;
 - registration and revocation are revisioned, idempotent, encrypted event transitions;
 - exact pack replay is idempotent while changed bytes, gaps, overlaps, and revoked devices fail closed;
 - validated pack bytes remain encrypted in SQLite and survive checkpoint plus restart;

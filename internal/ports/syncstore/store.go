@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
 )
 
@@ -18,6 +19,8 @@ var (
 	ErrSequenceConflict    = errors.New("sync pack sequence conflicts with the device cursor")
 	ErrPackConflict        = errors.New("sync pack identity conflicts with a stored receipt")
 	ErrIdempotencyConflict = errors.New("sync command idempotency conflict")
+	ErrNoExportableEvents  = errors.New("no exportable events are available")
+	ErrExportConflict      = errors.New("sync export batch conflicts with stored state")
 )
 
 type RegisterDeviceInput struct {
@@ -48,10 +51,38 @@ type RecordPackInput struct {
 	ReceivedAt     time.Time
 }
 
+type PrepareExportInput struct {
+	VaultID    string
+	DeviceID   string
+	Limit      int
+	OccurredAt time.Time
+}
+
+type PreparedExport struct {
+	Batch  syncstate.ExportBatch
+	Events []event.Record
+}
+
+type FinalizeExportInput struct {
+	ExportID       string
+	VaultID        string
+	DeviceID       string
+	PackID         string
+	SequenceStart  uint64
+	SequenceEnd    uint64
+	EventCount     int
+	CiphertextHash string
+	EncodedPack    []byte
+	OccurredAt     time.Time
+}
+
 type Store interface {
 	RegisterSyncDevice(context.Context, RegisterDeviceInput) (syncstate.Device, error)
 	RevokeSyncDevice(context.Context, RevokeDeviceInput) (syncstate.Device, error)
 	GetSyncDevice(context.Context, string, string) (syncstate.Device, error)
 	RecordValidatedSyncPack(context.Context, RecordPackInput) (syncstate.PackReceipt, bool, error)
 	GetValidatedSyncPack(context.Context, string, string) (syncstate.PackReceipt, []byte, error)
+	PrepareSyncExport(context.Context, PrepareExportInput) (PreparedExport, bool, error)
+	FinalizeSyncExport(context.Context, FinalizeExportInput) (syncstate.ExportBatch, []byte, bool, error)
+	GetSyncExport(context.Context, string, string) (syncstate.ExportBatch, []byte, error)
 }

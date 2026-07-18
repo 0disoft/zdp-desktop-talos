@@ -37,7 +37,7 @@ The projection compiler consumes validated memory records after Vault decryption
 
 ## Manual sync pack
 
-The sync codec accepts only a contiguous device sequence range, encrypts the complete event batch with Vault-bound AAD, hashes the ciphertext, derives an immutable pack identity, and signs the canonical manifest with Ed25519. The importer resolves the verification key from a durable Vault membership, rejects revoked devices, then records the exact verified pack under a second local Vault envelope. SQLite advances the per-device cursor, appends the validation event, and writes the receipt atomically; byte-identical replay returns the original receipt. Validation is not application: canonical event replay, materialized-state conflicts, export journaling, and Git exchange remain later control-plane work.
+The sync codec accepts only a contiguous device sequence range, encrypts the complete event batch with Vault-bound AAD, hashes the ciphertext, derives an immutable pack identity, and signs the canonical manifest with Ed25519. The local exporter recovers one DPAPI-protected signing identity, atomically assigns previously unassigned canonical events to a contiguous local sequence, scans every payload for likely secrets, and stores the exact ready pack under the Vault envelope. A crash before finalization reopens the same preparing batch rather than allocating another range. The importer resolves the verification key from durable membership, rejects revoked devices, then records the exact verified pack under a second local Vault envelope. Validation and export are not application: canonical event replay, materialized-state conflicts, Vault enrollment transfer, and Git exchange remain later control-plane work.
 
 ## Decisions
 

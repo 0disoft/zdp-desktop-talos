@@ -14,7 +14,7 @@ Copying one shared JSONL file between devices would create merge conflicts and p
 - Encrypt the complete event batch with the Vault sync key using the existing envelope primitive and AAD containing the Vault, device sequence range, schema version, and sensitivity.
 - Derive `pack_id` from Vault, device, sequence range, and ciphertext hash. Sign the canonical manifest with Ed25519. Import requires the expected membership public key; a key carried only by the pack is never trusted.
 - Bound a pack to 512 events and 16 MiB. Verify outer schema, Vault/device identity, pack identity, ciphertext hash, signature, decryption, payload schema, event validation, and contiguous sequence in that order.
-- Keep the codec independent from SQLite and Git. Device key persistence, membership/revocation, validation journaling, and duplicate-range rejection are supplied by ADR 0043; export journaling, materialized-state replay, and conflict surfacing remain later layers.
+- Keep the codec independent from SQLite and Git. Membership/revocation, validation journaling, and duplicate-range rejection are supplied by ADR 0043; local key persistence and export journaling are supplied by ADR 0045. Materialized-state replay and conflict surfacing remain later layers.
 
 ## Consequences
 

@@ -51,5 +51,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0042-signed-encrypted-immutable-sync-pack.md`: contiguous device sequence, Vault-bound encryption, ciphertext identity, and Ed25519 manifest verification
 - `0043-durable-sync-membership-and-validation-journal.md`: trusted device keys, revocation, conditional sequence cursors, and encrypted pack receipts
 - `0044-fail-closed-account-status-surface.md`: local-only account status, renderer-safe DTOs, offline unlink, and blocked link creation
+- `0045-dpapi-device-identity-and-export-journal.md`: DPAPI signing identity, deterministic device IDs, schema-17 event origins, atomic export reservations, and encrypted ready packs
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

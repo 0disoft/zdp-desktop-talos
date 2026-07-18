@@ -467,6 +467,15 @@ func (*serviceDatabase) RecordValidatedSyncPack(context.Context, syncstore.Recor
 func (*serviceDatabase) GetValidatedSyncPack(context.Context, string, string) (syncstate.PackReceipt, []byte, error) {
 	return syncstate.PackReceipt{}, nil, syncstore.ErrPackConflict
 }
+func (*serviceDatabase) PrepareSyncExport(context.Context, syncstore.PrepareExportInput) (syncstore.PreparedExport, bool, error) {
+	return syncstore.PreparedExport{}, false, syncstore.ErrNoExportableEvents
+}
+func (*serviceDatabase) FinalizeSyncExport(context.Context, syncstore.FinalizeExportInput) (syncstate.ExportBatch, []byte, bool, error) {
+	return syncstate.ExportBatch{}, nil, false, syncstore.ErrExportConflict
+}
+func (*serviceDatabase) GetSyncExport(context.Context, string, string) (syncstate.ExportBatch, []byte, error) {
+	return syncstate.ExportBatch{}, nil, syncstore.ErrExportConflict
+}
 func (d *serviceDatabase) Close() error { d.closed = true; return d.closeErr }
 
 type serviceCatalog struct{ entries []vaultcatalog.Entry }

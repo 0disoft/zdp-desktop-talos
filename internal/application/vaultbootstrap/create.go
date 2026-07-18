@@ -8,6 +8,9 @@ import (
 	"io"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncexport"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncidentity"
+	"github.com/0disoft/zdp-desktop-talos/internal/application/syncpack"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/artifact"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/decision"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
@@ -27,6 +30,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultcatalog"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultdb"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/security/redaction"
 )
 
 const (
@@ -138,6 +142,7 @@ type HardPurgeInput struct {
 type Session struct {
 	Record   vault.Record
 	database vaultdb.Database
+	keys     keyvault.Store
 }
 
 type ExecutionDatabase interface {
@@ -209,6 +214,17 @@ func (s *Session) PlanningDatabase() (PlanningDatabase, error) {
 		return nil, ErrNotOpen
 	}
 	return database, nil
+}
+
+func (s *Session) ExportNextSyncPack(ctx context.Context, limit int) (syncexport.Result, error) {
+	if s == nil || s.database == nil || s.keys == nil {
+		return syncexport.Result{}, ErrNotOpen
+	}
+	exporter, err := syncexport.New(syncpack.New(), s.database, s.keys, redaction.NewScanner(), VaultKeyID)
+	if err != nil {
+		return syncexport.Result{}, err
+	}
+	return exporter.ExportNext(ctx, s.Record.ID, limit)
 }
 
 func (s *Session) Close() error {
@@ -421,7 +437,7 @@ func (c *Creator) Create(ctx context.Context, input CreateInput) (*Session, erro
 	if err := c.catalog.Add(ctx, entry); err != nil {
 		return nil, c.compensate(ctx, fmt.Errorf("register Vault in catalog: %w", err), entry, keyRef, database)
 	}
-	return &Session{Record: record, database: database}, nil
+	return &Session{Record: record, database: database, keys: c.keys}, nil
 }
 
 func (c *Creator) List(ctx context.Context) ([]vaultcatalog.Entry, error) {
@@ -465,7 +481,7 @@ func (c *Creator) Open(ctx context.Context, vaultID string) (*Session, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("%w: stored Vault identity or state is invalid", ErrNotCataloged)
 	}
-	return &Session{Record: record, database: database}, nil
+	return &Session{Record: record, database: database, keys: c.keys}, nil
 }
 
 func (c *Creator) HardPurge(ctx context.Context, session *Session, input HardPurgeInput) error {
@@ -510,9 +526,11 @@ func (c *Creator) ReconcilePurges(ctx context.Context) error {
 }
 
 func (c *Creator) finishPurge(ctx context.Context, entry vaultcatalog.Entry) error {
-	keyRef := keyvault.Reference{VaultID: entry.VaultID, KeyID: VaultKeyID}
-	if err := c.keys.Delete(ctx, keyRef); err != nil && !errors.Is(err, keyvault.ErrNotFound) {
-		return fmt.Errorf("destroy Vault key: %w", err)
+	for _, keyID := range []string{VaultKeyID, syncidentity.SigningKeyID} {
+		keyRef := keyvault.Reference{VaultID: entry.VaultID, KeyID: keyID}
+		if err := c.keys.Delete(ctx, keyRef); err != nil && !errors.Is(err, keyvault.ErrNotFound) {
+			return fmt.Errorf("destroy Vault key %s: %w", keyID, err)
+		}
 	}
 	if err := c.databases.Purge(ctx, entry.VaultID); err != nil {
 		return fmt.Errorf("remove Vault ciphertext: %w", err)

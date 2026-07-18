@@ -25,7 +25,7 @@ func NewScanner() *Scanner {
 		{regexp.MustCompile(`(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})`), replacement},
 		{regexp.MustCompile(`sk-(?:proj-)?[A-Za-z0-9_-]{16,}`), replacement},
 		{regexp.MustCompile(`(?i)(https?://[^:/\s]+:)[^@/\s]+(@)`), `${1}` + replacement + `${2}`},
-		{regexp.MustCompile(`(?i)(password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret)(\s*[:=]\s*["']?)([^"'\s,;]+)`), `${1}${2}` + replacement},
+		{regexp.MustCompile(`(?i)(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret)["']?)(\s*[:=]\s*["']?)([^"'\s,;}\]]+)`), `${1}${2}` + replacement},
 	}}
 }
 

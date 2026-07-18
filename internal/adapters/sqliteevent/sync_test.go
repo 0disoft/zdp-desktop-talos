@@ -7,13 +7,16 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/syncstate"
+	"github.com/0disoft/zdp-desktop-talos/internal/ports/eventstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
 )
@@ -109,6 +112,79 @@ func TestSyncDeviceAndValidatedPackJournalAreDurableAndFailClosed(t *testing.T) 
 	}
 }
 
+func TestSyncExportReservationAndReadyPackAreRestartSafe(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "export.db")
+	store := openTestStore(t, databasePath)
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: "vault-export", RetentionDays: 30, OccurredAt: now, IdempotencyKey: "create-vault-export"}); err != nil {
+		t.Fatal(err)
+	}
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.RegisterSyncDevice(ctx, syncstore.RegisterDeviceInput{VaultID: "vault-export", DeviceID: "device-local", PublicKey: public, OccurredAt: now.Add(time.Second), IdempotencyKey: "register-local"}); err != nil {
+		t.Fatal(err)
+	}
+	markers := [][]byte{[]byte(`{"item":"first-private-marker"}`), []byte(`{"item":"second-private-marker"}`)}
+	for index, marker := range markers {
+		if _, err := store.Append(ctx, eventstore.AppendInput{VaultID: "vault-export", Type: "task.outcome.observed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: marker, OccurredAt: now.Add(time.Duration(index+2) * time.Second), IdempotencyKey: fmt.Sprintf("export-event-%d", index)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prepared, replay, err := store.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: "vault-export", DeviceID: "device-local", Limit: 3, OccurredAt: now.Add(5 * time.Second)})
+	if err != nil || replay || prepared.Batch.State != syncstate.ExportPreparing || prepared.Batch.SequenceStart != 1 || prepared.Batch.SequenceEnd != 3 || len(prepared.Events) != 3 {
+		t.Fatalf("prepared=%+v replay=%v error=%v", prepared, replay, err)
+	}
+	replayed, replay, err := store.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: "vault-export", DeviceID: "device-local", Limit: 1, OccurredAt: now.Add(6 * time.Second)})
+	if err != nil || !replay || replayed.Batch.ExportID != prepared.Batch.ExportID || len(replayed.Events) != 3 {
+		t.Fatalf("replayed=%+v replay=%v error=%v", replayed, replay, err)
+	}
+	encoded := []byte(`{"schema":"talos.sync-pack/1","private_marker":"ready-pack"}`)
+	finalize := syncstore.FinalizeExportInput{ExportID: prepared.Batch.ExportID, VaultID: "vault-export", DeviceID: "device-local", PackID: "sha256:" + strings.Repeat("a", 64), SequenceStart: 1, SequenceEnd: 3, EventCount: 3, CiphertextHash: strings.Repeat("b", 64), EncodedPack: encoded, OccurredAt: now.Add(7 * time.Second)}
+	ready, stored, replay, err := store.FinalizeSyncExport(ctx, finalize)
+	if err != nil || replay || ready.State != syncstate.ExportReady || !bytes.Equal(stored, encoded) {
+		t.Fatalf("ready=%+v stored=%q replay=%v error=%v", ready, stored, replay, err)
+	}
+	readyAgain, storedAgain, replay, err := store.FinalizeSyncExport(ctx, finalize)
+	if err != nil || !replay || readyAgain.ExportID != ready.ExportID || !bytes.Equal(storedAgain, encoded) {
+		t.Fatalf("readyAgain=%+v stored=%q replay=%v error=%v", readyAgain, storedAgain, replay, err)
+	}
+	if _, _, err := store.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: "vault-export", DeviceID: "device-local", Limit: 2, OccurredAt: now.Add(8 * time.Second)}); !errors.Is(err, syncstore.ErrNoExportableEvents) {
+		t.Fatalf("empty export error=%v", err)
+	}
+	if err := store.Checkpoint(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	databaseBytes, err := os.ReadFile(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, marker := range append(markers, encoded) {
+		if bytes.Contains(databaseBytes, marker) {
+			t.Fatalf("sync export plaintext leaked: %q", marker)
+		}
+	}
+	reopened := openTestStore(t, databasePath)
+	defer reopened.Close()
+	restored, restoredBytes, err := reopened.GetSyncExport(ctx, "vault-export", ready.ExportID)
+	if err != nil || restored != ready || !bytes.Equal(restoredBytes, encoded) {
+		t.Fatalf("restored=%+v bytes=%q error=%v", restored, restoredBytes, err)
+	}
+	if _, err := reopened.Append(ctx, eventstore.AppendInput{VaultID: "vault-export", Type: "memory.reviewed", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"item":"third"}`), OccurredAt: now.Add(9 * time.Second), IdempotencyKey: "export-event-3"}); err != nil {
+		t.Fatal(err)
+	}
+	next, replay, err := reopened.PrepareSyncExport(ctx, syncstore.PrepareExportInput{VaultID: "vault-export", DeviceID: "device-local", Limit: 2, OccurredAt: now.Add(10 * time.Second)})
+	if err != nil || replay || next.Batch.SequenceStart != 4 || next.Batch.SequenceEnd != 4 || len(next.Events) != 1 {
+		t.Fatalf("next=%+v replay=%v error=%v", next, replay, err)
+	}
+}
+
 func TestSchema15MigratesToDurableSyncState(t *testing.T) {
 	t.Parallel()
 	databasePath := filepath.Join(t.TempDir(), "schema-15.db")
@@ -134,10 +210,10 @@ func TestSchema15MigratesToDurableSyncState(t *testing.T) {
 	if err := store.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 16 {
+	if version != 17 {
 		t.Fatalf("schema version=%d", version)
 	}
-	for _, table := range []string{"sync_devices", "sync_pack_receipts"} {
+	for _, table := range []string{"sync_devices", "sync_pack_receipts", "sync_event_origins", "sync_export_heads", "sync_export_batches", "sync_export_batch_events"} {
 		var name string
 		if err := store.db.QueryRow("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", table).Scan(&name); err != nil || name != table {
 			t.Fatalf("table %s name=%q error=%v", table, name, err)
