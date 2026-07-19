@@ -1,7 +1,7 @@
 {
   "tool": "ssealed",
   "version": "0.6.11",
-  "generatedAt": "2026-07-18T18:57:14.386Z",
+  "generatedAt": "2026-07-19T03:46:07.625Z",
   "scope": "general",
   "profile": "desktop-app",
   "addons": [
@@ -287,13 +287,13 @@
     },
     {
       "path": ".github/CODEOWNERS",
-      "checksum": "sha256:0c7003002722c703a6101984aee9019999c8c29ef9f03455de16175f3cfbd41e",
+      "checksum": "sha256:6651025954db68aa9a5de519f8f6faf8e583283a0b0291d80d418fbaa9d9a8cf",
       "kind": "github",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:0c7003002722c703a6101984aee9019999c8c29ef9f03455de16175f3cfbd41e",
-      "acceptedChecksum": "sha256:0c7003002722c703a6101984aee9019999c8c29ef9f03455de16175f3cfbd41e",
+      "acceptedChecksum": "sha256:6651025954db68aa9a5de519f8f6faf8e583283a0b0291d80d418fbaa9d9a8cf",
       "generatedChecksum": "sha256:0c7003002722c703a6101984aee9019999c8c29ef9f03455de16175f3cfbd41e"
     },
     {
