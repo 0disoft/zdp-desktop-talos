@@ -17,7 +17,7 @@ The host preflight validates the OS and architecture, toolchain, certificate loc
 1. Register the runner at repository or tightly scoped organization level with the required labels. Do not attach the signing label to ordinary self-hosted runners.
 2. Create an environment named `windows-signing` and restrict deployment branches to `main` where the current GitHub plan supports it.
 3. Configure required reviewers and prevent self-review when the current GitHub plan supports those protection rules. GitHub Free/Pro/Team can limit required reviewers for private repositories, so manual dispatch plus the `main` job condition remains mandatory and must not be described as two-person approval by default.
-4. Replace the placeholder in `.github/CODEOWNERS`, protect `main`, and require review for `.github/workflows/**`, `packaging/windows/**`, and release policy changes before enrolling the runner.
+4. Verify `.github/CODEOWNERS` assigns the repository to `@0disoft`, protect `main`, and require review for `.github/workflows/**`, `packaging/windows/**`, and release policy changes before enrolling the runner.
 5. Set the repository or environment variables described above. Also set repository variable `TALOS_EXPECTED_SIGNER_SHA1` to the same public certificate thumbprint for the upgrade runner. No signing secret value is required by either workflow because the private key remains on the signing host.
 6. Run `Windows Signed Package` manually from `main`. Verify the uploaded receipt before treating the artifact as release evidence.
 
