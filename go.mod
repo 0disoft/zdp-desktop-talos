@@ -1,6 +1,6 @@
 module github.com/0disoft/zdp-desktop-talos
 
-go 1.26.0
+go 1.26.5
 
 require (
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.117

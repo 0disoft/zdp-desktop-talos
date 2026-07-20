@@ -22,17 +22,22 @@ type CaseResult struct {
 	ID            string
 	Selected      []string
 	Missing       []string
+	Unexpected    []string
 	ForbiddenSeen []string
+	Passed        bool
 }
 
 type Report struct {
-	Cases          int
-	TruePositive   int
-	FalsePositive  int
-	FalseNegative  int
-	PrecisionBasis int
-	RecallBasis    int
-	Results        []CaseResult
+	Cases                  int
+	PassedCases            int
+	FailedCases            int
+	TruePositive           int
+	FalsePositive          int
+	FalseNegative          int
+	ForbiddenInterventions int
+	PrecisionBasis         int
+	RecallBasis            int
+	Results                []CaseResult
 }
 
 type Service struct{ provider memorycontext.Provider }
@@ -59,7 +64,7 @@ func (s *Service) Evaluate(ctx context.Context, cases []Case) (Report, error) {
 		}
 		seenCases[candidate.ID] = struct{}{}
 		expected, forbidden, err := sets(candidate.ExpectedMemoryIDs, candidate.ForbiddenMemoryIDs)
-		if err != nil || len(expected) == 0 {
+		if err != nil || len(expected)+len(forbidden) == 0 {
 			return Report{}, ErrInvalidEvaluation
 		}
 		assembled, err := s.provider.Assemble(ctx, candidate.Request)
@@ -81,9 +86,11 @@ func (s *Service) Evaluate(ctx context.Context, cases []Case) (Report, error) {
 				report.TruePositive++
 			} else {
 				report.FalsePositive++
+				result.Unexpected = append(result.Unexpected, item.MemoryID)
 			}
 			if _, blocked := forbidden[item.MemoryID]; blocked {
 				result.ForbiddenSeen = append(result.ForbiddenSeen, item.MemoryID)
+				report.ForbiddenInterventions++
 			}
 		}
 		for memoryID := range expected {
@@ -93,7 +100,14 @@ func (s *Service) Evaluate(ctx context.Context, cases []Case) (Report, error) {
 			}
 		}
 		sort.Strings(result.Missing)
+		sort.Strings(result.Unexpected)
 		sort.Strings(result.ForbiddenSeen)
+		result.Passed = len(result.Missing) == 0 && len(result.Unexpected) == 0 && len(result.ForbiddenSeen) == 0
+		if result.Passed {
+			report.PassedCases++
+		} else {
+			report.FailedCases++
+		}
 		report.Results = append(report.Results, result)
 	}
 	if denominator := report.TruePositive + report.FalsePositive; denominator > 0 {

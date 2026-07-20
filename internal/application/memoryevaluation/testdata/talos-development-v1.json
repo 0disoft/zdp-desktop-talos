@@ -1,0 +1,205 @@
+{
+  "schema": "talos.memory-evaluation-corpus/1",
+  "gate": {
+    "min_precision_basis": 10000,
+    "min_recall_basis": 10000,
+    "max_forbidden_interventions": 0,
+    "require_all_cases": true
+  },
+  "memories": [
+    {
+      "id": "decision-last-write-wins",
+      "kind": "failure_pattern",
+      "state": "stale",
+      "scope": "workspace",
+      "goal_terms": ["decision", "revision"],
+      "statement": "Use the newest Decision answer without checking the question revision."
+    },
+    {
+      "id": "decision-revision-required",
+      "kind": "constraint",
+      "state": "stable",
+      "scope": "workspace",
+      "goal_terms": ["decision", "revision"],
+      "statement": "A Decision answer applies only to the matching question revision."
+    },
+    {
+      "id": "memory-auto-stable",
+      "kind": "procedure",
+      "state": "deprecated",
+      "scope": "vault",
+      "goal_terms": ["evaluation", "memory"],
+      "statement": "Promote every repeatedly retrieved memory to stable automatically."
+    },
+    {
+      "id": "memory-forbidden-intervention-gate",
+      "kind": "constraint",
+      "state": "approved",
+      "scope": "vault",
+      "goal_terms": ["evaluation", "memory"],
+      "statement": "A golden retrieval case fails when a forbidden memory is selected."
+    },
+    {
+      "id": "sync-manual-git-boundary",
+      "kind": "constraint",
+      "state": "approved",
+      "scope": "workspace",
+      "goal_terms": ["gitexchange", "sync"],
+      "statement": "Talos prepares encrypted packs but leaves commit, pull, and push to the user."
+    },
+    {
+      "id": "sync-plaintext-pack",
+      "kind": "failure_pattern",
+      "state": "quarantined",
+      "scope": "workspace",
+      "goal_terms": ["gitexchange", "sync"],
+      "statement": "Write plaintext prompts and memory statements into the Git exchange directory."
+    },
+    {
+      "id": "talos-store-session-token",
+      "kind": "failure_pattern",
+      "state": "quarantined",
+      "scope": "workspace",
+      "goal_terms": ["account", "signup"],
+      "statement": "Persist the ZDP browser session token inside the Talos Vault."
+    },
+    {
+      "id": "unrelated-auto-push",
+      "kind": "preference",
+      "state": "approved",
+      "scope": "workspace",
+      "goal_terms": ["push"],
+      "statement": "Push every completed local change automatically."
+    },
+    {
+      "id": "windows-job-before-exec",
+      "kind": "constraint",
+      "state": "stable",
+      "scope": "workspace",
+      "goal_terms": ["windows", "worker"],
+      "statement": "Attach a suspended Windows tool process to its Job Object before resuming it."
+    },
+    {
+      "id": "windows-worker-is-sandbox",
+      "kind": "failure_pattern",
+      "state": "stale",
+      "scope": "workspace",
+      "goal_terms": ["windows", "worker"],
+      "statement": "Describe process-tree containment as a complete OS security sandbox."
+    },
+    {
+      "id": "zdp-account-core-ownership",
+      "kind": "decision",
+      "state": "stable",
+      "scope": "workspace",
+      "goal_terms": ["account", "signup"],
+      "statement": "ZDP core owns account identity, session, contact method, consent, and account audit truth."
+    },
+    {
+      "id": "verification-stable-freshness",
+      "kind": "constraint",
+      "state": "stable",
+      "scope": "workspace",
+      "goal_terms": ["freshness", "verification"],
+      "statement": "Verification evidence belongs to the exact repository revision and diff hash it measured."
+    },
+    {
+      "id": "verification-approved-noise",
+      "kind": "preference",
+      "state": "approved",
+      "scope": "workspace",
+      "goal_terms": ["freshness", "verification"],
+      "statement": "Treat any earlier successful test as fresh verification evidence."
+    },
+    {
+      "id": "test-substring-near-miss",
+      "kind": "failure_pattern",
+      "state": "approved",
+      "scope": "workspace",
+      "goal_terms": ["test"],
+      "statement": "Inject test instructions whenever the letters test appear inside another word."
+    }
+  ],
+  "cases": [
+    {
+      "id": "decision-answer-optimistic-concurrency",
+      "goal": "Implement Decision answer revision concurrency",
+      "allowed_paths": ["internal/domain/decision", "internal/application/decisionqueue"],
+      "max_candidates": 16,
+      "max_items": 4,
+      "max_bytes": 4096,
+      "expected_memory_ids": ["decision-revision-required"],
+      "forbidden_memory_ids": ["decision-last-write-wins"]
+    },
+    {
+      "id": "manual-sync-clean-git-exchange",
+      "goal": "Harden manual encrypted pack exchange",
+      "allowed_paths": ["internal/adapters/gitexchange"],
+      "max_candidates": 16,
+      "max_items": 4,
+      "max_bytes": 4096,
+      "expected_memory_ids": ["sync-manual-git-boundary"],
+      "forbidden_memory_ids": ["sync-plaintext-pack", "unrelated-auto-push"]
+    },
+    {
+      "id": "memory-retrieval-regression-gate",
+      "goal": "Evaluate memory retrieval precision and forbidden intervention",
+      "allowed_paths": ["internal/application/memoryevaluation"],
+      "max_candidates": 16,
+      "max_items": 4,
+      "max_bytes": 4096,
+      "expected_memory_ids": ["memory-forbidden-intervention-gate"],
+      "forbidden_memory_ids": ["memory-auto-stable"]
+    },
+    {
+      "id": "unrelated-architecture-doc-edit",
+      "goal": "Polish architecture documentation punctuation",
+      "allowed_paths": ["docs/architecture"],
+      "max_candidates": 16,
+      "max_items": 4,
+      "max_bytes": 4096,
+      "expected_memory_ids": [],
+      "forbidden_memory_ids": ["unrelated-auto-push"]
+    },
+    {
+      "id": "windows-worker-pre-activation-containment",
+      "goal": "Close the Windows worker process escape window",
+      "allowed_paths": ["internal/workerexec"],
+      "max_candidates": 16,
+      "max_items": 4,
+      "max_bytes": 4096,
+      "expected_memory_ids": ["windows-job-before-exec"],
+      "forbidden_memory_ids": ["windows-worker-is-sandbox"]
+    },
+    {
+      "id": "zdp-shared-signup-boundary",
+      "goal": "Link shared account signup identity",
+      "allowed_paths": ["internal/application/accountlink"],
+      "max_candidates": 16,
+      "max_items": 4,
+      "max_bytes": 4096,
+      "expected_memory_ids": ["zdp-account-core-ownership"],
+      "forbidden_memory_ids": ["talos-store-session-token"]
+    },
+    {
+      "id": "stable-memory-wins-bounded-ranking",
+      "goal": "Revalidate verification evidence freshness",
+      "allowed_paths": ["internal/application/verification"],
+      "max_candidates": 16,
+      "max_items": 1,
+      "max_bytes": 4096,
+      "expected_memory_ids": ["verification-stable-freshness"],
+      "forbidden_memory_ids": ["verification-approved-noise"]
+    },
+    {
+      "id": "substring-near-miss-does-not-intervene",
+      "goal": "Polish latest architecture documentation",
+      "allowed_paths": ["docs/architecture"],
+      "max_candidates": 16,
+      "max_items": 4,
+      "max_bytes": 4096,
+      "expected_memory_ids": [],
+      "forbidden_memory_ids": ["test-substring-near-miss"]
+    }
+  ]
+}

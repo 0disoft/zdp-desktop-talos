@@ -21,6 +21,8 @@ The desktop confirms a first contract only after reinspecting the canonical repo
 
 The model runtime is a fixed planning workflow, not a self-authorizing agent loop. It frames Task Contract and repository context as untrusted data, applies sensitivity policy and secret redaction, enforces input/output/step/tool/deadline budgets, and records an encrypted metadata-only egress receipt before calling a provider port. A valid plan may reference only existing verification-command indexes. Every referenced command is resolved again through the deterministic broker; the provider never supplies the executable, argv, worktree root, capability, grant, or approval. PR evidence uses a deterministic fixture provider that is not production wiring.
 
+The desktop health snapshot reports the live Vault lock state and whether worker execution wiring is ready or unavailable. Worker tools are created for bounded executions rather than kept alive as a permanent daemon, so this snapshot does not claim per-process liveness or preserve raw initialization errors.
+
 ## Memory Gate and Context Assembly
 
 Extraction produces a candidate, never an approved rule. Candidate creation requires normalized kind, scope, applicability, sensitivity, confidence, source actor, and existing same-Vault evidence event IDs. The full snapshot is encrypted in the ledger while the materialized pointer stores only state, scope hash, confidence, revision, validity, replacement identity, timestamps, and event references. User review moves a candidate to approved, rejected, or quarantined with optimistic concurrency. Stable promotion, stale or deprecated retirement, reapproval, and same-scope supersession remain separate explicit commands; no query or evaluator promotes a record.

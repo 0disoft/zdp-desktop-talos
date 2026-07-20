@@ -23,6 +23,10 @@ func NewScanner() *Scanner {
 	return &Scanner{rules: []rule{
 		{regexp.MustCompile(`AKIA[0-9A-Z]{16}`), replacement},
 		{regexp.MustCompile(`(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,})`), replacement},
+		{regexp.MustCompile(`(?:glpat|gloas|gldt|glrt|glrtr|glcbt|glptt|glft|glimt|glagent|glwt|glsoat|glffct)-[A-Za-z0-9_-]{16,}`), replacement},
+		{regexp.MustCompile(`(?:xox[bprs]|xapp)-[A-Za-z0-9-]{10,}`), replacement},
+		{regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`), replacement},
+		{regexp.MustCompile(`(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}`), replacement},
 		{regexp.MustCompile(`sk-(?:proj-)?[A-Za-z0-9_-]{16,}`), replacement},
 		{regexp.MustCompile(`(?i)(https?://[^:/\s]+:)[^@/\s]+(@)`), `${1}` + replacement + `${2}`},
 		{regexp.MustCompile(`(?i)(["']?(?:password|passwd|pwd|secret|token|api[_-]?key|client[_-]?secret)["']?)(\s*[:=]\s*["']?)([^"'\s,;}\]]+)`), `${1}${2}` + replacement},

@@ -68,6 +68,36 @@ func TestAssemblerDefensivelyExcludesExpiredAdapterRecord(t *testing.T) {
 	}
 }
 
+func TestAssemblerMatchesApplicabilityTermsAtWordBoundaries(t *testing.T) {
+	now := time.Date(2026, 7, 20, 1, 0, 0, 0, time.UTC)
+	sourceHash := strings.Repeat("d", 64)
+	workspaceID := workspacemapping.ID("vault", sourceHash)
+	service, err := New(&reader{records: []memory.Record{
+		memoryRecord("test-rule", memory.StateApproved, []string{"test"}, "Run the focused test.", workspaceID, sourceHash, now),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []struct {
+		name     string
+		goal     string
+		selected int
+	}{
+		{name: "near miss", goal: "Update latest documentation", selected: 0},
+		{name: "whole word", goal: "Run test diagnostics", selected: 1},
+	} {
+		t.Run(candidate.name, func(t *testing.T) {
+			result, err := service.Assemble(context.Background(), memorycontext.Request{VaultID: "vault", WorkspaceID: workspaceID, Goal: candidate.goal, MaxCandidates: 8, MaxItems: 2, MaxBytes: 1024})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Items) != candidate.selected {
+				t.Fatalf("goal=%q items=%+v", candidate.goal, result.Items)
+			}
+		})
+	}
+}
+
 func memoryRecord(id string, state memory.State, terms []string, statement, workspaceID, sourceHash string, now time.Time) memory.Record {
 	return memory.Record{ID: id, VaultID: "vault", Kind: memory.KindConstraint, State: state, Scope: memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceID: workspaceID, SourceWorkspaceHash: sourceHash}, Statement: statement, Rationale: "prior evidence", Applicability: memory.Applicability{GoalTerms: terms}, EvidenceEventIDs: []string{"event"}, SourceActor: "extractor", Confidence: 80, Sensitivity: event.SensitivityPrivate, Revision: 2, CreatedAt: now, UpdatedAt: now, ReviewedAt: now, CreatedEventID: "created", LastEventID: "last"}
 }

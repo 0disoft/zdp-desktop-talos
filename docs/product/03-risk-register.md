@@ -5,7 +5,7 @@
 
 | Risk | Failure mode | Control | Release gate |
 |---|---|---|---|
-| Memory pollution | stale or inferred rules keep changing good patches | provenance, scope, conflicts, expiry, explicit gate, evaluation corpus | harmful-memory regression blocks release |
+| Memory pollution | stale or inferred rules keep changing good patches | provenance, scope, conflicts, expiry, explicit gate, synthetic exact-set corpus | any missing, unexpected, forbidden, ranking, or determinism corpus regression blocks release |
 | Sandbox illusion | repository tests read user files outside the worktree | honest capability language, restricted environment, platform sandbox milestone | no claim of OS isolation before proof |
 | Prompt injection | README or tool output requests secrets or broader authority | untrusted-content boundary and deterministic broker | malicious-repo fixtures pass |
 | Secret persistence | credentials enter ledger, logs, model calls, or projections | redaction at collection/storage/egress/export and fail-closed scanner | any secret fixture leak blocks release |

@@ -20,7 +20,22 @@ func TestEvaluateReportsRetrievalPrecisionRecallAndForbiddenIntervention(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.TruePositive != 2 || report.FalsePositive != 2 || report.FalseNegative != 1 || report.PrecisionBasis != 5000 || report.RecallBasis != 6666 || len(report.Results[0].ForbiddenSeen) != 1 || len(report.Results[0].Missing) != 1 {
+	if report.PassedCases != 1 || report.FailedCases != 1 || report.TruePositive != 2 || report.FalsePositive != 2 || report.FalseNegative != 1 || report.ForbiddenInterventions != 1 || report.PrecisionBasis != 5000 || report.RecallBasis != 6666 || len(report.Results[0].ForbiddenSeen) != 1 || len(report.Results[0].Missing) != 1 || len(report.Results[0].Unexpected) != 2 || report.Results[0].Passed || !report.Results[1].Passed {
+		t.Fatalf("report=%+v", report)
+	}
+}
+
+func TestEvaluateAcceptsNegativeOnlyCase(t *testing.T) {
+	t.Parallel()
+	service, err := New(&evaluationProvider{results: []memorycontext.Result{{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := service.Evaluate(context.Background(), []Case{{ID: "no-memory", Request: memorycontext.Request{VaultID: "vault"}, ForbiddenMemoryIDs: []string{"broad-noise"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.PassedCases != 1 || report.FailedCases != 0 || !report.Results[0].Passed || report.PrecisionBasis != 0 || report.RecallBasis != 0 {
 		t.Fatalf("report=%+v", report)
 	}
 }

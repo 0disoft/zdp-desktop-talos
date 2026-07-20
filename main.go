@@ -80,7 +80,7 @@ func main() {
 		Description:    "기억 기반 로컬 코딩 에이전트",
 		SingleInstance: singleInstance,
 		Services: []application.Service{
-			application.NewService(&wailsapi.HealthService{}),
+			application.NewService(wailsapi.NewHealthService(vaultService, executionFactory != nil && executionInitializationError == nil)),
 			application.NewService(vaultService),
 			application.NewService(workspaceService),
 			application.NewService(wailsapi.NewTaskService(vaultService, workspaceService)),

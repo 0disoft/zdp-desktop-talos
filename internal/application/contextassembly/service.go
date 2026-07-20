@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
@@ -79,9 +81,42 @@ func applicabilityReason(record memory.Record, haystack string) (string, bool) {
 		return fmt.Sprintf("%s memory matched %s scope", record.State, record.Scope.Kind), true
 	}
 	for _, term := range record.Applicability.GoalTerms {
-		if strings.Contains(haystack, term) {
+		if containsApplicabilityTerm(haystack, term) {
 			return fmt.Sprintf("%s memory matched goal term %q", record.State, term), true
 		}
 	}
 	return "", false
+}
+
+func containsApplicabilityTerm(haystack, term string) bool {
+	if term == "" {
+		return false
+	}
+	first, _ := utf8.DecodeRuneInString(term)
+	last, _ := utf8.DecodeLastRuneInString(term)
+	for offset := 0; offset <= len(haystack)-len(term); {
+		match := strings.Index(haystack[offset:], term)
+		if match < 0 {
+			return false
+		}
+		start := offset + match
+		end := start + len(term)
+		leftBoundary := start == 0 || !unicode.IsLetter(first) && !unicode.IsDigit(first) || !isApplicabilityWordRuneBefore(haystack, start)
+		rightBoundary := end == len(haystack) || !unicode.IsLetter(last) && !unicode.IsDigit(last) || !isApplicabilityWordRuneAfter(haystack, end)
+		if leftBoundary && rightBoundary {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func isApplicabilityWordRuneBefore(value string, index int) bool {
+	r, _ := utf8.DecodeLastRuneInString(value[:index])
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
+}
+
+func isApplicabilityWordRuneAfter(value string, index int) bool {
+	r, _ := utf8.DecodeRuneInString(value[index:])
+	return unicode.IsLetter(r) || unicode.IsDigit(r)
 }

@@ -21,9 +21,26 @@ type HealthSnapshot struct {
 	LatestError     string `json:"latest_error,omitempty"`
 }
 
-type HealthService struct{}
+type HealthService struct {
+	vault           *VaultService
+	workerAvailable bool
+}
+
+func NewHealthService(vault *VaultService, workerAvailable bool) *HealthService {
+	return &HealthService{vault: vault, workerAvailable: workerAvailable}
+}
 
 func (s *HealthService) Snapshot() HealthSnapshot {
+	workerStatus := "unavailable"
+	vaultStatus := "unavailable"
+	if s != nil {
+		if s.workerAvailable {
+			workerStatus = "ready"
+		}
+		if s.vault != nil {
+			vaultStatus = s.vault.Status().State
+		}
+	}
 	return HealthSnapshot{
 		Application:     "Talos Agent",
 		Version:         ApplicationVersion,
@@ -31,7 +48,7 @@ func (s *HealthService) Snapshot() HealthSnapshot {
 		OperatingSystem: runtime.GOOS,
 		Architecture:    runtime.GOARCH,
 		WorkerProtocol:  workeripc.ProtocolVersion,
-		WorkerStatus:    "not_started",
-		VaultStatus:     "locked",
+		WorkerStatus:    workerStatus,
+		VaultStatus:     vaultStatus,
 	}
 }

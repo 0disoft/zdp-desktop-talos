@@ -15,10 +15,12 @@ The implemented Memory Gate could approve, stabilize, stale, deprecate, or super
 - Provide an explicit expiry sweep that transitions due approved or stable records to `stale` with optimistic revision and deterministic idempotency. A query does not silently mutate lifecycle state.
 - Expose explicit stable, stale, reapprove, deprecated, and superseded transitions. Automatic stable promotion remains forbidden. Supersession requires a different approved or stable record in the same Vault with the same scope kind and workspace hash. The old record becomes terminal and names its replacement.
 - Add a provider-neutral memory evaluation service. Evaluation cases name expected and forbidden memory IDs and report true positives, false positives, false negatives, precision, recall, missing records, and forbidden interventions. The evaluator consumes the same Context Assembly port used by planning; it does not grade model prose.
+- Keep a versioned synthetic golden corpus beside the evaluator. Its gate requires exact per-case selection, zero forbidden interventions, perfect reviewed-case precision and recall, stable-first bounded ranking, word-boundary matching, and deterministic repeated output. The corpus reader mirrors the SQLite active-memory filtering and ordering contract without turning the fixture into a second production store.
+- Reject oversized or structurally unknown corpus input before evaluation. Corpus data must be synthetic and privacy-safe; production prompts, event payloads, repository contents, and user identifiers are not evaluation fixtures.
 
 ## Consequences
 
-Active context no longer treats time-limited knowledge as immortal. Users can see and control lifecycle transitions instead of relying on hidden cleanup. Supersession is an auditable relationship rather than a prose convention. Evaluation now rewards relevant selection and penalizes noise or stale intervention, while automatic stable promotion remains deferred until independent-task evidence can be proven.
+Active context no longer treats time-limited knowledge as immortal. Users can see and control lifecycle transitions instead of relying on hidden cleanup. Supersession is an auditable relationship rather than a prose convention. Evaluation now rewards relevant selection and penalizes noise or stale intervention, while automatic stable promotion remains deferred until independent-task evidence can be proven. The golden corpus is a deterministic retrieval regression gate, not proof of extraction, hosted-model, privacy-redaction, or end-to-end planning quality.
 
 ## Verification
 
@@ -26,5 +28,5 @@ Active context no longer treats time-limited knowledge as immortal. Users can se
 - SQLite tests cover schema-15 migration, before/after-expiry active queries, same-scope replacement checks, atomic supersession, and encrypted snapshots;
 - Memory Kernel tests cover deterministic expiry sweep behavior;
 - Context Assembly tests defensively reject expired adapter output;
-- evaluation tests cover precision, recall, missing expected memories, and forbidden stale selection;
+- evaluation tests cover precision, recall, missing expected memories, forbidden stale selection, stable-first bounded ranking, substring near-misses, strict corpus decoding, size limits, and repeated-run determinism;
 - Wails and Svelte checks cover explicit lifecycle controls and server-owned validity durations.
