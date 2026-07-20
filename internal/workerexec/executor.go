@@ -188,10 +188,10 @@ func (e *Executor) Execute(ctx context.Context, request Request) (Result, error)
 	if err := command.Start(); err != nil {
 		return Result{}, fmt.Errorf("%w: %v", ErrStartFailed, safeStartError(err))
 	}
-	if err := group.attach(command.Process); err != nil {
+	if err := group.activate(command.Process); err != nil {
 		_ = command.Process.Kill()
-		_, _ = command.Process.Wait()
-		return Result{}, fmt.Errorf("%w: attach", ErrContainmentFailed)
+		_ = command.Wait()
+		return Result{}, fmt.Errorf("%w: activate", ErrContainmentFailed)
 	}
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()

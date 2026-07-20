@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | Local Vault confidentiality | pass | current-user DPAPI, encrypted events and artifacts, plaintext-marker tests, restart-safe hard purge |
 | Workspace and task boundary | pass | canonical read-only Git inspection, immutable baselines, revisioned contracts |
-| Execution safety | pass with declared limitation | capability policy, owned worktrees, argv execution, bounded worker IPC, cancellation, evidence freshness; no OS sandbox claim |
+| Execution safety | pass with declared limitation | capability policy, owned worktrees, argv execution, suspended Windows start with pre-execution Job Object activation, bounded worker IPC, cancellation, evidence freshness; no OS sandbox claim |
 | Decision and patch review | pass | encrypted decisions, conflict handling, fresh evidence, bounded diff review, explicit apply or discard |
 | Model boundary | pass locally | explicit egress consent, redaction, strict response validation, durable receipts; funded live-provider smoke remains external |
 | Memory boundary | pass locally | provenance, review gate, expiry, supersession, deterministic evaluation, public-only projection |

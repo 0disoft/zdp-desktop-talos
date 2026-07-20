@@ -15,7 +15,7 @@ func (*processGroup) prepare(command *exec.Cmd) error {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	return nil
 }
-func (g *processGroup) attach(process *os.Process) error { g.pid = process.Pid; return nil }
+func (g *processGroup) activate(process *os.Process) error { g.pid = process.Pid; return nil }
 func (g *processGroup) terminate() error {
 	if g.pid <= 0 {
 		return nil

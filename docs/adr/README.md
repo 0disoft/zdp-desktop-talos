@@ -66,5 +66,6 @@ ADRs record decisions that are expensive to reverse or that establish ownership,
 - `0057-journaled-live-vault-restore.md`: authenticated staging, protected restore journal, crash-resumable generation swap, and verified rollback
 - `0058-signed-update-preparation-gate.md`: exact-byte signed manifests, protected path-free preparation, repeat authorization, and disabled installer execution
 - `0059-signed-real-vault-n-minus-one-evidence.md`: trusted signing-run ancestry, signed package-only release probe, real encrypted Vault upgrade, uninstall retention, and direct rollback-read evidence
+- `0060-suspended-windows-job-activation.md`: suspended process creation, fail-closed single-thread activation, and pre-execution Job Object membership
 
 Use `0000-template.md` for new decisions. Accepted ADRs are superseded by a new ADR instead of silently rewritten when the decision itself changes. Clarifications that do not alter the decision may be edited with an explicit rationale and validation evidence.

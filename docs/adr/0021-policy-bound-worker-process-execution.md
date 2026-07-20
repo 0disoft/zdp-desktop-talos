@@ -23,7 +23,7 @@ A worker that accepts a shell string or arbitrary executable is only a remote sh
 
 ## Consequences
 
-The worker can execute and cancel a policy-approved direct process without becoming a generic shell. This remains policy isolation, not an OS sandbox. Windows assignment happens immediately after process start, leaving a small same-user scheduling race before Job Object attachment; stronger suspended-process creation belongs to platform sandbox hardening.
+The worker can execute and cancel a policy-approved direct process without becoming a generic shell. This remains policy isolation, not an OS sandbox. ADR 0060 later closes the Windows pre-attachment scheduling race by starting the process suspended, assigning it to the Job Object, and only then resuming its sole initial thread.
 
 The deterministic Permission Broker now converts task- or workspace-scoped grants into exact worker capabilities and keeps contract denial authoritative. Durable grant consumption, the Run/Attempt journal, user-review UI, and main-process assembly are still required before model-generated tool intents can reach `start_run` or `execute_tool`.
 
