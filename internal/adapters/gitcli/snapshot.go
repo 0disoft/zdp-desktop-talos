@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -26,11 +25,6 @@ const (
 	maxDiffBytesPerFile = 64 << 10
 	maxDiffBytesTotal   = 512 << 10
 )
-
-type snapshotEntry struct {
-	path      string
-	indexMeta string
-}
 
 func (m *WorktreeManager) Review(ctx context.Context, record worktree.Record) (repository.WorktreeReview, error) {
 	before, err := m.Snapshot(ctx, record)
@@ -58,8 +52,7 @@ func (m *WorktreeManager) Review(ctx context.Context, record worktree.Record) (r
 			return repository.WorktreeReview{}, repository.ErrWorktreeSnapshotFailed
 		}
 	}
-	patchHash := sha256.Sum256([]byte("talos.patch-review/1\x00" + after.Hash))
-	return repository.WorktreeReview{StateHash: after.Hash, PatchHash: hex.EncodeToString(patchHash[:]), Changes: append([]workspace.Change(nil), changes...), Diffs: diffs}, nil
+	return repository.WorktreeReview{StateHash: after.Hash, PatchHash: patchHashForState(after.Hash), Changes: append([]workspace.Change(nil), changes...), Diffs: diffs}, nil
 }
 
 func (m *WorktreeManager) reviewDiffs(ctx context.Context, record worktree.Record, changes []workspace.Change) ([]repository.FileDiff, error) {
@@ -229,66 +222,36 @@ func (m *WorktreeManager) Snapshot(ctx context.Context, record worktree.Record) 
 	if err := record.Validate(); err != nil {
 		return repository.WorktreeState{}, repository.ErrWorktreeSnapshotFailed
 	}
-	tracked, err := m.git(ctx, record.Root, "ls-files", "--stage", "-z", "--cached")
-	if err != nil || tracked.exitCode != 0 {
+	status, err := m.git(ctx, record.Root, "status", "--porcelain=v2", "-z", "--untracked-files=all")
+	if err != nil || status.exitCode != 0 {
 		return repository.WorktreeState{}, repository.ErrWorktreeSnapshotFailed
 	}
-	untracked, err := m.git(ctx, record.Root, "ls-files", "-z", "--others", "--exclude-standard")
-	if err != nil || untracked.exitCode != 0 {
+	changes, err := parseStatus(status.stdout)
+	if err != nil || len(changes) > maxSnapshotEntries {
 		return repository.WorktreeState{}, repository.ErrWorktreeSnapshotFailed
-	}
-	entries, err := parseSnapshotEntries(tracked.stdout, untracked.stdout)
-	if err != nil {
-		return repository.WorktreeState{}, err
 	}
 	hash := sha256.New()
-	_, _ = io.WriteString(hash, "talos.worktree-state/1\x00"+record.BaselineCommit+"\x00")
-	for _, entry := range entries {
-		kind, size, contentHash, err := snapshotPath(record.Root, entry.path)
+	_, _ = io.WriteString(hash, "talos.worktree-state/2\x00"+record.BaselineCommit+"\x00")
+	_, _ = hash.Write(status.stdout)
+	for _, change := range changes {
+		if err := ctx.Err(); err != nil {
+			return repository.WorktreeState{}, repository.ErrWorktreeSnapshotFailed
+		}
+		kind, size, contentHash, err := m.snapshotPath(ctx, record.Root, change.Path)
 		if err != nil {
 			return repository.WorktreeState{}, err
 		}
-		_, _ = io.WriteString(hash, entry.path+"\x00"+entry.indexMeta+"\x00"+kind+"\x00"+strconv.FormatInt(size, 10)+"\x00"+contentHash+"\x00")
+		_, _ = io.WriteString(hash, change.Path+"\x00"+kind+"\x00"+strconv.FormatInt(size, 10)+"\x00"+contentHash+"\x00")
 	}
 	return repository.WorktreeState{Hash: hex.EncodeToString(hash.Sum(nil))}, nil
 }
 
-func parseSnapshotEntries(tracked, untracked []byte) ([]snapshotEntry, error) {
-	entries := make([]snapshotEntry, 0)
-	for _, item := range splitNUL(tracked) {
-		tab := strings.IndexByte(item, '\t')
-		if tab <= 0 || tab == len(item)-1 {
-			return nil, repository.ErrWorktreeSnapshotFailed
-		}
-		entries = append(entries, snapshotEntry{path: item[tab+1:], indexMeta: item[:tab]})
-	}
-	for _, path := range splitNUL(untracked) {
-		entries = append(entries, snapshotEntry{path: path, indexMeta: "untracked"})
-	}
-	if len(entries) > maxSnapshotEntries {
-		return nil, repository.ErrWorktreeSnapshotFailed
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].path == entries[j].path {
-			return entries[i].indexMeta < entries[j].indexMeta
-		}
-		return entries[i].path < entries[j].path
-	})
-	return entries, nil
+func patchHashForState(stateHash string) string {
+	patchHash := sha256.Sum256([]byte("talos.patch-review/1\x00" + stateHash))
+	return hex.EncodeToString(patchHash[:])
 }
 
-func splitNUL(payload []byte) []string {
-	parts := strings.Split(string(payload), "\x00")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if part != "" {
-			result = append(result, part)
-		}
-	}
-	return result
-}
-
-func snapshotPath(root, gitPath string) (string, int64, string, error) {
+func snapshotPath(ctx context.Context, root, gitPath string) (string, int64, string, error) {
 	if gitPath == "" || strings.IndexByte(gitPath, 0) >= 0 || filepath.IsAbs(gitPath) || filepath.VolumeName(gitPath) != "" {
 		return "", 0, "", repository.ErrWorktreeSnapshotFailed
 	}
@@ -328,7 +291,7 @@ func snapshotPath(root, gitPath string) (string, int64, string, error) {
 		return "", 0, "", repository.ErrWorktreeSnapshotFailed
 	}
 	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	if _, err := io.Copy(hash, &contextReader{ctx: ctx, reader: file}); err != nil {
 		return "", 0, "", repository.ErrWorktreeSnapshotFailed
 	}
 	finished, err := file.Stat()
@@ -336,4 +299,16 @@ func snapshotPath(root, gitPath string) (string, int64, string, error) {
 		return "", 0, "", repository.ErrWorktreeSnapshotFailed
 	}
 	return fmt.Sprintf("file:%o", opened.Mode().Perm()), opened.Size(), hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *contextReader) Read(payload []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(payload)
 }

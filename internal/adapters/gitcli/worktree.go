@@ -27,11 +27,12 @@ type worktreeMarker struct {
 }
 
 type WorktreeManager struct {
-	executable string
-	ownedRoot  string
-	timeout    time.Duration
-	now        func() time.Time
-	run        runner
+	executable   string
+	ownedRoot    string
+	timeout      time.Duration
+	now          func() time.Time
+	run          runner
+	snapshotPath func(context.Context, string, string) (string, int64, string, error)
 }
 
 func NewWorktreeManager(ownedRoot string) (*WorktreeManager, error) {
@@ -59,7 +60,7 @@ func NewWorktreeManager(ownedRoot string) (*WorktreeManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &WorktreeManager{executable: executable, ownedRoot: canonical, timeout: 30 * time.Second, now: func() time.Time { return time.Now().UTC() }, run: runCommand}, nil
+	return &WorktreeManager{executable: executable, ownedRoot: canonical, timeout: 30 * time.Second, now: func() time.Time { return time.Now().UTC() }, run: runCommand, snapshotPath: snapshotPath}, nil
 }
 
 func (m *WorktreeManager) Create(ctx context.Context, input repository.CreateWorktreeInput) (worktree.Record, error) {

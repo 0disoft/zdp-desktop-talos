@@ -15,7 +15,7 @@ Task completion also cannot be a renderer choice. It must follow the current imm
 - Persist `pending` before the Git mutation. Finish as `succeeded`, `failed`, or `unknown`; a replay of `pending` or `unknown` never repeats the external mutation automatically.
 - Bind every action to Task ID, contract revision, patch hash, worktree state hash, and, for apply, the exact verification evidence ID.
 - Require apply to pass the deterministic Completion Gate: current contracted Task, exact revision and patch hash, fresh evidence, zero secret findings, every changed path and rename origin inside allowed paths, and no unresolved blocking Decision.
-- Reinspect the canonical primary worktree immediately before apply. Its HEAD must equal the immutable baseline and its tracked and untracked status must be clean.
+- Reinspect the canonical primary worktree immediately before apply. Its HEAD must equal the immutable baseline and its tracked and untracked status must be clean. Revalidate the expected state hash directly instead of rebuilding renderer diff previews; bracket binary-patch construction with state checks so a concurrent task-worktree change fails closed.
 - Build a binary patch from the owned task worktree using a temporary alternate Git index. Apply it to the primary worktree only after `git apply --check`; never commit, push, or move primary HEAD.
 - Permit discard without fresh evidence, because removing a rejected patch must remain possible, but require the current patch hash and marker-verified owned worktree before removal.
 - Commit successful action state and the terminal Task outcome (`completed` or `discarded`) in one SQLite transaction. Keep failed or unknown Tasks contracted for explicit recovery.

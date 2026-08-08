@@ -17,8 +17,7 @@ func (m *WorktreeManager) Apply(ctx context.Context, record worktree.Record, exp
 	if len(expectedPatchHash) != 64 {
 		return repository.ErrPatchConflict
 	}
-	review, err := m.Review(ctx, record)
-	if err != nil || review.PatchHash != expectedPatchHash {
+	if err := m.requirePatchState(ctx, record, expectedPatchHash); err != nil {
 		return repository.ErrPatchConflict
 	}
 	primary, err := canonicalDirectory(record.RepositoryRoot)
@@ -37,6 +36,9 @@ func (m *WorktreeManager) Apply(ctx context.Context, record worktree.Record, exp
 	if err != nil || len(patch) == 0 {
 		return repository.ErrPatchApplyFailed
 	}
+	if err := m.requirePatchState(ctx, record, expectedPatchHash); err != nil {
+		return repository.ErrPatchConflict
+	}
 	checked, err := m.gitInput(ctx, primary, patch, "apply", "--check", "--binary", "--whitespace=nowarn", "-")
 	if err != nil || checked.exitCode != 0 {
 		return repository.ErrPatchApplyFailed
@@ -49,12 +51,22 @@ func (m *WorktreeManager) Apply(ctx context.Context, record worktree.Record, exp
 }
 
 func (m *WorktreeManager) Discard(ctx context.Context, record worktree.Record, expectedPatchHash string) error {
-	review, err := m.Review(ctx, record)
-	if err != nil || review.PatchHash != expectedPatchHash {
+	if err := m.requirePatchState(ctx, record, expectedPatchHash); err != nil {
 		return repository.ErrPatchConflict
 	}
 	if err := m.Remove(ctx, record); err != nil {
 		return repository.ErrPatchOutcomeUnknown
+	}
+	return nil
+}
+
+func (m *WorktreeManager) requirePatchState(ctx context.Context, record worktree.Record, expectedPatchHash string) error {
+	if len(expectedPatchHash) != 64 {
+		return repository.ErrPatchConflict
+	}
+	state, err := m.Snapshot(ctx, record)
+	if err != nil || patchHashForState(state.Hash) != expectedPatchHash {
+		return repository.ErrPatchConflict
 	}
 	return nil
 }

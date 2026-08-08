@@ -3,6 +3,7 @@ package gitcli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -157,6 +158,59 @@ func TestWorktreeSnapshotChangesWithTrackedAndUntrackedContent(t *testing.T) {
 	untracked, err := manager.Snapshot(context.Background(), record)
 	if err != nil || untracked.Hash == tracked.Hash {
 		t.Fatalf("untracked=%+v tracked=%+v error=%v", untracked, tracked, err)
+	}
+}
+
+func TestWorktreeSnapshotReadsOnlyChangedPaths(t *testing.T) {
+	t.Parallel()
+	git, primary, _ := createWorktreeTestRepository(t)
+	for index := 0; index < 64; index++ {
+		name := filepath.Join(primary, fmt.Sprintf("unchanged-%03d.txt", index))
+		if err := os.WriteFile(name, []byte("unchanged\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitTest(t, git, primary, "add", ".")
+	runGitTest(t, git, primary, "commit", "-m", "add unchanged fixture files")
+	baseline := strings.TrimSpace(runGitOutput(t, git, primary, "rev-parse", "HEAD"))
+	manager, err := NewWorktreeManager(filepath.Join(t.TempDir(), "talos-owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(context.Background(), repository.CreateWorktreeInput{TaskID: testTaskID, RepositoryRoot: primary, BaselineCommit: baseline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "tracked.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(record.Root, "new.txt"), []byte("new\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalSnapshotPath := manager.snapshotPath
+	readPaths := make([]string, 0, 2)
+	manager.snapshotPath = func(ctx context.Context, root, gitPath string) (string, int64, string, error) {
+		readPaths = append(readPaths, gitPath)
+		return originalSnapshotPath(ctx, root, gitPath)
+	}
+	if _, err := manager.Snapshot(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(readPaths, ","), "new.txt,tracked.txt"; got != want {
+		t.Fatalf("snapshot read paths=%q want=%q", got, want)
+	}
+}
+
+func TestSnapshotPathStopsWhenContextIsCanceled(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte(strings.Repeat("x", 1<<20)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, _, _, err := snapshotPath(ctx, root, "large.txt"); !errors.Is(err, repository.ErrWorktreeSnapshotFailed) {
+		t.Fatalf("canceled snapshot error=%v", err)
 	}
 }
 

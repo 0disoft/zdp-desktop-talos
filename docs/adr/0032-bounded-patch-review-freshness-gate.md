@@ -13,14 +13,16 @@ Sending an unrestricted Git diff to the renderer would create a second data-egre
 
 - Query the newest successful verification evidence by Vault and Task, ordered by finish time and evidence identity.
 - Reopen only the marker-verified Talos-owned task worktree. Patch Review never inspects an arbitrary supplied path.
-- Compute the deterministic worktree state hash before and after bounded Git status collection. If the hash changes during inspection, fail closed rather than return a torn review.
+- Compute the deterministic worktree state hash before and after bounded Git status collection. Bind the immutable baseline, porcelain-v2 manifest and index object identities, and changed-path content hashes; do not reread unchanged tracked content already identified by the baseline. If the hash changes during inspection, fail closed rather than return a torn review.
 - Return repository-relative paths, rename origins, change kinds, index/worktree status, the current state hash, and bounded evidence metadata. Do not return the owned worktree path, executable, environment, stdout, stderr, or raw diff content.
 - Classify the result as `fresh` only when baseline commit, current contract revision, and worktree state hash all match the newest evidence. Classify mismatches as `stale` with a stable reason code and missing evidence as `unverified`.
 - Treat this service as read-only. Apply, discard, and task completion remain separate explicit commands.
 
 ## Consequences
 
-The renderer can reload a review after application restart and clearly withdraw the verified state after any patch or contract change. The double snapshot adds local hashing cost, but avoids presenting a status list from one filesystem state beside a hash from another.
+The renderer can reload a review after application restart and clearly withdraw the verified state after any patch or contract change. The double snapshot reads changed paths rather than the entire repository and observes cancellation while hashing, avoiding a repository-size multiplier while still rejecting a status list from a different filesystem state.
+
+The state-hash schema change intentionally makes evidence created by an older application build stale after upgrade. Users must rerun verification once; silently treating the old whole-tree digest as equivalent would weaken the evidence binding.
 
 Users see changed files but not line-level content yet. A later raw-diff viewer must add redaction, secret scanning, binary detection, per-file and total payload limits, and safe rendering before crossing the Wails boundary.
 
