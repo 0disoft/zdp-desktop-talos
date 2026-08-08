@@ -1,6 +1,6 @@
 {
   "schema": "talos.windows-package-receipt/1",
-  "version": "0.34.5",
+  "version": "0.34.6",
   "architecture": "amd64",
   "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "signature_required": true,
@@ -10,6 +10,6 @@
     { "name": "talos-worker.exe", "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "size": 2, "signature_status": "Valid", "signer_subject": "CN=Talos Test" },
     { "name": "talosctl.exe", "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "size": 3, "signature_status": "Valid", "signer_subject": "CN=Talos Test" },
     { "name": "talos-release-probe.exe", "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "size": 4, "signature_status": "Valid", "signer_subject": "CN=Talos Test" },
-    { "name": "talos-agent-0.34.5-windows-amd64-setup.exe", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "size": 5, "signature_status": "Valid", "signer_subject": "CN=Talos Test" }
+    { "name": "talos-agent-0.34.6-windows-amd64-setup.exe", "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "size": 5, "signature_status": "Valid", "signer_subject": "CN=Talos Test" }
   ]
 }

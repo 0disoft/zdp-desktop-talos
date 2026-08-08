@@ -61,7 +61,14 @@ func (s *session) RunTool(ctx context.Context, request workerruntime.ToolRequest
 	}
 	done := make(chan outcome, 1)
 	go func() {
-		result, err := s.client.ExecuteTool(context.Background(), workeripc.ExecuteToolPayload{RunID: request.RunID, ToolCallID: request.CallID, CapabilityID: request.CapabilityID, Arguments: append([]string(nil), request.Arguments...), WorkingDirectory: request.WorkingDirectory, Environment: copyEnvironment(request.Environment), TimeoutMS: request.Timeout.Milliseconds(), MaxOutputBytes: request.MaxOutputBytes})
+		deadline := responseDeadline(request.Timeout)
+		callCtx, cancel := context.WithTimeout(context.Background(), deadline)
+		defer cancel()
+		result, err := s.client.ExecuteTool(callCtx, workeripc.ExecuteToolPayload{RunID: request.RunID, ToolCallID: request.CallID, CapabilityID: request.CapabilityID, Arguments: append([]string(nil), request.Arguments...), WorkingDirectory: request.WorkingDirectory, Environment: copyEnvironment(request.Environment), TimeoutMS: request.Timeout.Milliseconds(), MaxOutputBytes: request.MaxOutputBytes})
+		if errors.Is(err, context.DeadlineExceeded) {
+			_ = s.client.Close()
+			err = fmt.Errorf("%w: tool response deadline exceeded", workeripc.ErrUnexpectedMessage)
+		}
 		done <- outcome{result: result, err: err}
 	}()
 	select {
@@ -85,6 +92,13 @@ func (s *session) RunTool(ctx context.Context, request workerruntime.ToolRequest
 	}
 }
 
+func responseDeadline(toolTimeout time.Duration) time.Duration {
+	if toolTimeout <= 0 {
+		toolTimeout = 10 * time.Minute
+	}
+	return toolTimeout + cancelTimeout
+}
+
 func (s *session) Shutdown(ctx context.Context) error { return mapError(s.client.Shutdown(ctx)) }
 func (s *session) Close() error                       { return s.client.Close() }
 
@@ -96,7 +110,7 @@ func mapResult(result workeripc.ToolResultPayload, err error) (workerruntime.Too
 	if !valid {
 		return workerruntime.ToolResult{}, fmt.Errorf("%w: unknown tool state", workerruntime.ErrProtocol)
 	}
-	mapped := workerruntime.ToolResult{State: state, ExitCode: result.ExitCode, Stdout: append([]byte(nil), result.Stdout...), Stderr: append([]byte(nil), result.Stderr...)}
+	mapped := workerruntime.ToolResult{State: state, ExitCode: result.ExitCode, StdoutBytes: result.StdoutBytes, StderrBytes: result.StderrBytes, StdoutSHA256: result.StdoutSHA256, StderrSHA256: result.StderrSHA256}
 	if result.StartedAt != "" {
 		parsed, parseErr := time.Parse(time.RFC3339Nano, result.StartedAt)
 		if parseErr != nil {

@@ -50,12 +50,14 @@ type ToolRequest struct {
 }
 
 type ToolResult struct {
-	State      ToolState
-	ExitCode   int
-	Stdout     []byte
-	Stderr     []byte
-	StartedAt  time.Time
-	FinishedAt time.Time
+	State        ToolState
+	ExitCode     int
+	StdoutBytes  int
+	StderrBytes  int
+	StdoutSHA256 string
+	StderrSHA256 string
+	StartedAt    time.Time
+	FinishedAt   time.Time
 }
 
 type Session interface {

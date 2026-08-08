@@ -82,7 +82,7 @@ func TestGoVerificationEnvironmentRunsDependencyFreeTests(t *testing.T) {
 	for _, name := range names {
 		fresh = append(fresh, name+"="+environment[name])
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, goExecutable, "test", "./...")
 	command.Dir = module

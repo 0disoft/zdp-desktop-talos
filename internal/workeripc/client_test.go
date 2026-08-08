@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -38,7 +37,7 @@ func TestSessionPerformsTypedHandshakeRunAndToolLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != "succeeded" || result.ExitCode != 0 || !strings.HasPrefix(string(result.Stdout), "ipc-echo") {
+	if result.State != "succeeded" || result.ExitCode != 0 || result.StdoutBytes < len("ipc-echo") || len(result.StdoutSHA256) != 64 {
 		t.Fatalf("result=%+v", result)
 	}
 	if err := session.Shutdown(ctx); err != nil {

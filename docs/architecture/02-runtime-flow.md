@@ -71,7 +71,7 @@ A Decision blocks only named steps or capabilities. Safe unrelated steps continu
 
 ## Failure and Recovery
 
-The control plane journals an attempt before worker execution. A worker crash yields an unknown or failed attempt, not implicit success. Recovery reconciles attempt identity and idempotency keys before retrying. Model/provider failure cannot bypass permission or verification gates. Disk-full, locked database, corrupt IPC, and stale repository state fail closed with actionable state.
+The control plane journals an attempt before worker execution. A worker crash yields an unknown or failed attempt, not implicit success. Worker protocol v2 returns only stdout/stderr byte counts and SHA-256 digests, so Base64 expansion cannot exceed the frame budget; raw output remains inside the worker. Asynchronous response write failure closes the transport and wakes pending calls, while every tool response has a bounded deadline beyond its execution timeout. Recovery reconciles attempt identity and idempotency keys before retrying. Model/provider failure cannot bypass permission or verification gates. Disk-full, locked database, corrupt IPC, and stale repository state fail closed with actionable state.
 
 ## Completion
 

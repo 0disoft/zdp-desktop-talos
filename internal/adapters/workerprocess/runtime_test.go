@@ -14,16 +14,13 @@ func TestMapResultAcceptsKnownSuccessfulResult(t *testing.T) {
 	finished := started.Add(time.Second)
 
 	result, err := mapResult(workeripc.ToolResultPayload{
-		State:      "succeeded",
-		ExitCode:   0,
-		Stdout:     []byte("ok"),
-		StartedAt:  started.Format(time.RFC3339Nano),
-		FinishedAt: finished.Format(time.RFC3339Nano),
+		State: "succeeded", ExitCode: 0, StdoutBytes: 2, StdoutSHA256: "hash",
+		StartedAt: started.Format(time.RFC3339Nano), FinishedAt: finished.Format(time.RFC3339Nano),
 	}, nil)
 	if err != nil {
 		t.Fatalf("map result: %v", err)
 	}
-	if result.State != workerruntime.ToolSucceeded || !result.StartedAt.Equal(started) || !result.FinishedAt.Equal(finished) {
+	if result.State != workerruntime.ToolSucceeded || result.StdoutBytes != 2 || result.StdoutSHA256 != "hash" || !result.StartedAt.Equal(started) || !result.FinishedAt.Equal(finished) {
 		t.Fatalf("unexpected mapped result: %+v", result)
 	}
 }
@@ -49,5 +46,14 @@ func TestMapResultPreservesKnownFailure(t *testing.T) {
 	}
 	if result.State != workerruntime.ToolTimedOut || result.ExitCode != -1 {
 		t.Fatalf("unexpected mapped failure: %+v", result)
+	}
+}
+
+func TestToolResponseDeadlineOutlivesExecutionButRemainsBounded(t *testing.T) {
+	if got := responseDeadline(time.Second); got != 6*time.Second {
+		t.Fatalf("deadline=%s", got)
+	}
+	if got := responseDeadline(0); got != 10*time.Minute+cancelTimeout {
+		t.Fatalf("default deadline=%s", got)
 	}
 }

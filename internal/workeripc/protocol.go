@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	ProtocolVersion = 1
+	ProtocolVersion = 2
 	MaxFrameSize    = 4 * 1024 * 1024
 	maxHeaderSize   = 8 * 1024
 )

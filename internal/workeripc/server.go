@@ -3,6 +3,8 @@ package workeripc
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,14 +51,16 @@ type CancelToolPayload struct {
 }
 
 type ToolResultPayload struct {
-	RunID      string `json:"run_id"`
-	ToolCallID string `json:"tool_call_id"`
-	State      string `json:"state"`
-	ExitCode   int    `json:"exit_code"`
-	Stdout     []byte `json:"stdout"`
-	Stderr     []byte `json:"stderr"`
-	StartedAt  string `json:"started_at"`
-	FinishedAt string `json:"finished_at"`
+	RunID        string `json:"run_id"`
+	ToolCallID   string `json:"tool_call_id"`
+	State        string `json:"state"`
+	ExitCode     int    `json:"exit_code"`
+	StdoutBytes  int    `json:"stdout_bytes"`
+	StderrBytes  int    `json:"stderr_bytes"`
+	StdoutSHA256 string `json:"stdout_sha256"`
+	StderrSHA256 string `json:"stderr_sha256"`
+	StartedAt    string `json:"started_at"`
+	FinishedAt   string `json:"finished_at"`
 }
 
 type executor interface {
@@ -72,10 +76,12 @@ type server struct {
 	active      map[string]context.CancelFunc
 	wait        sync.WaitGroup
 	newExecutor func(workerexec.Policy) (*workerexec.Executor, error)
+	reader      io.Reader
+	writer      io.Writer
 }
 
 func Serve(reader io.Reader, writer io.Writer) error {
-	s := &server{encoder: NewEncoder(writer, MaxFrameSize), active: make(map[string]context.CancelFunc), newExecutor: workerexec.New}
+	s := &server{encoder: NewEncoder(writer, MaxFrameSize), active: make(map[string]context.CancelFunc), newExecutor: workerexec.New, reader: reader, writer: writer}
 	decoder := NewDecoder(reader, MaxFrameSize)
 	for {
 		message, err := decoder.Read()
@@ -201,8 +207,10 @@ func (s *server) executeTool(message Message) error {
 		case result.ExitCode != 0:
 			state = "failed"
 		}
-		encoded, _ := json.Marshal(ToolResultPayload{RunID: payload.RunID, ToolCallID: payload.ToolCallID, State: state, ExitCode: result.ExitCode, Stdout: result.Stdout, Stderr: result.Stderr, StartedAt: formatTime(result.StartedAt), FinishedAt: formatTime(result.FinishedAt)})
-		_ = s.write(Message{Version: ProtocolVersion, Type: "tool_result", RequestID: message.RequestID, Payload: encoded})
+		encoded, _ := json.Marshal(ToolResultPayload{RunID: payload.RunID, ToolCallID: payload.ToolCallID, State: state, ExitCode: result.ExitCode, StdoutBytes: len(result.Stdout), StderrBytes: len(result.Stderr), StdoutSHA256: payloadHash(result.Stdout), StderrSHA256: payloadHash(result.Stderr), StartedAt: formatTime(result.StartedAt), FinishedAt: formatTime(result.FinishedAt)})
+		if err := s.write(Message{Version: ProtocolVersion, Type: "tool_result", RequestID: message.RequestID, Payload: encoded}); err != nil {
+			s.abortTransport()
+		}
 	}()
 	return nil
 }
@@ -242,6 +250,23 @@ func (s *server) write(message Message) error {
 }
 func (s *server) writeError(requestID, code, message string, retryable bool) error {
 	return s.write(Message{Version: ProtocolVersion, Type: "error", RequestID: requestID, Error: &ErrorPayload{Code: code, Message: message, Retryable: retryable}})
+}
+func (s *server) abortTransport() {
+	s.stateMu.Lock()
+	for _, cancel := range s.active {
+		cancel()
+	}
+	s.stateMu.Unlock()
+	if closer, ok := s.reader.(io.Closer); ok {
+		_ = closer.Close()
+	}
+	if closer, ok := s.writer.(io.Closer); ok {
+		_ = closer.Close()
+	}
+}
+func payloadHash(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
 }
 func decodePayload(payload json.RawMessage, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(payload))
