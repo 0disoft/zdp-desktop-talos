@@ -3,6 +3,8 @@ package patchreview
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -15,7 +17,10 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/secretscanner"
 )
 
-var ErrInvalidRequest = errors.New("invalid patch review request")
+var (
+	ErrInvalidRequest    = errors.New("invalid patch review request")
+	ErrWorkspaceMismatch = errors.New("patch review task does not belong to the active workspace")
+)
 
 type Status string
 
@@ -74,12 +79,26 @@ func New(store Store, worktrees Worktrees, scanner secretscanner.Scanner) (*Serv
 }
 
 func (s *Service) Get(ctx context.Context, taskID string) (Result, error) {
+	return s.get(ctx, taskID, "", "")
+}
+
+func (s *Service) GetForWorkspace(ctx context.Context, taskID, workspaceRoot, baselineCommit string) (Result, error) {
+	if strings.TrimSpace(workspaceRoot) == "" || strings.TrimSpace(baselineCommit) == "" {
+		return Result{}, ErrInvalidRequest
+	}
+	return s.get(ctx, taskID, workspaceRoot, baselineCommit)
+}
+
+func (s *Service) get(ctx context.Context, taskID, workspaceRoot, baselineCommit string) (Result, error) {
 	if ctx == nil || strings.TrimSpace(taskID) == "" {
 		return Result{}, ErrInvalidRequest
 	}
 	record, err := s.store.GetTask(ctx, strings.TrimSpace(taskID))
 	if err != nil {
 		return Result{}, err
+	}
+	if workspaceRoot != "" && (!sameWorkspace(record.WorkspaceRoot, workspaceRoot) || record.BaselineCommit != baselineCommit) {
+		return Result{}, ErrWorkspaceMismatch
 	}
 	owned, err := s.worktrees.Open(ctx, repository.CreateWorktreeInput{TaskID: record.ID, RepositoryRoot: record.WorkspaceRoot, BaselineCommit: record.BaselineCommit, CreatedAt: time.Now().UTC()})
 	if err != nil {
@@ -121,4 +140,12 @@ func (s *Service) Get(ctx context.Context, taskID string) (Result, error) {
 		result.Status, result.Reason = StatusFresh, "fresh"
 	}
 	return result, nil
+}
+
+func sameWorkspace(left, right string) bool {
+	left, right = filepath.Clean(left), filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }

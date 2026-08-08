@@ -50,6 +50,17 @@ type fakeInspector struct {
 	err      error
 }
 
+func openWorkspaceForTest(t *testing.T, root, baseline string) *WorkspaceService {
+	t.Helper()
+	snapshot := workspace.RepositorySnapshot{Root: root, BaselineCommit: baseline, HeadRef: "main", CapturedAt: time.Now().UTC()}
+	service := NewWorkspaceService(fakeInspector{snapshot: snapshot}, nil)
+	result := service.InspectRepository(root, "test-workspace")
+	if result.Error != nil || result.Workspace == nil {
+		t.Fatalf("open workspace=%+v", result)
+	}
+	return service
+}
+
 func (f fakeInspector) Inspect(context.Context, string) (workspace.RepositorySnapshot, error) {
 	return f.snapshot, f.err
 }

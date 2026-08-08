@@ -51,10 +51,10 @@ func main() {
 			executionInitializationError = workerErr
 		}
 	}
-	executionService := wailsapi.NewExecutionService(vaultService, executionFactory, executionInitializationError)
+	executionService := wailsapi.NewExecutionService(vaultService, workspaceService, executionFactory, executionInitializationError)
 	planService := wailsapi.NewPlanService(vaultService, workspaceService, bootstrap.NewEnvironmentModelFactory(executionFactory))
-	reviewService := wailsapi.NewPatchReviewService(vaultService, executionFactory, executionInitializationError)
-	patchService := wailsapi.NewPatchService(vaultService, executionFactory, executionInitializationError)
+	reviewService := wailsapi.NewPatchReviewService(vaultService, workspaceService, executionFactory, executionInitializationError)
+	patchService := wailsapi.NewPatchService(vaultService, workspaceService, executionFactory, executionInitializationError)
 	var syncService *wailsapi.SyncService
 	folderSync := folderexchange.New()
 	if inspectorErr == nil {

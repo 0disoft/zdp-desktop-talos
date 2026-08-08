@@ -17,9 +17,10 @@ func TestExecutionServiceReturnsBoundedReviewStatus(t *testing.T) {
 	t.Parallel()
 	database := &serviceDatabase{}
 	vault := openTaskTestVault(t, database)
+	workspace := openWorkspaceForTest(t, t.TempDir(), strings.Repeat("a", 40))
 	executor := &executionExecutorStub{result: executionruntime.Result{Outcome: permission.OutcomeRequireReview, PermissionRequest: permission.Request{ID: "review-1"}}}
 	factory := &executionFactoryStub{executor: executor}
-	service := NewExecutionService(vault, factory, nil)
+	service := NewExecutionService(vault, workspace, factory, nil)
 
 	result := service.ExecuteVerification(ExecutionRequest{TaskID: "task-1", CommandIndex: 0, RequestID: "request-1", CorrelationID: "execution-1"})
 	if result.Error != nil || result.Execution == nil || result.Execution.State != "review_required" || result.Execution.PermissionRequestID != "review-1" || result.Execution.Outcome != string(permission.OutcomeRequireReview) {
@@ -35,8 +36,9 @@ func TestExecutionServiceReturnsStateBoundEvidence(t *testing.T) {
 	now := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
 	evidence := &verification.Evidence{ID: "evidence-1", VaultID: "vault-1", TaskID: "task-1", RunID: "run-1", AttemptID: "attempt-1", ContractRevision: 2, CommandIndex: 0, BaselineCommit: strings.Repeat("a", 40), WorktreeStateHash: strings.Repeat("b", 64), CapabilityHash: strings.Repeat("c", 64), ExitCode: 0, StartedAt: now, FinishedAt: now.Add(time.Second), EventID: "event-1"}
 	vault := openTaskTestVault(t, &serviceDatabase{})
+	workspace := openWorkspaceForTest(t, t.TempDir(), evidence.BaselineCommit)
 	executor := &executionExecutorStub{result: executionruntime.Result{Outcome: permission.OutcomeAllowTask, RunID: "run-1", AttemptID: "attempt-1", Tool: workerruntime.ToolResult{State: workerruntime.ToolSucceeded, ExitCode: 0}, Evidence: evidence}}
-	service := NewExecutionService(vault, &executionFactoryStub{executor: executor}, nil)
+	service := NewExecutionService(vault, workspace, &executionFactoryStub{executor: executor}, nil)
 
 	result := service.ExecuteVerification(ExecutionRequest{TaskID: "task-1", CommandIndex: 0, RequestID: "request-1", CorrelationID: "execution-1"})
 	if result.Error != nil || result.Execution == nil || result.Execution.EvidenceID != evidence.ID || result.Execution.ContractRevision != 2 || result.Execution.WorktreeStateHash != evidence.WorktreeStateHash {
@@ -46,13 +48,14 @@ func TestExecutionServiceReturnsStateBoundEvidence(t *testing.T) {
 
 func TestExecutionServiceFailsClosedWithoutRuntimeOrVault(t *testing.T) {
 	t.Parallel()
-	unavailable := NewExecutionService(NewVaultService(nil, errors.New("storage unavailable")), nil, errors.New("worker unavailable"))
+	unavailable := NewExecutionService(NewVaultService(nil, errors.New("storage unavailable")), nil, nil, errors.New("worker unavailable"))
 	result := unavailable.ExecuteVerification(ExecutionRequest{TaskID: "task-1", RequestID: "request-1", CorrelationID: "execution-1"})
 	if result.Error == nil || result.Error.Code != "EXECUTION_UNAVAILABLE" || result.Error.Message == "worker unavailable" {
 		t.Fatalf("unavailable=%+v", result)
 	}
 
-	locked := NewExecutionService(NewVaultService(nil, nil), &executionFactoryStub{executor: &executionExecutorStub{}}, nil)
+	workspace := openWorkspaceForTest(t, t.TempDir(), strings.Repeat("a", 40))
+	locked := NewExecutionService(NewVaultService(nil, nil), workspace, &executionFactoryStub{executor: &executionExecutorStub{}}, nil)
 	result = locked.ExecuteVerification(ExecutionRequest{TaskID: "task-1", RequestID: "request-1", CorrelationID: "execution-2"})
 	if result.Error == nil || result.Error.Code != "VAULT_NOT_OPEN" {
 		t.Fatalf("locked=%+v", result)

@@ -36,13 +36,14 @@ type PatchCommandFactory interface {
 }
 
 type PatchService struct {
-	vault   *VaultService
-	factory PatchCommandFactory
-	err     error
+	vault     *VaultService
+	workspace *WorkspaceService
+	factory   PatchCommandFactory
+	err       error
 }
 
-func NewPatchService(vault *VaultService, factory PatchCommandFactory, initializationError error) *PatchService {
-	return &PatchService{vault: vault, factory: factory, err: initializationError}
+func NewPatchService(vault *VaultService, workspace *WorkspaceService, factory PatchCommandFactory, initializationError error) *PatchService {
+	return &PatchService{vault: vault, workspace: workspace, factory: factory, err: initializationError}
 }
 
 func (s *PatchService) ApplyPatch(request PatchCommandRequest) PatchCommandResult {
@@ -55,7 +56,7 @@ func (s *PatchService) DiscardPatch(request PatchCommandRequest) PatchCommandRes
 
 func (s *PatchService) execute(request PatchCommandRequest, kind patchaction.Kind) PatchCommandResult {
 	correlationID := normalizeCorrelationID(request.CorrelationID)
-	if s == nil || s.vault == nil || s.factory == nil || strings.TrimSpace(request.TaskID) == "" || strings.TrimSpace(request.RequestID) == "" {
+	if s == nil || s.vault == nil || s.workspace == nil || s.factory == nil || strings.TrimSpace(request.TaskID) == "" || strings.TrimSpace(request.RequestID) == "" {
 		cause := patchcommand.ErrInvalidRequest
 		if s == nil || s.vault == nil || s.factory == nil {
 			cause = errPatchCommandUnavailable
@@ -64,6 +65,11 @@ func (s *PatchService) execute(request PatchCommandRequest, kind patchaction.Kin
 			}
 		}
 		mapped := MapError(cause, correlationID)
+		return PatchCommandResult{Error: &mapped}
+	}
+	snapshot, err := s.workspace.decisionSnapshot()
+	if err != nil {
+		mapped := MapError(err, correlationID)
 		return PatchCommandResult{Error: &mapped}
 	}
 	s.vault.mu.Lock()
@@ -83,7 +89,7 @@ func (s *PatchService) execute(request PatchCommandRequest, kind patchaction.Kin
 		mapped := MapError(err, correlationID)
 		return PatchCommandResult{Error: &mapped}
 	}
-	result, err := service.Execute(context.Background(), patchcommand.Request{TaskID: strings.TrimSpace(request.TaskID), Kind: kind, ExpectedRevision: request.ExpectedRevision, ExpectedPatchHash: strings.TrimSpace(request.ExpectedPatchHash), IdempotencyKey: strings.TrimSpace(request.RequestID)})
+	result, err := service.Execute(context.Background(), patchcommand.Request{TaskID: strings.TrimSpace(request.TaskID), Kind: kind, ExpectedRevision: request.ExpectedRevision, ExpectedPatchHash: strings.TrimSpace(request.ExpectedPatchHash), IdempotencyKey: strings.TrimSpace(request.RequestID), WorkspaceRoot: snapshot.Root, BaselineCommit: snapshot.BaselineCommit})
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		return PatchCommandResult{Error: &mapped}

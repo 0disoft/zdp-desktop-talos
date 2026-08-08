@@ -23,6 +23,7 @@ import (
 
 var (
 	ErrInvalidRequest      = errors.New("invalid execution request")
+	ErrWorkspaceMismatch   = errors.New("execution task does not belong to the active workspace")
 	ErrPermissionDenied    = errors.New("process execution permission denied")
 	ErrJournalFailed       = errors.New("execution journal update failed")
 	ErrEvidenceUnavailable = errors.New("verification evidence could not be created")
@@ -50,6 +51,8 @@ type Request struct {
 	TaskID         string
 	CommandIndex   int
 	IdempotencyKey string
+	WorkspaceRoot  string
+	BaselineCommit string
 }
 
 type Result struct {
@@ -82,7 +85,7 @@ func New(store Store, broker Evaluator, worktrees repository.WorktreeManager, wo
 }
 
 func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, error) {
-	if ctx == nil || request.TaskID == "" || request.CommandIndex < 0 || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 96 {
+	if ctx == nil || request.TaskID == "" || request.CommandIndex < 0 || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 96 || request.WorkspaceRoot == "" || request.BaselineCommit == "" {
 		return Result{}, ErrInvalidRequest
 	}
 	if err := ctx.Err(); err != nil {
@@ -91,6 +94,9 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 	record, err := c.store.GetTask(ctx, request.TaskID)
 	if err != nil {
 		return Result{}, err
+	}
+	if !sameWorkspacePath(record.WorkspaceRoot, request.WorkspaceRoot) || record.BaselineCommit != request.BaselineCommit {
+		return Result{}, ErrWorkspaceMismatch
 	}
 	contract, err := c.store.GetTaskContract(ctx, record.ID, record.CurrentRevision)
 	if err != nil {
@@ -309,4 +315,12 @@ func copyEnvironment(values map[string]string) map[string]string {
 		result[name] = value
 	}
 	return result
+}
+
+func sameWorkspacePath(left, right string) bool {
+	left, right = filepath.Clean(left), filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }

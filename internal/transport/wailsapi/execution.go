@@ -37,17 +37,18 @@ type ExecutionResult struct {
 
 type ExecutionService struct {
 	vault               *VaultService
+	workspace           *WorkspaceService
 	factory             executionruntime.Factory
 	initializationError error
 }
 
-func NewExecutionService(vault *VaultService, factory executionruntime.Factory, initializationError error) *ExecutionService {
-	return &ExecutionService{vault: vault, factory: factory, initializationError: initializationError}
+func NewExecutionService(vault *VaultService, workspace *WorkspaceService, factory executionruntime.Factory, initializationError error) *ExecutionService {
+	return &ExecutionService{vault: vault, workspace: workspace, factory: factory, initializationError: initializationError}
 }
 
 func (s *ExecutionService) ExecuteVerification(request ExecutionRequest) ExecutionResult {
 	correlationID := normalizeCorrelationID(request.CorrelationID)
-	if s == nil || s.vault == nil || s.factory == nil {
+	if s == nil || s.vault == nil || s.workspace == nil || s.factory == nil {
 		var err error
 		if s != nil {
 			err = s.initializationError
@@ -61,6 +62,11 @@ func (s *ExecutionService) ExecuteVerification(request ExecutionRequest) Executi
 	requestID := strings.TrimSpace(request.RequestID)
 	if strings.TrimSpace(request.TaskID) == "" || request.CommandIndex < 0 || requestID == "" || len(requestID) > 96 {
 		mapped := MapError(executionruntime.ErrInvalidRequest, correlationID)
+		return ExecutionResult{Error: &mapped}
+	}
+	snapshot, err := s.workspace.decisionSnapshot()
+	if err != nil {
+		mapped := MapError(err, correlationID)
 		return ExecutionResult{Error: &mapped}
 	}
 
@@ -84,7 +90,7 @@ func (s *ExecutionService) ExecuteVerification(request ExecutionRequest) Executi
 	}
 	result, err := coordinator.Execute(context.Background(), executionruntime.Request{
 		TaskID: strings.TrimSpace(request.TaskID), CommandIndex: request.CommandIndex,
-		IdempotencyKey: "task-verification:" + requestID,
+		IdempotencyKey: "task-verification:" + requestID, WorkspaceRoot: snapshot.Root, BaselineCommit: snapshot.BaselineCommit,
 	})
 	if err != nil {
 		mapped := MapError(err, correlationID)

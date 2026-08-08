@@ -66,18 +66,19 @@ type PatchReviewFactory interface {
 }
 
 type PatchReviewService struct {
-	vault   *VaultService
-	factory PatchReviewFactory
-	err     error
+	vault     *VaultService
+	workspace *WorkspaceService
+	factory   PatchReviewFactory
+	err       error
 }
 
-func NewPatchReviewService(vault *VaultService, factory PatchReviewFactory, initializationError error) *PatchReviewService {
-	return &PatchReviewService{vault: vault, factory: factory, err: initializationError}
+func NewPatchReviewService(vault *VaultService, workspace *WorkspaceService, factory PatchReviewFactory, initializationError error) *PatchReviewService {
+	return &PatchReviewService{vault: vault, workspace: workspace, factory: factory, err: initializationError}
 }
 
 func (s *PatchReviewService) GetTaskReview(request PatchReviewRequest) PatchReviewResult {
 	correlationID := normalizeCorrelationID(request.CorrelationID)
-	if s == nil || s.vault == nil || s.factory == nil || strings.TrimSpace(request.TaskID) == "" {
+	if s == nil || s.vault == nil || s.workspace == nil || s.factory == nil || strings.TrimSpace(request.TaskID) == "" {
 		cause := patchreview.ErrInvalidRequest
 		if s == nil || s.vault == nil || s.factory == nil {
 			cause = errPatchReviewUnavailable
@@ -86,6 +87,11 @@ func (s *PatchReviewService) GetTaskReview(request PatchReviewRequest) PatchRevi
 			}
 		}
 		mapped := MapError(cause, correlationID)
+		return PatchReviewResult{Error: &mapped}
+	}
+	snapshot, err := s.workspace.decisionSnapshot()
+	if err != nil {
+		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}
 	}
 	s.vault.mu.Lock()
@@ -105,7 +111,7 @@ func (s *PatchReviewService) GetTaskReview(request PatchReviewRequest) PatchRevi
 		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}
 	}
-	review, err := service.Get(context.Background(), strings.TrimSpace(request.TaskID))
+	review, err := service.GetForWorkspace(context.Background(), strings.TrimSpace(request.TaskID), snapshot.Root, snapshot.BaselineCommit)
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}

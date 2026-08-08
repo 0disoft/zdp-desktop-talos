@@ -2,6 +2,7 @@ package wailsapi
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -27,13 +28,30 @@ func TestPatchReviewServiceReturnsOnlySanitizedBoundedDiff(t *testing.T) {
 		t.Fatal(err)
 	}
 	vault := openTaskTestVault(t, &serviceDatabase{})
-	service := NewPatchReviewService(vault, patchReviewFactoryStub{service: core}, nil)
+	workspace := openWorkspaceForTest(t, store.record.WorkspaceRoot, baseline)
+	service := NewPatchReviewService(vault, workspace, patchReviewFactoryStub{service: core}, nil)
 	result := service.GetTaskReview(PatchReviewRequest{TaskID: taskID, CorrelationID: "review-1"})
 	if result.Error != nil || result.Review == nil || result.Review.Status != "fresh" || result.Review.PatchHash != strings.Repeat("d", 64) || result.Review.SecretFindings != 1 || len(result.Review.Diffs) != 1 {
 		t.Fatalf("result=%+v", result)
 	}
 	if strings.Contains(result.Review.Diffs[0].Text, "private-value") || !strings.Contains(result.Review.Diffs[0].Text, "[REDACTED]") || strings.Contains(result.Review.Diffs[0].Text, store.record.WorkspaceRoot) {
 		t.Fatalf("unsafe diff=%q", result.Review.Diffs[0].Text)
+	}
+}
+
+func TestPatchReviewRejectsInactiveWorkspaceBeforeOpeningWorktree(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC()
+	baseline := strings.Repeat("a", 40)
+	record := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: t.TempDir(), BaselineCommit: baseline, Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "event-1"}
+	worktrees := &patchReviewWorktreesStub{}
+	service, err := patchreview.New(&patchReviewStoreStub{record: record}, worktrees, patchReviewScannerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.GetForWorkspace(context.Background(), record.ID, t.TempDir(), baseline)
+	if !errors.Is(err, patchreview.ErrWorkspaceMismatch) || worktrees.opened {
+		t.Fatalf("error=%v opened=%v", err, worktrees.opened)
 	}
 }
 
@@ -58,9 +76,11 @@ func (s *patchReviewStoreStub) GetLatestVerificationEvidence(context.Context, st
 type patchReviewWorktreesStub struct {
 	record worktree.Record
 	review repository.WorktreeReview
+	opened bool
 }
 
 func (s *patchReviewWorktreesStub) Open(context.Context, repository.CreateWorktreeInput) (worktree.Record, error) {
+	s.opened = true
 	return s.record, nil
 }
 func (s *patchReviewWorktreesStub) Review(context.Context, worktree.Record) (repository.WorktreeReview, error) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 
 var (
 	ErrInvalidRequest      = errors.New("invalid patch command request")
+	ErrWorkspaceMismatch   = errors.New("patch task does not belong to the active workspace")
 	ErrStaleReview         = errors.New("patch review is not fresh")
 	ErrSecretFindings      = errors.New("patch review contains secret findings")
 	ErrUnscannableChanges  = errors.New("patch review contains changes that were not fully scanned")
@@ -51,6 +54,8 @@ type Request struct {
 	ExpectedRevision  int
 	ExpectedPatchHash string
 	IdempotencyKey    string
+	WorkspaceRoot     string
+	BaselineCommit    string
 }
 
 type Result struct {
@@ -77,12 +82,15 @@ func (s *Service) Execute(ctx context.Context, request Request) (Result, error) 
 	request.TaskID = strings.TrimSpace(request.TaskID)
 	request.ExpectedPatchHash = strings.TrimSpace(request.ExpectedPatchHash)
 	request.IdempotencyKey = strings.TrimSpace(request.IdempotencyKey)
-	if ctx == nil || request.TaskID == "" || request.ExpectedRevision < 1 || len(request.ExpectedPatchHash) != 64 || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 120 || (request.Kind != patchaction.KindApply && request.Kind != patchaction.KindDiscard) {
+	if ctx == nil || request.TaskID == "" || request.ExpectedRevision < 1 || len(request.ExpectedPatchHash) != 64 || request.IdempotencyKey == "" || len(request.IdempotencyKey) > 120 || request.WorkspaceRoot == "" || request.BaselineCommit == "" || (request.Kind != patchaction.KindApply && request.Kind != patchaction.KindDiscard) {
 		return Result{}, ErrInvalidRequest
 	}
 	record, err := s.store.GetTask(ctx, request.TaskID)
 	if err != nil {
 		return Result{}, err
+	}
+	if !sameWorkspace(record.WorkspaceRoot, request.WorkspaceRoot) || record.BaselineCommit != request.BaselineCommit {
+		return Result{}, ErrWorkspaceMismatch
 	}
 	contract, err := s.store.GetTaskContract(ctx, record.ID, record.CurrentRevision)
 	if err != nil {
@@ -170,4 +178,12 @@ func outcomeStatus(kind patchaction.Kind) task.Status {
 		return task.StatusDiscarded
 	}
 	return task.StatusCompleted
+}
+
+func sameWorkspace(left, right string) bool {
+	left, right = filepath.Clean(left), filepath.Clean(right)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }

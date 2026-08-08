@@ -90,6 +90,6 @@ func gateFixture() (task.Record, task.ContractRevision, patchreview.Result, Requ
 	contract := task.ContractRevision{TaskID: record.ID, Revision: 2, BaselineCommit: baseline, Goal: "apply", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"done"}, Risk: task.RiskMedium, CreatedAt: now, EventID: "event-2"}
 	evidence := verification.Evidence{ID: "evidence-1", VaultID: record.VaultID, TaskID: record.ID, RunID: "run-1", AttemptID: "attempt-1", ContractRevision: 2, CommandIndex: 0, BaselineCommit: baseline, WorktreeStateHash: stateHash, CapabilityHash: strings.Repeat("d", 64), ExitCode: 0, StartedAt: now, FinishedAt: now, EventID: "event-3"}
 	review := patchreview.Result{TaskID: record.ID, ContractRevision: 2, BaselineCommit: baseline, Status: patchreview.StatusFresh, StateHash: stateHash, PatchHash: patchHash, Changes: []workspace.Change{{Path: "internal/main.go", Kind: workspace.ChangeTracked, WorktreeStatus: 'M'}}, Diffs: []patchreview.FileDiff{{Path: "internal/main.go", Text: "diff --git a/internal/main.go b/internal/main.go\n"}}, Evidence: &evidence}
-	request := Request{TaskID: record.ID, Kind: patchaction.KindApply, ExpectedRevision: 2, ExpectedPatchHash: patchHash, IdempotencyKey: "apply-1"}
+	request := Request{TaskID: record.ID, Kind: patchaction.KindApply, ExpectedRevision: 2, ExpectedPatchHash: patchHash, IdempotencyKey: "apply-1", WorkspaceRoot: record.WorkspaceRoot, BaselineCommit: record.BaselineCommit}
 	return record, contract, review, request
 }

@@ -127,6 +127,24 @@ func TestCoordinatorRejectsUnknownContractCommandBeforePermissionOrDispatch(t *t
 	}
 }
 
+func TestCoordinatorRejectsInactiveWorkspaceBeforePermissionOrDispatch(t *testing.T) {
+	fixture := newCoordinatorFixture(t, permission.OutcomeAllowTask)
+	fixture.request.WorkspaceRoot = filepath.Join(t.TempDir(), "other")
+	_, err := fixture.coordinator.Execute(context.Background(), fixture.request)
+	if !errors.Is(err, ErrWorkspaceMismatch) {
+		t.Fatalf("root mismatch error=%v", err)
+	}
+	fixture.request.WorkspaceRoot = fixture.store.record.WorkspaceRoot
+	fixture.request.BaselineCommit = strings.Repeat("b", 40)
+	_, err = fixture.coordinator.Execute(context.Background(), fixture.request)
+	if !errors.Is(err, ErrWorkspaceMismatch) {
+		t.Fatalf("baseline mismatch error=%v", err)
+	}
+	if len(fixture.store.order) != 0 || fixture.worktrees.created || fixture.workers.started {
+		t.Fatalf("order=%v worktree=%v worker=%v", fixture.store.order, fixture.worktrees.created, fixture.workers.started)
+	}
+}
+
 type coordinatorFixture struct {
 	coordinator *Coordinator
 	request     Request
@@ -158,7 +176,7 @@ func newCoordinatorFixture(t *testing.T, defaultOutcome permission.Outcome) coor
 		t.Fatal(err)
 	}
 	coordinator.now = func() time.Time { return now }
-	request := Request{TaskID: taskID, CommandIndex: 0, IdempotencyKey: "execute-1"}
+	request := Request{TaskID: taskID, CommandIndex: 0, IdempotencyKey: "execute-1", WorkspaceRoot: record.WorkspaceRoot, BaselineCommit: record.BaselineCommit}
 	return coordinatorFixture{coordinator: coordinator, request: request, store: store, worktrees: worktrees, workers: workers, worker: worker}
 }
 

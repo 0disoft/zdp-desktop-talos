@@ -14,6 +14,7 @@ The model is an untrusted planner. Repository files, Git history, terminal outpu
 - processes use executable plus argv, bounded output, timeout, process-tree cancellation, canonical paths, and environment allowlists;
 - the built-in Go verification rule uses Talos-owned HOME, GOPATH, build-cache, and module-cache directories plus `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOSUMDB=off`, `GOENV=off`, and `GOFLAGS=-mod=readonly`; renderer input cannot replace those values;
 - process rules declare security-relevant effects. A Task Contract that forbids an effect such as `network.egress` is denied before grants are considered. Because process containment does not yet prove OS-level network isolation, Go tests remain network-capable code and require an explicit Task Contract opt-in;
+- verification, patch review, apply, and discard resolve the backend-owned active Workspace immediately before loading the Task, then require canonical root and baseline equality before any permission, worktree, or repository side effect; renderer state is not the workspace authority;
 - Windows tool processes start suspended, join their kill-on-close Job Object before their sole initial thread resumes, and fail closed when that activation sequence cannot be proven;
 - network egress is default-deny and bound to structured destinations;
 - remote HTML is not loaded in the privileged WebView; Markdown is sanitized and external links open outside the app;

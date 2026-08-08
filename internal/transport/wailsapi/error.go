@@ -198,6 +198,9 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, patchcommand.ErrInvalidRequest), errors.Is(err, patchstore.ErrInvalidCommand):
 		mapped.Code = "PATCH_COMMAND_INVALID"
 		mapped.Message = "패치 요청과 최신 검토 상태를 확인해 주세요."
+	case errors.Is(err, patchcommand.ErrWorkspaceMismatch):
+		mapped.Code = "TASK_WORKSPACE_MISMATCH"
+		mapped.Message = "이 Task는 현재 열린 Workspace에 속하지 않습니다."
 	case errors.Is(err, patchcommand.ErrStaleReview):
 		mapped.Code = "PATCH_REVIEW_STALE"
 		mapped.Message = "패치 또는 Task Contract가 바뀌었습니다. 다시 검증해 주세요."
@@ -234,6 +237,9 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, patchreview.ErrInvalidRequest):
 		mapped.Code = "PATCH_REVIEW_INVALID"
 		mapped.Message = "검토할 Task를 확인해 주세요."
+	case errors.Is(err, patchreview.ErrWorkspaceMismatch):
+		mapped.Code = "TASK_WORKSPACE_MISMATCH"
+		mapped.Message = "이 Task는 현재 열린 Workspace에 속하지 않습니다."
 	case errors.Is(err, repository.ErrWorktreeNotFound):
 		mapped.Code = "PATCH_REVIEW_NOT_READY"
 		mapped.Message = "아직 검토할 패치가 없습니다. 검증을 먼저 실행해 주세요."
@@ -246,6 +252,9 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, executionruntime.ErrInvalidRequest):
 		mapped.Code = "EXECUTION_REQUEST_INVALID"
 		mapped.Message = "현재 Task Contract의 검증 요청을 확인해 주세요."
+	case errors.Is(err, executionruntime.ErrWorkspaceMismatch):
+		mapped.Code = "TASK_WORKSPACE_MISMATCH"
+		mapped.Message = "이 Task는 현재 열린 Workspace에 속하지 않습니다."
 	case errors.Is(err, executionruntime.ErrPermissionDenied):
 		mapped.Code = "EXECUTION_PERMISSION_DENIED"
 		mapped.Message = "현재 Task Contract 또는 권한 정책이 이 검증을 허용하지 않습니다."

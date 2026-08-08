@@ -191,9 +191,8 @@
       const result = workspace.state === 'open' ? await closeWorkspace() : await inspectRepository(workspacePath.trim());
       if (result.error) latestError = result.error;
       else if (result.workspace) {
+        clearPrivateTaskState();
         workspace = result.workspace;
-        modelConsent = false;
-        planProposal = null;
         if (workspace.state === 'open') workspacePath = workspace.root ?? workspacePath;
       }
     } catch {
