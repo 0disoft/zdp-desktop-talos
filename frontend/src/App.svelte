@@ -45,6 +45,7 @@
   let taskVerificationArguments = $state('test\n./...');
   let taskVerificationDirectory = $state('.');
   let taskRisk = $state<'low' | 'medium' | 'high'>('medium');
+  let allowVerificationNetwork = $state(false);
   let editingTask = $state(false);
   let decisions = $state<DecisionItem[]>([]);
   let decisionDrafts = $state<Record<string, string>>({});
@@ -210,11 +211,11 @@
       const input = {
         goal: taskGoal.trim(),
         allowed_paths: lines(taskPaths),
-        forbidden_actions: ['git.push', 'git.commit', 'network.egress', 'dependency.install'],
+        forbidden_actions: ['git.push', 'git.commit', 'dependency.install', ...(allowVerificationNetwork ? [] : ['network.egress'])],
         acceptance_criteria: lines(taskCriteria),
         verification_commands: [{
           rule_id: taskVerificationRule.trim(),
-          arguments: lines(taskVerificationArguments),
+          arguments: argumentLines(taskVerificationArguments),
           working_directory: taskVerificationDirectory.trim() || '.',
         }],
         risk: taskRisk,
@@ -244,6 +245,10 @@
 
   function lines(value: string): string[] {
     return [...new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))];
+  }
+
+  function argumentLines(value: string): string[] {
+    return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
   }
 
   async function refreshDecisions() {
@@ -479,7 +484,7 @@
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
     memoryCandidates = []; lifecycleMemories = []; appliedMemories = []; memoryEligible = 0; supersedeTargets = {}; projectionPreview = null; modelConsent = false; planProposal = null;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
-    taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.';
+    taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.'; allowVerificationNetwork = false;
   }
 
   function localError(code: string, message: string): TalosError {
@@ -629,6 +634,7 @@
           <label><span>검증 규칙</span><input bind:value={taskVerificationRule} maxlength="64" autocomplete="off" spellcheck="false" disabled={loading} placeholder="go-test" /></label>
           <label><span>검증 인수 · 한 줄에 하나</span><textarea bind:value={taskVerificationArguments} rows="3" disabled={loading} placeholder={'test\n./...'}></textarea></label>
           <label><span>실행 폴더 · 저장소 기준</span><input bind:value={taskVerificationDirectory} maxlength="4096" autocomplete="off" spellcheck="false" disabled={loading} placeholder="." /></label>
+          <label><span>검증 네트워크</span><input type="checkbox" bind:checked={allowVerificationNetwork} disabled={loading} /> 테스트 코드의 외부 통신 가능성을 명시적으로 허용</label>
           <label class="task-risk"><span>위험도</span><select bind:value={taskRisk} disabled={loading}><option value="low">낮음</option><option value="medium">보통</option><option value="high">높음</option></select></label>
           <button type="button" onclick={handleTaskContract} disabled={loading || vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty || !taskGoal.trim() || lines(taskPaths).length === 0 || lines(taskCriteria).length === 0 || !taskVerificationRule.trim()}>{task ? `revision ${task.revision + 1} 확정` : '계약 확정'}</button>
           {#if task}<button type="button" class="secondary" onclick={() => (editingTask = false)} disabled={loading}>취소</button>{/if}

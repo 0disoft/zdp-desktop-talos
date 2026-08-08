@@ -59,10 +59,43 @@ func NewDefaultExecutionFactory(localDataRoot, workerExecutable string) (*Execut
 	if err != nil {
 		return nil, fmt.Errorf("resolve absolute go verification tool: %w", err)
 	}
+	environment, err := goVerificationEnvironment(localDataRoot)
+	if err != nil {
+		return nil, err
+	}
 	return NewExecutionFactory(localDataRoot, workerExecutable, []permissionbroker.ProcessRule{{
 		ID: "go-test", Executable: goExecutable, ArgumentPrefix: []string{"test"}, MaxArguments: 64,
+		EnvironmentNames: []string{"GOENV", "GOFLAGS", "GOCACHE", "GOMODCACHE", "GOPATH", "GOPROXY", "GOSUMDB", "GOTOOLCHAIN", "HOME", "USERPROFILE"},
+		Environment:      environment, Effects: []string{"network.egress"},
 		MaxTimeout: verificationTimeout, MaxOutputBytes: verificationOutputMax, Default: permission.OutcomeRequireReview,
 	}})
+}
+
+func goVerificationEnvironment(localDataRoot string) (map[string]string, error) {
+	if localDataRoot == "" {
+		return nil, executionruntime.ErrInvalidRequest
+	}
+	root, err := filepath.Abs(localDataRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local data root: %w", err)
+	}
+	paths := map[string]string{
+		"HOME":        filepath.Join(root, "worker-home"),
+		"USERPROFILE": filepath.Join(root, "worker-home"),
+		"GOCACHE":     filepath.Join(root, "go-build-cache"),
+		"GOMODCACHE":  filepath.Join(root, "go-mod-cache"),
+		"GOPATH":      filepath.Join(root, "go"),
+	}
+	for _, path := range paths {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			return nil, fmt.Errorf("create trusted verification directory: %w", err)
+		}
+	}
+	return map[string]string{
+		"HOME": paths["HOME"], "USERPROFILE": paths["USERPROFILE"],
+		"GOCACHE": paths["GOCACHE"], "GOMODCACHE": paths["GOMODCACHE"], "GOPATH": paths["GOPATH"],
+		"GOTOOLCHAIN": "local", "GOPROXY": "off", "GOSUMDB": "off", "GOENV": "off", "GOFLAGS": "-mod=readonly",
+	}, nil
 }
 
 func (f *ExecutionFactory) New(store executionruntime.Store) (executionruntime.Executor, error) {

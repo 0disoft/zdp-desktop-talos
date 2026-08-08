@@ -60,6 +60,28 @@ func TestBrokerResolvesContractVerificationFromTrustedRule(t *testing.T) {
 	}
 }
 
+func TestBrokerResolvesOnlyTrustedRuleEnvironment(t *testing.T) {
+	record, _, _, rule := brokerFixture(t)
+	rule.EnvironmentNames = []string{"GOPROXY", "GOTOOLCHAIN"}
+	rule.Environment = map[string]string{"GOTOOLCHAIN": "local", "GOPROXY": "off"}
+	broker, err := New([]ProcessRule{rule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := broker.ResolveVerification(record, task.VerificationCommand{RuleID: rule.ID, Arguments: append([]string(nil), rule.ArgumentPrefix...)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(resolved.Intent.EnvironmentNames, ",") != "GOPROXY,GOTOOLCHAIN" || resolved.Environment["GOPROXY"] != "off" || resolved.Environment["GOTOOLCHAIN"] != "local" {
+		t.Fatalf("resolved=%+v", resolved)
+	}
+	resolved.Environment["GOPROXY"] = "https://example.invalid"
+	again, err := broker.ResolveVerification(record, task.VerificationCommand{RuleID: rule.ID, Arguments: append([]string(nil), rule.ArgumentPrefix...)})
+	if err != nil || again.Environment["GOPROXY"] != "off" {
+		t.Fatalf("trusted environment aliased: %+v error=%v", again.Environment, err)
+	}
+}
+
 func TestBrokerRejectsUnknownOrBroadenedContractVerification(t *testing.T) {
 	record, _, _, rule := brokerFixture(t)
 	broker, _ := New([]ProcessRule{rule})
@@ -90,6 +112,38 @@ func TestBrokerContractDenyOverridesGrantsAndExplicitDenyWins(t *testing.T) {
 	contract.ForbiddenActions = []string{"process.exec"}
 	if result := broker.Evaluate(record, contract, intent, []permission.Grant{allow}); result.Outcome != permission.OutcomeDeny || result.ReasonCode != "TASK_CONTRACT_FORBIDS_PROCESS" {
 		t.Fatalf("contract=%+v", result)
+	}
+}
+
+func TestBrokerContractForbiddenEffectOverridesGrant(t *testing.T) {
+	record, contract, intent, rule := brokerFixture(t)
+	rule.Effects = []string{"network.egress"}
+	broker, err := New([]ProcessRule{rule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	broker.now = func() time.Time { return now }
+	hash, _ := permission.IntentHash(intent)
+	workspaceHash, _ := permission.WorkspaceHash(record.WorkspaceRoot)
+	grant := permission.Grant{ID: "allow", Outcome: permission.OutcomeAllowTask, State: permission.GrantActive, CapabilityHash: hash, TaskID: record.ID, WorkspaceHash: workspaceHash, CreatedAt: now}
+	contract.ForbiddenActions = []string{"network.egress"}
+	result := broker.Evaluate(record, contract, intent, []permission.Grant{grant})
+	if result.Outcome != permission.OutcomeDeny || result.ReasonCode != "TASK_CONTRACT_FORBIDS_EFFECT" || result.Capability != nil {
+		t.Fatalf("effect=%+v", result)
+	}
+}
+
+func TestBrokerRejectsInvalidTrustedEnvironmentAndEffects(t *testing.T) {
+	_, _, _, rule := brokerFixture(t)
+	cases := []ProcessRule{rule, rule, rule}
+	cases[0].Environment = map[string]string{"UNDECLARED": "value"}
+	cases[1].Effects = []string{"unknown.effect"}
+	cases[2].Effects = []string{"network.egress", "network.egress"}
+	for index, candidate := range cases {
+		if _, err := New([]ProcessRule{candidate}); !errors.Is(err, ErrInvalidPolicy) {
+			t.Fatalf("case %d error=%v", index, err)
+		}
 	}
 }
 

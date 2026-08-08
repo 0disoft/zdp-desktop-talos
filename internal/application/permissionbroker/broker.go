@@ -23,6 +23,8 @@ type ProcessRule struct {
 	ArgumentPrefix   []string
 	MaxArguments     int
 	EnvironmentNames []string
+	Environment      map[string]string
+	Effects          []string
 	MaxTimeout       time.Duration
 	MaxOutputBytes   int
 	Default          permission.Outcome
@@ -73,6 +75,21 @@ func New(rules []ProcessRule) (*Broker, error) {
 			}
 			seen[key] = struct{}{}
 		}
+		for name, value := range rule.Environment {
+			if _, exists := seen[envKey(name)]; !exists || strings.IndexByte(value, 0) >= 0 || len(value) > 32767 {
+				return nil, ErrInvalidPolicy
+			}
+		}
+		effects := map[string]struct{}{}
+		for _, effect := range rule.Effects {
+			if !validEffect(effect) {
+				return nil, ErrInvalidPolicy
+			}
+			if _, exists := effects[effect]; exists {
+				return nil, ErrInvalidPolicy
+			}
+			effects[effect] = struct{}{}
+		}
 		indexed[rule.ID] = rule
 	}
 	return &Broker{rules: indexed, now: func() time.Time { return time.Now().UTC() }}, nil
@@ -92,12 +109,12 @@ func (b *Broker) ResolveVerification(record task.Record, command task.Verificati
 	}
 	intent := permission.ProcessIntent{
 		TaskID: record.ID, WorkspaceRoot: record.WorkspaceRoot, RuleID: rule.ID, Executable: rule.Executable,
-		Arguments: append([]string(nil), normalized.Arguments...), Timeout: rule.MaxTimeout, MaxOutputBytes: rule.MaxOutputBytes,
+		Arguments: append([]string(nil), normalized.Arguments...), EnvironmentNames: environmentNames(rule.Environment), Timeout: rule.MaxTimeout, MaxOutputBytes: rule.MaxOutputBytes,
 	}
 	if err := intent.Validate(); err != nil {
 		return ResolvedVerification{}, ErrVerificationRuleUnavailable
 	}
-	return ResolvedVerification{Intent: intent, Environment: map[string]string{}, WorkingDirectory: normalized.WorkingDirectory}, nil
+	return ResolvedVerification{Intent: intent, Environment: copyEnvironment(rule.Environment), WorkingDirectory: normalized.WorkingDirectory}, nil
 }
 
 func (b *Broker) Evaluate(record task.Record, contract task.ContractRevision, intent permission.ProcessIntent, grants []permission.Grant) Evaluation {
@@ -110,6 +127,9 @@ func (b *Broker) Evaluate(record task.Record, contract task.ContractRevision, in
 	}
 	if contractForbids(contract, intent.RuleID) {
 		return Evaluation{Outcome: permission.OutcomeDeny, ReasonCode: "TASK_CONTRACT_FORBIDS_PROCESS"}
+	}
+	if contractForbidsEffects(contract, rule.Effects) {
+		return Evaluation{Outcome: permission.OutcomeDeny, ReasonCode: "TASK_CONTRACT_FORBIDS_EFFECT"}
 	}
 	hash, err := permission.IntentHash(intent)
 	if err != nil {
@@ -167,6 +187,31 @@ func contractForbids(contract task.ContractRevision, ruleID string) bool {
 		}
 	}
 	return false
+}
+func contractForbidsEffects(contract task.ContractRevision, effects []string) bool {
+	for _, forbidden := range contract.ForbiddenActions {
+		for _, effect := range effects {
+			if forbidden == effect {
+				return true
+			}
+		}
+	}
+	return false
+}
+func environmentNames(values map[string]string) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool { return envKey(names[i]) < envKey(names[j]) })
+	return names
+}
+func copyEnvironment(values map[string]string) map[string]string {
+	result := make(map[string]string, len(values))
+	for name, value := range values {
+		result[name] = value
+	}
+	return result
 }
 func prefixMatches(prefix, arguments []string) bool {
 	if len(arguments) < len(prefix) {
@@ -227,6 +272,14 @@ func validEnvName(name string) bool {
 		}
 	}
 	return true
+}
+func validEffect(effect string) bool {
+	switch effect {
+	case "network.egress", "dependency.install":
+		return true
+	default:
+		return false
+	}
 }
 func isShell(path string) bool {
 	switch strings.ToLower(filepath.Base(path)) {
