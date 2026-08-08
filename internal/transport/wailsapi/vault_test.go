@@ -57,6 +57,46 @@ func TestVaultServiceCreatesThenLocksSession(t *testing.T) {
 	}
 }
 
+func TestVaultLockCancelsActiveLeaseWithoutHoldingStatusMutex(t *testing.T) {
+	database := &serviceDatabase{}
+	service := openTaskTestVault(t, database)
+	lease, err := service.acquireSessionLease(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lockDone := make(chan VaultResult, 1)
+	go func() { lockDone <- service.Lock("lease-lock") }()
+	select {
+	case <-lease.Context.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Vault lock did not cancel the active lease")
+	}
+	statusDone := make(chan VaultStatus, 1)
+	go func() { statusDone <- service.Status() }()
+	select {
+	case status := <-statusDone:
+		if status.State != "unlocked" {
+			t.Fatalf("status during lease drain=%+v", status)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Vault status remained blocked by the active lease")
+	}
+	select {
+	case result := <-lockDone:
+		t.Fatalf("Vault closed before lease release: %+v", result)
+	default:
+	}
+	lease.Release()
+	select {
+	case result := <-lockDone:
+		if result.Error != nil || result.Vault == nil || result.Vault.State != "locked" || !database.closed {
+			t.Fatalf("lock result=%+v closed=%v", result, database.closed)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Vault lock did not finish after lease release")
+	}
+}
+
 func TestVaultServiceListsAndReopensCreatedVault(t *testing.T) {
 	t.Parallel()
 	keys := &serviceKeyStore{}

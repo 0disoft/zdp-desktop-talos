@@ -133,12 +133,12 @@ func (s *PlanService) Propose(request PlanRequest) PlanResult {
 		return planError(errModelConfigurationChanged, correlationID)
 	}
 
-	s.vault.mu.Lock()
-	defer s.vault.mu.Unlock()
-	if s.vault.session == nil {
+	lease, err := s.vault.acquireSessionLease(context.Background())
+	if err != nil {
 		return planError(vaultbootstrap.ErrNotOpen, correlationID)
 	}
-	database, err := s.vault.session.PlanningDatabase()
+	defer lease.Release()
+	database, err := lease.Session.PlanningDatabase()
 	if err != nil {
 		return planError(err, correlationID)
 	}
@@ -146,14 +146,14 @@ func (s *PlanService) Propose(request PlanRequest) PlanResult {
 	if err != nil {
 		return planError(err, correlationID)
 	}
-	if record.VaultID != s.vault.session.Record.ID || record.WorkspaceRoot != snapshot.Root || record.BaselineCommit != snapshot.BaselineCommit || record.CurrentRevision != consent.ContractRevision || record.Status != task.StatusContracted {
+	if record.VaultID != lease.Session.Record.ID || record.WorkspaceRoot != snapshot.Root || record.BaselineCommit != snapshot.BaselineCommit || record.CurrentRevision != consent.ContractRevision || record.Status != task.StatusContracted {
 		return planError(vaultbootstrap.ErrTaskWorkspaceMismatch, correlationID)
 	}
 	runtime, err := s.factory.New(database)
 	if err != nil {
 		return planError(errors.Join(errModelUnavailable, err), correlationID)
 	}
-	result, err := runtime.Propose(context.Background(), modelruntime.Request{
+	result, err := runtime.Propose(lease.Context, modelruntime.Request{
 		TaskID: record.ID, RequestID: strings.TrimSpace(request.RequestID),
 		IdempotencyKey: "plan-proposal:" + strings.TrimSpace(request.RequestID),
 	})

@@ -70,15 +70,15 @@ func (s *ExecutionService) ExecuteVerification(request ExecutionRequest) Executi
 		return ExecutionResult{Error: &mapped}
 	}
 
-	s.vault.mu.Lock()
-	defer s.vault.mu.Unlock()
-	if s.vault.session == nil {
+	lease, err := s.vault.acquireSessionLease(context.Background())
+	if err != nil {
 		mapped := MapError(executionruntime.ErrInvalidRequest, correlationID)
 		mapped.Code = "VAULT_NOT_OPEN"
 		mapped.Message = "검증을 실행하려면 Vault를 먼저 열어 주세요."
 		return ExecutionResult{Error: &mapped}
 	}
-	store, err := s.vault.session.ExecutionDatabase()
+	defer lease.Release()
+	store, err := lease.Session.ExecutionDatabase()
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		return ExecutionResult{Error: &mapped}
@@ -88,7 +88,7 @@ func (s *ExecutionService) ExecuteVerification(request ExecutionRequest) Executi
 		mapped := MapError(errors.Join(errExecutionUnavailable, err), correlationID)
 		return ExecutionResult{Error: &mapped}
 	}
-	result, err := coordinator.Execute(context.Background(), executionruntime.Request{
+	result, err := coordinator.Execute(lease.Context, executionruntime.Request{
 		TaskID: strings.TrimSpace(request.TaskID), CommandIndex: request.CommandIndex,
 		IdempotencyKey: "task-verification:" + requestID, WorkspaceRoot: snapshot.Root, BaselineCommit: snapshot.BaselineCommit,
 	})

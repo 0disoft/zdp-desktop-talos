@@ -103,13 +103,72 @@ type VaultRestoreResult struct {
 
 type VaultService struct {
 	mu                  sync.Mutex
+	leaseCond           *sync.Cond
+	leases              map[uint64]context.CancelFunc
+	nextLeaseID         uint64
+	closing             bool
 	creator             *vaultbootstrap.Creator
 	initializationError error
 	session             *vaultbootstrap.Session
 }
 
 func NewVaultService(creator *vaultbootstrap.Creator, initializationError error) *VaultService {
-	return &VaultService{creator: creator, initializationError: initializationError}
+	service := &VaultService{creator: creator, initializationError: initializationError, leases: make(map[uint64]context.CancelFunc)}
+	service.leaseCond = sync.NewCond(&service.mu)
+	return service
+}
+
+type vaultSessionLease struct {
+	Session *vaultbootstrap.Session
+	Context context.Context
+	release func()
+}
+
+func (l *vaultSessionLease) Release() {
+	if l != nil && l.release != nil {
+		l.release()
+	}
+}
+
+func (s *VaultService) acquireSessionLease(parent context.Context) (*vaultSessionLease, error) {
+	if s == nil || parent == nil {
+		return nil, vaultbootstrap.ErrNotOpen
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session == nil || s.closing {
+		return nil, vaultbootstrap.ErrNotOpen
+	}
+	ctx, cancel := context.WithCancel(parent)
+	s.nextLeaseID++
+	id := s.nextLeaseID
+	s.leases[id] = cancel
+	var once sync.Once
+	return &vaultSessionLease{Session: s.session, Context: ctx, release: func() {
+		once.Do(func() {
+			cancel()
+			s.mu.Lock()
+			delete(s.leases, id)
+			s.leaseCond.Broadcast()
+			s.mu.Unlock()
+		})
+	}}, nil
+}
+
+func (s *VaultService) quiesceLeasesLocked() {
+	s.closing = true
+	for _, cancel := range s.leases {
+		cancel()
+	}
+	for len(s.leases) > 0 {
+		s.leaseCond.Wait()
+	}
+}
+
+func (s *VaultService) waitForCloseLocked() {
+	for s.closing {
+		s.leaseCond.Wait()
+	}
 }
 
 func (s *VaultService) Status() VaultStatus {
@@ -207,6 +266,7 @@ func (s *VaultService) UpdateRetention(retentionDays, expectedRevision int, requ
 func (s *VaultService) HardPurge(expectedRevision int, confirmation, correlationID string) VaultResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.waitForCloseLocked()
 	if s.session == nil {
 		mapped := TalosError{Code: "VAULT_NOT_OPEN", Message: "완전 삭제할 Vault를 먼저 열어 주세요.", CorrelationID: normalizeCorrelationID(correlationID)}
 		return VaultResult{Error: &mapped}
@@ -219,11 +279,14 @@ func (s *VaultService) HardPurge(expectedRevision int, confirmation, correlation
 		mapped := MapError(vaultbootstrap.ErrInvalidInput, correlationID)
 		return VaultResult{Error: &mapped}
 	}
+	s.quiesceLeasesLocked()
 	err := s.creator.HardPurge(context.Background(), s.session, vaultbootstrap.HardPurgeInput{
 		ExpectedRevision: expectedRevision,
 		Confirmation:     confirmation,
 	})
 	s.session = nil
+	s.closing = false
+	s.leaseCond.Broadcast()
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		return VaultResult{Error: &mapped}
@@ -295,12 +358,16 @@ func (s *VaultService) RestoreBackup(source, expectedBackupID, expectedCiphertex
 func (s *VaultService) Lock(correlationID string) VaultResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.waitForCloseLocked()
 	if s.session == nil {
 		status := s.statusLocked()
 		return VaultResult{Vault: &status}
 	}
+	s.quiesceLeasesLocked()
 	err := s.session.Close()
 	s.session = nil
+	s.closing = false
+	s.leaseCond.Broadcast()
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		mapped.Code = "VAULT_LOCK_FAILED"

@@ -73,6 +73,8 @@ A Decision blocks only named steps or capabilities. Safe unrelated steps continu
 
 The control plane journals an attempt before worker execution. A worker crash yields an unknown or failed attempt, not implicit success. Worker protocol v2 returns only stdout/stderr byte counts and SHA-256 digests, so Base64 expansion cannot exceed the frame budget; raw output remains inside the worker. Asynchronous response write failure closes the transport and wakes pending calls, while every tool response has a bounded deadline beyond its execution timeout. Recovery reconciles attempt identity and idempotency keys before retrying. Model/provider failure cannot bypass permission or verification gates. Disk-full, locked database, corrupt IPC, and stale repository state fail closed with actionable state.
 
+Long-running verification and model proposal operations borrow a cancelable Vault session lease instead of holding the Vault mutex. Lock and hard purge stop new leases, cancel active operation contexts, wait for every lease to release, and only then close or destroy session storage. Short status calls remain available while a lease drains.
+
 ## Completion
 
 Verification evidence records the contract revision, command index, baseline commit, capability hash, deterministic task-worktree state hash, zero exit status, and execution timestamps. The successful Attempt transition and evidence row commit atomically. Raw stdout and stderr are not persisted until redaction and secret scanning own that path. Any later patch change produces a different state hash and invalidates affected evidence before completion is reevaluated.
