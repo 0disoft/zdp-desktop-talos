@@ -17,6 +17,7 @@ The model is an untrusted planner. Repository files, Git history, terminal outpu
 - remote HTML is not loaded in the privileged WebView; Markdown is sanitized and external links open outside the app;
 - update manifests and artifacts require publisher signatures;
 - redaction and secret scanning run before persistence, diagnostics, model egress, projection, and sync export;
+- patch application fails closed when any changed file is binary, truncated, omitted, unsupported, or otherwise not fully represented in the secret-scanned review manifest;
 - sync export uses an explicit event-type/schema allowlist; imported, device-local, unsupported, and legacy events cannot silently cross or mutate another device boundary;
 - Git sync prepares only encrypted packs in a clean canonical repository, imports only tracked packs from an unchanged clean commit, and never runs commit, pull, push, merge, remote, credential, or configuration writes;
 - Vault backup uses an online SQLite snapshot, exact hash-verified blobs, a bounded chunk-authenticated encrypted stream, same-directory no-clobber publication, and isolated preflight; it never embeds the Vault root key or replaces live data;

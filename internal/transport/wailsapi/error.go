@@ -204,6 +204,9 @@ func MapError(err error, correlationID string) TalosError {
 	case errors.Is(err, patchcommand.ErrSecretFindings):
 		mapped.Code = "PATCH_SECRET_FINDINGS"
 		mapped.Message = "비밀정보로 보이는 내용이 있어 패치를 적용하지 않았습니다."
+	case errors.Is(err, patchcommand.ErrUnscannableChanges):
+		mapped.Code = "PATCH_UNSCANNABLE_CHANGES"
+		mapped.Message = "완전히 검사할 수 없는 변경이 있어 패치를 적용하지 않았습니다."
 	case errors.Is(err, patchcommand.ErrScopeViolation):
 		mapped.Code = "PATCH_SCOPE_VIOLATION"
 		mapped.Message = "Task Contract 범위를 벗어난 파일이 있어 패치를 적용하지 않았습니다."

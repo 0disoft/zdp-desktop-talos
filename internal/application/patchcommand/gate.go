@@ -22,10 +22,43 @@ func Decide(record task.Record, contract task.ContractRevision, review patchrevi
 	if len(review.Changes) == 0 {
 		return ErrNoChanges
 	}
+	if !fullyScanned(review) {
+		return ErrUnscannableChanges
+	}
 	for _, change := range review.Changes {
 		if !contract.AllowsPath(change.Path) || (change.OriginalPath != "" && !contract.AllowsPath(change.OriginalPath)) {
 			return ErrScopeViolation
 		}
 	}
 	return nil
+}
+
+func fullyScanned(review patchreview.Result) bool {
+	if len(review.Diffs) != len(review.Changes) {
+		return false
+	}
+	changes := make(map[string]struct{}, len(review.Changes))
+	for _, change := range review.Changes {
+		if change.Path == "" {
+			return false
+		}
+		if _, exists := changes[change.Path]; exists {
+			return false
+		}
+		changes[change.Path] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(review.Diffs))
+	for _, diff := range review.Diffs {
+		if diff.Path == "" || diff.Binary || diff.Truncated || diff.OmittedReason != "" {
+			return false
+		}
+		if _, exists := changes[diff.Path]; !exists {
+			return false
+		}
+		if _, exists := seen[diff.Path]; exists {
+			return false
+		}
+		seen[diff.Path] = struct{}{}
+	}
+	return len(seen) == len(changes)
 }

@@ -33,6 +33,7 @@ func TestMapErrorUsesStablePatchCommandCodes(t *testing.T) {
 	}{
 		{patchcommand.ErrStaleReview, "PATCH_REVIEW_STALE"},
 		{patchcommand.ErrSecretFindings, "PATCH_SECRET_FINDINGS"},
+		{patchcommand.ErrUnscannableChanges, "PATCH_UNSCANNABLE_CHANGES"},
 		{patchcommand.ErrScopeViolation, "PATCH_SCOPE_VIOLATION"},
 		{patchcommand.ErrPatchConflict, "PATCH_CONFLICT"},
 		{patchcommand.ErrPatchOutcomeUnknown, "PATCH_OUTCOME_UNKNOWN"},

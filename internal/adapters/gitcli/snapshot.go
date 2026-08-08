@@ -37,7 +37,7 @@ func (m *WorktreeManager) Review(ctx context.Context, record worktree.Record) (r
 	if err != nil {
 		return repository.WorktreeReview{}, err
 	}
-	status, err := m.git(ctx, record.Root, "status", "--porcelain=v2", "-z", "--untracked-files=normal")
+	status, err := m.git(ctx, record.Root, "status", "--porcelain=v2", "-z", "--untracked-files=all")
 	if err != nil || status.exitCode != 0 {
 		return repository.WorktreeReview{}, repository.ErrWorktreeSnapshotFailed
 	}

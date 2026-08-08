@@ -20,6 +20,7 @@ var (
 	ErrInvalidRequest      = errors.New("invalid patch command request")
 	ErrStaleReview         = errors.New("patch review is not fresh")
 	ErrSecretFindings      = errors.New("patch review contains secret findings")
+	ErrUnscannableChanges  = errors.New("patch review contains changes that were not fully scanned")
 	ErrScopeViolation      = errors.New("patch escapes the task contract")
 	ErrNoChanges           = errors.New("patch contains no changes")
 	ErrActionUnresolved    = errors.New("patch action outcome requires review")

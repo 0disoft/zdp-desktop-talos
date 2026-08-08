@@ -205,6 +205,41 @@ func TestWorktreeReviewBoundsTextAndOmitsBinaryContent(t *testing.T) {
 	}
 }
 
+func TestWorktreeReviewExpandsNestedUntrackedFilesAndMarksLargeContentUnscannable(t *testing.T) {
+	t.Parallel()
+	_, primary, baseline := createWorktreeTestRepository(t)
+	manager, err := NewWorktreeManager(filepath.Join(t.TempDir(), "talos-owned"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(context.Background(), repository.CreateWorktreeInput{TaskID: testTaskID, RepositoryRoot: primary, BaselineCommit: baseline})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(record.Root, "internal", "generated")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payload := strings.Repeat("safe-content\n", 8_000) + "token=ghp_secret_after_preview_limit\n"
+	if err := os.WriteFile(filepath.Join(nested, "large.txt"), []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	review, err := manager.Review(context.Background(), record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(review.Changes) != 1 || review.Changes[0].Path != "internal/generated/large.txt" {
+		t.Fatalf("nested untracked manifest was not expanded: %+v", review.Changes)
+	}
+	if len(review.Diffs) != 1 || review.Diffs[0].Path != review.Changes[0].Path || !review.Diffs[0].Truncated {
+		t.Fatalf("large nested file must be represented and fail closed: %+v", review.Diffs)
+	}
+	if strings.Contains(review.Diffs[0].Text, "ghp_secret_after_preview_limit") {
+		t.Fatal("test fixture secret unexpectedly appeared before the preview limit")
+	}
+}
+
 func TestWorktreeOpenVerifiesOwnedMarkerAndBaseline(t *testing.T) {
 	t.Parallel()
 	_, primary, baseline := createWorktreeTestRepository(t)
