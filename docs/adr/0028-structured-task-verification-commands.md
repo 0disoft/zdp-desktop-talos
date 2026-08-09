@@ -27,6 +27,7 @@ The current desktop form authors one structured command per confirmation. The do
 ## Verification
 
 - Domain tests reject invalid rule IDs, empty or NUL arguments, Windows drive, UNC, POSIX absolute, escaping and wildcard working directories, and duplicate commands on every host.
+- Renderer parser tests prove set-like contract fields deduplicate while verification argument arrays preserve exact order and repeated values.
 - SQLite restart tests restore the structured command from the encrypted event payload.
 - Wails tests prove the renderer fields reach the Vault application boundary and that an empty verification set is rejected before persistence.
 - Frontend checking and production build verify the typed structured request.

@@ -25,6 +25,7 @@
   import AccountBoundary from './features/account/AccountBoundary.svelte';
   import VaultBackup from './features/backup/VaultBackup.svelte';
   import SyncWorkspace from './features/sync/SyncWorkspace.svelte';
+  import { argumentLines, uniqueLines } from './lib/task-input';
 
   let vault = $state<VaultStatus>({ state: 'locked', persistent_key_store: false });
   let retentionDays = $state(30);
@@ -209,9 +210,9 @@
     try {
       const input = {
         goal: taskGoal.trim(),
-        allowed_paths: lines(taskPaths),
+        allowed_paths: uniqueLines(taskPaths),
         forbidden_actions: ['git.push', 'git.commit', 'dependency.install', ...(allowVerificationNetwork ? [] : ['network.egress'])],
-        acceptance_criteria: lines(taskCriteria),
+        acceptance_criteria: uniqueLines(taskCriteria),
         verification_commands: [{
           rule_id: taskVerificationRule.trim(),
           arguments: argumentLines(taskVerificationArguments),
@@ -240,14 +241,6 @@
     } finally {
       loading = false;
     }
-  }
-
-  function lines(value: string): string[] {
-    return [...new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))];
-  }
-
-  function argumentLines(value: string): string[] {
-    return value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
   }
 
   async function refreshDecisions() {
@@ -635,7 +628,7 @@
           <label><span>실행 폴더 · 저장소 기준</span><input bind:value={taskVerificationDirectory} maxlength="4096" autocomplete="off" spellcheck="false" disabled={loading} placeholder="." /></label>
           <label><span>검증 네트워크</span><input type="checkbox" bind:checked={allowVerificationNetwork} disabled={loading} /> 테스트 코드의 외부 통신 가능성을 명시적으로 허용</label>
           <label class="task-risk"><span>위험도</span><select bind:value={taskRisk} disabled={loading}><option value="low">낮음</option><option value="medium">보통</option><option value="high">높음</option></select></label>
-          <button type="button" onclick={handleTaskContract} disabled={loading || vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty || !taskGoal.trim() || lines(taskPaths).length === 0 || lines(taskCriteria).length === 0 || !taskVerificationRule.trim()}>{task ? `revision ${task.revision + 1} 확정` : '계약 확정'}</button>
+          <button type="button" onclick={handleTaskContract} disabled={loading || vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty || !taskGoal.trim() || uniqueLines(taskPaths).length === 0 || uniqueLines(taskCriteria).length === 0 || !taskVerificationRule.trim()}>{task ? `revision ${task.revision + 1} 확정` : '계약 확정'}</button>
           {#if task}<button type="button" class="secondary" onclick={() => (editingTask = false)} disabled={loading}>취소</button>{/if}
           {#if vault.state !== 'unlocked' || workspace.state !== 'open' || workspace.dirty}
             <small>{vault.state !== 'unlocked' ? 'Vault를 먼저 열어 주세요.' : workspace.state !== 'open' ? 'Workspace를 먼저 열어 주세요.' : '커밋되지 않은 변경을 먼저 정리해 주세요.'}</small>

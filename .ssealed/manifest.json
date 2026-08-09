@@ -1,7 +1,7 @@
 {
   "tool": "ssealed",
   "version": "0.6.11",
-  "generatedAt": "2026-08-09T02:33:51.651Z",
+  "generatedAt": "2026-08-09T02:55:54.112Z",
   "scope": "general",
   "profile": "desktop-app",
   "addons": [
@@ -1002,13 +1002,13 @@
     },
     {
       "path": "Taskfile.yml",
-      "checksum": "sha256:3b423aec789c73c82a33583e62f21f6c0a2ee5481743fceace2865591232fa8d",
+      "checksum": "sha256:6967c401cd3af72677b93ff26080da2bd8e7bace1b64e367000f1b31e280eea9",
       "kind": "runner",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608",
-      "acceptedChecksum": "sha256:3b423aec789c73c82a33583e62f21f6c0a2ee5481743fceace2865591232fa8d",
+      "acceptedChecksum": "sha256:6967c401cd3af72677b93ff26080da2bd8e7bace1b64e367000f1b31e280eea9",
       "generatedChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608"
     },
     {
