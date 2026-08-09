@@ -211,7 +211,7 @@ func TestVaultServiceCreatesBackupAndRunsIsolatedPreflight(t *testing.T) {
 	}
 
 	preflight := service.PreflightBackup(`C:\Backups\vault.talos-backup`, "preflight")
-	if preflight.Error != nil || preflight.Preflight == nil || preflight.Preflight.Schema != vaultbackup.PreflightSchema || preflight.Preflight.TargetSchemaVersion != 23 || preflight.Preflight.MigrationRequired {
+	if preflight.Error != nil || preflight.Preflight == nil || preflight.Preflight.Schema != vaultbackup.PreflightSchema || preflight.Preflight.TargetSchemaVersion != 24 || preflight.Preflight.MigrationRequired {
 		t.Fatalf("preflight = %+v", preflight)
 	}
 	if backups.preflightInput.VaultID != created.Vault.VaultID || backups.preflightInput.ApplicationVersion != version.Application || !allZero(backups.preflightInput.Key) {
@@ -359,7 +359,7 @@ func (s *serviceBackupStore) CreateBackup(_ context.Context, input vaultbackup.C
 	s.createInput = input
 	return vaultbackup.Receipt{
 		Schema: vaultbackup.ReceiptSchema, BackupID: "00000000-0000-7000-8000-0000000000e1", VaultID: input.VaultID,
-		Path: input.Destination, SourceApplicationVersion: input.ApplicationVersion, SourceSchemaVersion: 23,
+		Path: input.Destination, SourceApplicationVersion: input.ApplicationVersion, SourceSchemaVersion: 24,
 		CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC), EncryptedSizeBytes: 4096,
 		CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DatabaseSizeBytes: 2048,
 		ArtifactCount: 2, EventCount: 7,
@@ -371,7 +371,7 @@ func (s *serviceBackupStore) PreflightBackup(_ context.Context, input vaultbacku
 	return vaultbackup.Preflight{
 		Schema: vaultbackup.PreflightSchema, BackupID: "00000000-0000-7000-8000-0000000000e1", VaultID: input.VaultID,
 		Path: input.Source, SourceApplicationVersion: input.ApplicationVersion, MinimumRestoreVersion: input.ApplicationVersion, TargetApplicationVersion: input.ApplicationVersion,
-		SourceSchemaVersion: 23, TargetSchemaVersion: 23, CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC),
+		SourceSchemaVersion: 24, TargetSchemaVersion: 24, CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC),
 		VerifiedAt: time.Date(2026, 7, 19, 4, 6, 6, 0, time.UTC), EncryptedSizeBytes: 4096,
 		CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DatabaseSizeBytes: 2048,
 		ArtifactCount: 2, EventCount: 7,
@@ -383,7 +383,7 @@ func (s *serviceBackupStore) StageRestore(_ context.Context, input vaultbackup.S
 	return vaultbackup.Preflight{
 		Schema: vaultbackup.PreflightSchema, BackupID: input.ExpectedBackupID, VaultID: input.VaultID,
 		Path: input.Source, SourceApplicationVersion: input.ApplicationVersion, MinimumRestoreVersion: input.ApplicationVersion,
-		TargetApplicationVersion: input.ApplicationVersion, SourceSchemaVersion: 23, TargetSchemaVersion: 23,
+		TargetApplicationVersion: input.ApplicationVersion, SourceSchemaVersion: 24, TargetSchemaVersion: 24,
 		CreatedAt: time.Date(2026, 7, 19, 4, 5, 6, 0, time.UTC), VerifiedAt: time.Date(2026, 7, 19, 4, 6, 6, 0, time.UTC),
 		EncryptedSizeBytes: 4096, CiphertextSHA256: input.ExpectedCiphertextSHA256, DatabaseSizeBytes: 2048,
 		ArtifactCount: 2, EventCount: 7,
@@ -403,7 +403,7 @@ func (s *serviceBackupStore) ReconcileRestore(_ context.Context, input vaultback
 		Schema: vaultbackup.RestoreSchema, State: state, BackupID: "00000000-0000-7000-8000-0000000000e1",
 		VaultID: input.VaultID, CiphertextSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		SourceApplicationVersion: input.ApplicationVersion, TargetApplicationVersion: input.ApplicationVersion,
-		SourceSchemaVersion: 23, TargetSchemaVersion: 23, RestoredAt: time.Date(2026, 7, 19, 4, 7, 6, 0, time.UTC),
+		SourceSchemaVersion: 24, TargetSchemaVersion: 24, RestoredAt: time.Date(2026, 7, 19, 4, 7, 6, 0, time.UTC),
 		ArtifactCount: 2, EventCount: 7,
 	}, nil
 }

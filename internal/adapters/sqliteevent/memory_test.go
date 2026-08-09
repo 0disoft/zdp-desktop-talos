@@ -1,9 +1,11 @@
 package sqliteevent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorystore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/syncstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
+	"github.com/0disoft/zdp-desktop-talos/internal/security/envelope"
 )
 
 func TestMemoryCandidateGatePersistsEncryptedProvenanceAndFiltersContext(t *testing.T) {
@@ -86,7 +89,24 @@ func TestSchema21LegacyMemoryReceivesPathFreeSyncSnapshots(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 7, 18, 8, 0, 0, 0, time.UTC)
 	databasePath := filepath.Join(t.TempDir(), "legacy-memory.db")
-	store := openTestStore(t, databasePath)
+	db, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, migration := range migrations {
+		if migration.version > 21 {
+			break
+		}
+		if err := applyMigration(ctx, db, migration); err != nil {
+			t.Fatalf("apply migration %d: %v", migration.version, err)
+		}
+	}
+	sealer, err := envelope.NewSealer("test-key", bytes.Repeat([]byte{0x23}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &Store{db: db, sealer: sealer, blobRoot: databasePath + ".blobs", now: func() time.Time { return now }, random: rand.Reader}
 	vaultID := "00000000-0000-7000-8000-000000000001"
 	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: vaultID, RetentionDays: 30, OccurredAt: now, IdempotencyKey: "vault"}); err != nil {
 		t.Fatal(err)
@@ -114,7 +134,7 @@ func TestSchema21LegacyMemoryReceivesPathFreeSyncSnapshots(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourceHash := workspaceRootHash(workspaceRoot)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_records(memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, workspace_id, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id) VALUES(?, ?, ?, ?, ?, ?, '', ?, ?, 1, ?, ?, '', '', '', ?, ?)`, payload.MemoryID, vaultID, string(payload.Kind), string(payload.State), string(payload.Scope.Kind), sourceHash, string(payload.Sensitivity), payload.Confidence, payload.CreatedAt, payload.UpdatedAt, legacyEvent.ID, legacyEvent.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_records(memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id) VALUES(?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, '', '', '', ?, ?)`, payload.MemoryID, vaultID, string(payload.Kind), string(payload.State), string(payload.Scope.Kind), sourceHash, string(payload.Sensitivity), payload.Confidence, payload.CreatedAt, payload.UpdatedAt, legacyEvent.ID, legacyEvent.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Commit(); err != nil {

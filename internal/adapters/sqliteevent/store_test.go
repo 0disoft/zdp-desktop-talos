@@ -271,6 +271,100 @@ func TestOpenMigratesLegacyUnversionedDatabase(t *testing.T) {
 	}
 }
 
+func TestSchema24IndexesEventsAndMarksLegacyRecoveryComplete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	databasePath := filepath.Join(t.TempDir(), "schema-24.db")
+	store := openTestStore(t, databasePath)
+	indexNames := make(map[string]bool)
+	rows, err := store.db.QueryContext(ctx, "PRAGMA index_list(events)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var sequence, unique, partial int
+		var name, origin string
+		if err := rows.Scan(&sequence, &name, &unique, &origin, &partial); err != nil {
+			t.Fatal(err)
+		}
+		indexNames[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"events_vault_order_idx", "events_schema_type_order_idx"} {
+		if !indexNames[name] {
+			t.Fatalf("missing event index %q: %+v", name, indexNames)
+		}
+	}
+	assertQueryPlanUsesIndex(t, store.db, "events_vault_order_idx", `SELECT event_id FROM events WHERE vault_id = ? ORDER BY occurred_at, event_id`, "vault-test")
+	assertQueryPlanUsesIndex(t, store.db, "events_schema_type_order_idx", `SELECT event_id FROM events WHERE schema_version = ? AND event_type = ? ORDER BY occurred_at, event_id`, 1, "task.created")
+	var firstCompletedAt string
+	if err := store.db.QueryRowContext(ctx, `SELECT completed_at FROM recovery_markers WHERE recovery_key = ? AND completed_schema_version = ?`, legacyPortableRecoveryKey, currentSchemaVersion).Scan(&firstCompletedAt); err != nil {
+		t.Fatalf("read recovery marker: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := openTestStore(t, databasePath)
+	defer reopened.Close()
+	var reopenedCompletedAt string
+	if err := reopened.db.QueryRowContext(ctx, `SELECT completed_at FROM recovery_markers WHERE recovery_key = ?`, legacyPortableRecoveryKey).Scan(&reopenedCompletedAt); err != nil {
+		t.Fatal(err)
+	}
+	if reopenedCompletedAt != firstCompletedAt {
+		t.Fatalf("one-time recovery marker changed on reopen: %q != %q", reopenedCompletedAt, firstCompletedAt)
+	}
+}
+
+func TestOpenRejectsLegacyRecoveryMarkerSchemaMismatch(t *testing.T) {
+	t.Parallel()
+	databasePath := filepath.Join(t.TempDir(), "recovery-marker-mismatch.db")
+	store := openTestStore(t, databasePath)
+	if _, err := store.db.Exec(`UPDATE recovery_markers SET completed_schema_version = ? WHERE recovery_key = ?`, currentSchemaVersion-1, legacyPortableRecoveryKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sealer, err := envelope.NewSealer("test-key", bytes.Repeat([]byte{0x23}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(databasePath, sealer)
+	if reopened != nil {
+		_ = reopened.Close()
+		t.Fatal("Open accepted a mismatched recovery marker")
+	}
+	if err == nil || !strings.Contains(err.Error(), "recovery marker schema mismatch") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func assertQueryPlanUsesIndex(t *testing.T, db *sql.DB, indexName, query string, arguments ...any) {
+	t.Helper()
+	rows, err := db.Query("EXPLAIN QUERY PLAN "+query, arguments...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var details []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		details = append(details, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(details, "\n"), indexName) {
+		t.Fatalf("query plan did not use %s: %v", indexName, details)
+	}
+}
+
 func TestOpenRejectsNewerSchema(t *testing.T) {
 	t.Parallel()
 
@@ -333,7 +427,7 @@ func TestOpenRejectsSchemaVersionWithMissingColumns(t *testing.T) {
 		_ = store.Close()
 		t.Fatal("Open returned a store for a malformed schema")
 	}
-	if err == nil || !strings.Contains(err.Error(), "validate sqlite event store schema") {
+	if err == nil || !strings.Contains(err.Error(), "sqlite event store") {
 		t.Fatalf("expected schema validation error, got %v", err)
 	}
 }

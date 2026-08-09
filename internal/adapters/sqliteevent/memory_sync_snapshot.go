@@ -18,7 +18,7 @@ type memorySyncSnapshotCandidate struct {
 }
 
 func (s *Store) ReconcileMemoryWorkspaceIDs(ctx context.Context) error {
-	rows, err := s.db.QueryContext(ctx, `SELECT memory_id, vault_id, scope_kind, workspace_root_hash, workspace_id FROM memory_records ORDER BY created_at, memory_id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT memory_id, vault_id, scope_kind, workspace_root_hash, workspace_id FROM memory_records WHERE workspace_id = '' ORDER BY created_at, memory_id`)
 	if err != nil {
 		return fmt.Errorf("list memory workspace identities: %w", err)
 	}

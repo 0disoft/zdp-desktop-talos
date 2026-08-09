@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 23
+const currentSchemaVersion = 24
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -573,6 +573,18 @@ var migrations = []migration{
 			`CREATE INDEX sync_enrollments_vault_state_idx ON sync_enrollments(vault_id, state, expires_at, enrollment_id)`,
 		},
 	},
+	{
+		version: 24,
+		statements: []string{
+			`CREATE INDEX events_vault_order_idx ON events(vault_id, occurred_at, event_id)`,
+			`CREATE INDEX events_schema_type_order_idx ON events(schema_version, event_type, occurred_at, event_id)`,
+			`CREATE TABLE recovery_markers (
+				recovery_key TEXT PRIMARY KEY,
+				completed_schema_version INTEGER NOT NULL CHECK (completed_schema_version > 0),
+				completed_at TEXT NOT NULL
+			) STRICT`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -604,6 +616,8 @@ func applyMigrations(ctx context.Context, db *sql.DB) error {
 func validateSchema(ctx context.Context, db *sql.DB) error {
 	queries := []string{
 		`SELECT event_id, vault_id, event_type, schema_version, sensitivity, payload_envelope, occurred_at FROM events LIMIT 0`,
+		`SELECT event_id FROM events INDEXED BY events_vault_order_idx WHERE vault_id = '' ORDER BY occurred_at, event_id LIMIT 0`,
+		`SELECT event_id FROM events INDEXED BY events_schema_type_order_idx WHERE schema_version = 1 AND event_type = '' ORDER BY occurred_at, event_id LIMIT 0`,
 		`SELECT idempotency_key, event_id, request_hash FROM idempotency_keys LIMIT 0`,
 		`SELECT vault_id, revision, status, retention_days, created_at, updated_at, last_event_id FROM vault_states LIMIT 0`,
 		`SELECT artifact_id, vault_id, schema_version, sensitivity, content_type, size_bytes, content_hash, ciphertext_hash, storage_name, staging_name, state, created_at FROM artifacts LIMIT 0`,
@@ -633,6 +647,7 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT workspace_id, vault_id, source_workspace_hash, local_root_hash, verified_baseline, state, revision, created_at, updated_at, created_event_id, last_event_id FROM workspace_mappings LIMIT 0`,
 		`SELECT task_id, revision, source_event_id, snapshot_event_id, created_at FROM task_sync_snapshots LIMIT 0`,
 		`SELECT memory_id, revision, source_event_id, snapshot_event_id, created_at FROM memory_sync_snapshots LIMIT 0`,
+		`SELECT recovery_key, completed_schema_version, completed_at FROM recovery_markers LIMIT 0`,
 	}
 	for _, query := range queries {
 		rows, err := db.QueryContext(ctx, query)

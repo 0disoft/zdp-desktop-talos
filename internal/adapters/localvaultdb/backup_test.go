@@ -51,7 +51,7 @@ func TestEncryptedBackupRoundTripAndMigrationPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if receipt.Schema != vaultbackup.ReceiptSchema || receipt.VaultID != vaultID || receipt.Path != backupPath || receipt.SourceSchemaVersion != 23 || receipt.EventCount != 2 || receipt.ArtifactCount != 1 || receipt.EncryptedSizeBytes <= 0 || len(receipt.CiphertextSHA256) != 64 {
+	if receipt.Schema != vaultbackup.ReceiptSchema || receipt.VaultID != vaultID || receipt.Path != backupPath || receipt.SourceSchemaVersion != 24 || receipt.EventCount != 2 || receipt.ArtifactCount != 1 || receipt.EncryptedSizeBytes <= 0 || len(receipt.CiphertextSHA256) != 64 {
 		t.Fatalf("unexpected backup receipt: %+v", receipt)
 	}
 	encrypted, err := os.ReadFile(backupPath)
@@ -68,7 +68,7 @@ func TestEncryptedBackupRoundTripAndMigrationPreflight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preflight.Schema != vaultbackup.PreflightSchema || preflight.BackupID != receipt.BackupID || preflight.SourceSchemaVersion != 23 || preflight.TargetSchemaVersion != 23 || preflight.MigrationRequired || preflight.EventCount != 2 || preflight.ArtifactCount != 1 || preflight.CiphertextSHA256 != receipt.CiphertextSHA256 {
+	if preflight.Schema != vaultbackup.PreflightSchema || preflight.BackupID != receipt.BackupID || preflight.SourceSchemaVersion != 24 || preflight.TargetSchemaVersion != 24 || preflight.MigrationRequired || preflight.EventCount != 2 || preflight.ArtifactCount != 1 || preflight.CiphertextSHA256 != receipt.CiphertextSHA256 {
 		t.Fatalf("unexpected backup preflight: %+v", preflight)
 	}
 }

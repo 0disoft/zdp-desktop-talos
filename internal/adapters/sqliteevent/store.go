@@ -71,16 +71,7 @@ func (s *Store) initialize(ctx context.Context) error {
 	if err := s.ReconcileExpiredEnrollments(ctx); err != nil {
 		return err
 	}
-	if err := s.ReconcileWorkspaceMappings(ctx); err != nil {
-		return err
-	}
-	if err := s.ReconcileTaskSyncSnapshots(ctx); err != nil {
-		return err
-	}
-	if err := s.ReconcileMemoryWorkspaceIDs(ctx); err != nil {
-		return err
-	}
-	if err := s.ReconcileMemorySyncSnapshots(ctx); err != nil {
+	if err := s.reconcileLegacyPortableState(ctx); err != nil {
 		return err
 	}
 	if err := ensureOwnedDirectory(s.blobRoot); err != nil {
