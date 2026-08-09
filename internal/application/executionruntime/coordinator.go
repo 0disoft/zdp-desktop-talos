@@ -229,11 +229,11 @@ func (c *Coordinator) finish(ctx context.Context, vaultID, attemptID, runID stri
 	if attemptState == execution.AttemptSucceeded || attemptState == execution.AttemptFailed {
 		exit = &exitCode
 	}
-	finished, err := c.store.FinishAttempt(journalCtx, executionstore.FinishAttemptInput{VaultID: vaultID, AttemptID: attemptID, ExpectedState: execution.AttemptDispatchPending, NextState: attemptState, ExitCode: exit, SafeErrorCode: safeCode, OccurredAt: now, IdempotencyKey: key + ":attempt-finish", Evidence: evidence})
+	finished, err := c.store.FinishExecution(journalCtx, executionstore.FinishExecutionInput{
+		Attempt: executionstore.FinishAttemptInput{VaultID: vaultID, AttemptID: attemptID, ExpectedState: execution.AttemptDispatchPending, NextState: attemptState, ExitCode: exit, SafeErrorCode: safeCode, OccurredAt: now, IdempotencyKey: key + ":finish", Evidence: evidence},
+		Run:     executionstore.FinishRunInput{VaultID: vaultID, RunID: runID, ExpectedState: execution.RunActive, NextState: runState, OccurredAt: now, IdempotencyKey: key + ":finish"},
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrJournalFailed, err)
-	}
-	if _, err := c.store.FinishRun(journalCtx, executionstore.FinishRunInput{VaultID: vaultID, RunID: runID, ExpectedState: execution.RunActive, NextState: runState, OccurredAt: now, IdempotencyKey: key + ":run-finish"}); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrJournalFailed, err)
 	}
 	return finished.Evidence, nil

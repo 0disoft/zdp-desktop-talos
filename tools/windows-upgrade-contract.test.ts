@@ -6,7 +6,7 @@ import { compareVersions, releaseProbeSchema, validateProbeReport, validateRecei
 const sourceCommit = "a".repeat(40);
 
 function validReceipt(): Record<string, unknown> {
-  const version = "0.34.8";
+  const version = "0.34.9";
   return {
     schema: "talos.windows-package-receipt/1",
     version,
@@ -32,7 +32,7 @@ describe("Windows upgrade package contract", () => {
   test("keeps release receipt fixtures aligned with the runtime parser", async () => {
     const root = path.join("contracts", "fixtures", "release", "v1");
     const valid = JSON.parse(await readFile(path.join(root, "valid-windows-package-receipt.json"), "utf8")) as unknown;
-    expect(validateReceipt(valid, sourceCommit).version).toBe("0.34.8");
+    expect(validateReceipt(valid, sourceCommit).version).toBe("0.34.9");
     const invalid = JSON.parse(await readFile(path.join(root, "invalid-windows-package-receipt-duplicate-artifact.json"), "utf8")) as unknown;
     expect(() => validateReceipt(invalid, sourceCommit)).toThrow("unexpected or duplicate artifact name");
   });
@@ -65,12 +65,12 @@ describe("release probe report contract", () => {
       {
         schema: releaseProbeSchema,
         action: "purge",
-        application_version: "0.34.8",
+        application_version: "0.34.9",
         vault_id: "vault-1",
         revision: 2,
         retention_days: 0,
       },
-      { action: "purge", application_version: "0.34.8", vault_id: "vault-1", revision: 2, retention_days: 0 },
+      { action: "purge", application_version: "0.34.9", vault_id: "vault-1", revision: 2, retention_days: 0 },
     );
     expect(report.retention_days).toBe(0);
   });
@@ -81,13 +81,13 @@ describe("release probe report contract", () => {
         {
           schema: releaseProbeSchema,
           action: "inspect",
-          application_version: "0.34.8",
+          application_version: "0.34.9",
           vault_id: "vault-1",
           revision: 1,
           retention_days: 30,
           local_path: "C:\\secret",
         },
-        { action: "inspect", application_version: "0.34.8" },
+        { action: "inspect", application_version: "0.34.9" },
       ),
     ).toThrow("unsupported field");
   });

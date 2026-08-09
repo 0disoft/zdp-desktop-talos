@@ -148,7 +148,7 @@ func TestWindowsPackageVerifierAcceptsOnlyTheExactReceiptArtifactSet(t *testing.
 	t.Parallel()
 	root := repositoryRoot(t)
 	temporary := t.TempDir()
-	version := "0.34.8"
+	version := "0.34.9"
 	commit := strings.Repeat("a", 40)
 	names := []string{
 		"talos-desktop.exe",

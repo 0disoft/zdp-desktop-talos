@@ -440,6 +440,9 @@ func (*fakeDatabase) PrepareAttempt(context.Context, executionstore.PrepareAttem
 func (*fakeDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
 	return executionstore.FinishedAttempt{}, executionstore.ErrNotFound
 }
+func (*fakeDatabase) FinishExecution(context.Context, executionstore.FinishExecutionInput) (executionstore.FinishedExecution, error) {
+	return executionstore.FinishedExecution{}, executionstore.ErrNotFound
+}
 func (*fakeDatabase) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
 	return execution.Run{}, executionstore.ErrNotFound
 }

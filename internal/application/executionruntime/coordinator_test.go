@@ -40,7 +40,7 @@ func TestCoordinatorJournalsBeforeDispatchAndFinishesKnownSuccess(t *testing.T) 
 	if result.Outcome != permission.OutcomeAllowTask || result.Tool.State != workerruntime.ToolSucceeded || result.Worktree.Root == "" || result.Evidence == nil {
 		t.Fatalf("result=%+v", result)
 	}
-	want := []string{"prepare", "worker-start-run", "worker-run-tool", "finish-attempt:succeeded", "finish-run:completed", "worker-shutdown"}
+	want := []string{"prepare", "worker-start-run", "worker-run-tool", "finish-execution:succeeded/completed", "worker-shutdown"}
 	if strings.Join(fixture.store.order, "|") != strings.Join(want, "|") {
 		t.Fatalf("order=%v want=%v", fixture.store.order, want)
 	}
@@ -187,6 +187,21 @@ type coordinatorStore struct {
 	attemptFinish executionstore.FinishAttemptInput
 	runFinish     executionstore.FinishRunInput
 	prepared      executionstore.Prepared
+}
+
+func (s *coordinatorStore) FinishExecution(_ context.Context, input executionstore.FinishExecutionInput) (executionstore.FinishedExecution, error) {
+	s.attemptFinish = input.Attempt
+	s.runFinish = input.Run
+	s.prepared.Attempt.State = input.Attempt.NextState
+	s.prepared.Attempt.ExitCode = input.Attempt.ExitCode
+	s.prepared.Attempt.SafeErrorCode = input.Attempt.SafeErrorCode
+	s.prepared.Run.State = input.Run.NextState
+	s.order = append(s.order, "finish-execution:"+string(input.Attempt.NextState)+"/"+string(input.Run.NextState))
+	if input.Attempt.Evidence != nil {
+		evidence := &verification.Evidence{ID: "evidence-1", VaultID: input.Attempt.VaultID, TaskID: input.Attempt.Evidence.TaskID, RunID: s.prepared.Run.ID, AttemptID: s.prepared.Attempt.ID, ContractRevision: input.Attempt.Evidence.ContractRevision, CommandIndex: input.Attempt.Evidence.CommandIndex, BaselineCommit: input.Attempt.Evidence.BaselineCommit, WorktreeStateHash: input.Attempt.Evidence.WorktreeStateHash, CapabilityHash: input.Attempt.Evidence.CapabilityHash, ExitCode: 0, StartedAt: input.Attempt.Evidence.StartedAt, FinishedAt: input.Attempt.Evidence.FinishedAt, EventID: "evidence-event"}
+		s.prepared.Evidence = evidence
+	}
+	return executionstore.FinishedExecution{Attempt: s.prepared.Attempt, Run: s.prepared.Run, Evidence: s.prepared.Evidence}, nil
 }
 
 func (s *coordinatorStore) GetTask(context.Context, string) (task.Record, error) {

@@ -91,6 +91,17 @@ type FinishedAttempt struct {
 	Evidence *verification.Evidence
 }
 
+type FinishExecutionInput struct {
+	Attempt FinishAttemptInput
+	Run     FinishRunInput
+}
+
+type FinishedExecution struct {
+	Attempt  execution.Attempt
+	Run      execution.Run
+	Evidence *verification.Evidence
+}
+
 type FinishRunInput struct {
 	VaultID        string
 	RunID          string
@@ -107,6 +118,7 @@ type Store interface {
 	SavePermissionGrant(context.Context, SaveGrantInput) (permission.Grant, error)
 	ListActivePermissionGrants(context.Context, string, string) ([]permission.Grant, error)
 	PrepareAttempt(context.Context, PrepareAttemptInput) (Prepared, error)
+	FinishExecution(context.Context, FinishExecutionInput) (FinishedExecution, error)
 	FinishAttempt(context.Context, FinishAttemptInput) (FinishedAttempt, error)
 	FinishRun(context.Context, FinishRunInput) (execution.Run, error)
 	ReconcilePendingAttempts(context.Context, string, time.Time) (int, error)

@@ -18,7 +18,8 @@ Vault SQLite schema version 8 owns permission grants, runs, and attempts as mate
 - One active run is allowed per Vault workspace, and one dispatch-pending attempt is allowed per run. Partial unique indexes enforce both invariants.
 - Creation and preparation event IDs are separate from latest event IDs so old idempotency keys still resolve after later transitions.
 - Attempt completion is a compare-and-swap transition from `dispatch_pending`. Late completion after reconciliation conflicts instead of overwriting recovery state.
-- A run cannot close while it has a dispatch-pending attempt. Closing the run releases the active-workspace uniqueness constraint.
+- The coordinator closes the attempt, optional verification evidence, and owning run through one SQLite transaction. A run-finalization failure rolls back the attempt transition and evidence so the active-workspace slot cannot become stranded behind a finished attempt.
+- A run cannot close while it has a dispatch-pending attempt. Closing the run in the same transaction releases the active-workspace uniqueness constraint.
 - Restart reconciliation converts pending attempts and their active runs to `unknown` in one transaction and appends encrypted reconciliation events. Unknown means effects may have occurred and reconciliation is required before retry.
 
 Execution events store identifiers, bounded status, hashes, and safe error codes. They do not store raw command output, secrets, or unrestricted process arguments.

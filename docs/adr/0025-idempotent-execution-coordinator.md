@@ -20,7 +20,7 @@ The application layer owns one execution coordinator with this ordering:
 5. If that preparation is an idempotency replay, return the materialized terminal or unknown state and never dispatch again.
 6. Create an owned baseline-bound worktree and start an owned worker session.
 7. Install only the evaluated capability before executing the tool.
-8. Persist the Attempt result before the Run result. Transport loss or unavailable worker state becomes `unknown`, not `failed`.
+8. Persist the Attempt result, optional verification evidence, and Run result atomically. Transport loss or unavailable worker state becomes `unknown`, not `failed`.
 9. Retain successful worktrees for review. Remove pre-dispatch failure worktrees when ownership verification permits it.
 
 SQLite owns Run, Attempt, and tool-call identifier generation after the idempotency lookup. This prevents retries from conflicting merely because the caller generated new identifiers.
@@ -39,4 +39,5 @@ The worker adapter translates wire states and timestamps into typed application-
 
 - Coordinator tests cover review without side effects, ordered allowed execution, terminal replay without redispatch, unknown protocol outcomes, and worker-policy failure cleanup.
 - SQLite tests cover generated identifiers, atomic preparation, one-time grant consumption, and idempotency replay.
+- SQLite tests force run-finalization failure and prove the attempt, evidence, run, and finish idempotency record roll back together.
 - Worker adapter tests reject unknown states and malformed timestamps.

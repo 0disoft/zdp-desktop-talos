@@ -68,6 +68,9 @@ func (*reviewStore) PrepareAttempt(context.Context, executionstore.PrepareAttemp
 func (*reviewStore) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
 	return executionstore.FinishedAttempt{}, errors.New("not used")
 }
+func (*reviewStore) FinishExecution(context.Context, executionstore.FinishExecutionInput) (executionstore.FinishedExecution, error) {
+	return executionstore.FinishedExecution{}, errors.New("not used")
+}
 func (*reviewStore) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
 	return execution.Run{}, errors.New("not used")
 }

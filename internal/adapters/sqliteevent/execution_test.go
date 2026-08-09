@@ -182,6 +182,83 @@ func TestFinishedAttemptAllowsRunToCloseAndReleasesWorkspace(t *testing.T) {
 	}
 }
 
+func TestFinishExecutionAtomicallyClosesAttemptAndRunAndReplays(t *testing.T) {
+	t.Parallel()
+	store, taskRecord, grant, input := executionFixture(t)
+	defer store.Close()
+	ctx := context.Background()
+	if _, err := store.SavePermissionGrant(ctx, executionstore.SaveGrantInput{VaultID: taskRecord.VaultID, Grant: grant, IdempotencyKey: "grant-create"}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := store.PrepareAttempt(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishInput := executionstore.FinishExecutionInput{
+		Attempt: executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-execution", Evidence: evidenceInput(taskRecord, prepared, input.OccurredAt, input.OccurredAt.Add(time.Second))},
+		Run:     executionstore.FinishRunInput{VaultID: taskRecord.VaultID, RunID: prepared.Run.ID, ExpectedState: execution.RunActive, NextState: execution.RunCompleted, OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-execution"},
+	}
+	finished, err := store.FinishExecution(ctx, finishInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Attempt.State != execution.AttemptSucceeded || finished.Run.State != execution.RunCompleted || finished.Evidence == nil {
+		t.Fatalf("finished=%+v", finished)
+	}
+	replayed, err := store.FinishExecution(ctx, finishInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.Attempt.LastEventID != finished.Attempt.LastEventID || replayed.Run.LastEventID != finished.Run.LastEventID || replayed.Evidence == nil || replayed.Evidence.ID != finished.Evidence.ID {
+		t.Fatalf("replay changed result: %+v != %+v", replayed, finished)
+	}
+	second := input
+	second.GrantID = ""
+	second.IdempotencyKey = "prepare-after-atomic-finish"
+	if _, err := store.PrepareAttempt(ctx, second); err != nil {
+		t.Fatalf("atomic finish did not release workspace: %v", err)
+	}
+}
+
+func TestFinishExecutionRollsBackAttemptEvidenceAndIdempotencyWhenRunFinishFails(t *testing.T) {
+	t.Parallel()
+	store, taskRecord, grant, input := executionFixture(t)
+	defer store.Close()
+	ctx := context.Background()
+	if _, err := store.SavePermissionGrant(ctx, executionstore.SaveGrantInput{VaultID: taskRecord.VaultID, Grant: grant, IdempotencyKey: "grant-create"}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := store.PrepareAttempt(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER reject_run_finish BEFORE UPDATE ON runs BEGIN SELECT RAISE(ABORT, 'forced run finish failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	finishInput := executionstore.FinishExecutionInput{
+		Attempt: executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-execution-rollback", Evidence: evidenceInput(taskRecord, prepared, input.OccurredAt, input.OccurredAt.Add(time.Second))},
+		Run:     executionstore.FinishRunInput{VaultID: taskRecord.VaultID, RunID: prepared.Run.ID, ExpectedState: execution.RunActive, NextState: execution.RunCompleted, OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-execution-rollback"},
+	}
+	if _, err := store.FinishExecution(ctx, finishInput); err == nil {
+		t.Fatal("run finish failure unexpectedly committed")
+	}
+	currentAttempt, err := store.GetAttempt(ctx, prepared.Attempt.ID)
+	if err != nil || currentAttempt.State != execution.AttemptDispatchPending {
+		t.Fatalf("attempt=%+v error=%v", currentAttempt, err)
+	}
+	var runState string
+	if err := store.db.QueryRow(`SELECT state FROM runs WHERE run_id = ?`, prepared.Run.ID).Scan(&runState); err != nil || runState != string(execution.RunActive) {
+		t.Fatalf("run state=%q error=%v", runState, err)
+	}
+	if count := tableCount(t, store, "verification_evidence"); count != 0 {
+		t.Fatalf("verification evidence survived rollback: %d", count)
+	}
+	var idempotencyCount int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM idempotency_keys WHERE idempotency_key = ?`, finishInput.Attempt.IdempotencyKey).Scan(&idempotencyCount); err != nil || idempotencyCount != 0 {
+		t.Fatalf("finish idempotency count=%d error=%v", idempotencyCount, err)
+	}
+}
+
 func TestSuccessfulAttemptAndEvidenceRollbackTogether(t *testing.T) {
 	t.Parallel()
 	store, taskRecord, grant, input := executionFixture(t)

@@ -627,6 +627,9 @@ func (*serviceDatabase) PrepareAttempt(context.Context, executionstore.PrepareAt
 func (*serviceDatabase) FinishAttempt(context.Context, executionstore.FinishAttemptInput) (executionstore.FinishedAttempt, error) {
 	return executionstore.FinishedAttempt{}, executionstore.ErrNotFound
 }
+func (*serviceDatabase) FinishExecution(context.Context, executionstore.FinishExecutionInput) (executionstore.FinishedExecution, error) {
+	return executionstore.FinishedExecution{}, executionstore.ErrNotFound
+}
 func (*serviceDatabase) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
 	return execution.Run{}, executionstore.ErrNotFound
 }
