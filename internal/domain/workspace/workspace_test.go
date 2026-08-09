@@ -23,6 +23,21 @@ func TestSnapshotRejectsPathEscapeAndStateMismatch(t *testing.T) {
 		t.Fatal("parent traversal was accepted")
 	}
 	invalid = base
+	invalid.Changes = []Change{{Path: "C:/outside", Kind: ChangeTracked, IndexStatus: 'M', WorktreeStatus: '.'}}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("Windows drive path was accepted")
+	}
+	invalid = base
+	invalid.Changes = []Change{{Path: `\\server\share`, Kind: ChangeTracked, IndexStatus: 'M', WorktreeStatus: '.'}}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("UNC path was accepted")
+	}
+	invalid = base
+	invalid.Changes = []Change{{Path: "/outside", Kind: ChangeTracked, IndexStatus: 'M', WorktreeStatus: '.'}}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("POSIX absolute path was accepted")
+	}
+	invalid = base
 	invalid.Dirty = false
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("dirty state mismatch was accepted")

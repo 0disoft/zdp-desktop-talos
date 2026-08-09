@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/repopath"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
 )
 
@@ -102,12 +103,15 @@ func (r Record) Validate() error {
 }
 
 func (c ContractRevision) AllowsPath(candidate string) bool {
-	candidate = path.Clean(strings.ReplaceAll(candidate, "\\", "/"))
-	if candidate == "." || candidate == ".." || strings.HasPrefix(candidate, "../") || strings.HasPrefix(candidate, "/") {
+	candidate, err := repopath.Normalize(candidate, false)
+	if err != nil {
 		return false
 	}
 	for _, pattern := range c.AllowedPaths {
-		pattern = path.Clean(strings.ReplaceAll(pattern, "\\", "/"))
+		pattern, err = repopath.Normalize(pattern, false)
+		if err != nil {
+			continue
+		}
 		if strings.HasSuffix(pattern, "/**") {
 			prefix := strings.TrimSuffix(pattern, "/**")
 			if candidate == prefix || strings.HasPrefix(candidate, prefix+"/") {
@@ -182,11 +186,11 @@ func normalizeWorkingDirectory(value string) (string, error) {
 	if len(value) > MaxContractTextSize || strings.ContainsAny(value, "*?[]") || strings.IndexByte(value, 0) >= 0 {
 		return "", fmt.Errorf("%w: verification working directory is invalid", ErrInvalidRecord)
 	}
-	clean := filepath.Clean(filepath.FromSlash(value))
-	if filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+	clean, err := repopath.Normalize(value, true)
+	if err != nil {
 		return "", fmt.Errorf("%w: verification working directory must remain repository-relative", ErrInvalidRecord)
 	}
-	return filepath.ToSlash(clean), nil
+	return clean, nil
 }
 
 func validateUnique(values []string, paths bool) error {
@@ -197,11 +201,11 @@ func validateUnique(values []string, paths bool) error {
 			return fmt.Errorf("%w: contract entry is invalid", ErrInvalidRecord)
 		}
 		if paths {
-			clean := filepath.Clean(filepath.FromSlash(value))
-			if filepath.IsAbs(clean) || filepath.VolumeName(clean) != "" || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+			clean, err := repopath.Normalize(value, false)
+			if err != nil {
 				return fmt.Errorf("%w: allowed path must remain repository-relative", ErrInvalidRecord)
 			}
-			value = filepath.ToSlash(clean)
+			value = clean
 		}
 		if _, exists := seen[value]; exists {
 			return fmt.Errorf("%w: duplicate contract entry", ErrInvalidRecord)

@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
+
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/repopath"
 )
 
 const MaxChanges = 4096
@@ -83,9 +84,9 @@ func (c Change) Validate() error {
 }
 
 func validRelativePath(value string) bool {
-	if value == "" || strings.IndexByte(value, 0) >= 0 || filepath.IsAbs(value) || filepath.VolumeName(value) != "" {
+	if len(value) > 4096 {
 		return false
 	}
-	clean := filepath.Clean(filepath.FromSlash(value))
-	return clean != "." && clean != ".." && !filepath.IsAbs(clean) && len(clean) <= 4096 && clean[:1] != string(filepath.Separator) && (len(clean) < 3 || clean[:3] != ".."+string(filepath.Separator))
+	_, err := repopath.Normalize(value, false)
+	return err == nil
 }

@@ -20,7 +20,7 @@ import (
 func TestCompileTaskCreatesOneIdempotentCandidatePerAnsweredDecision(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
-	taskRecord := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: strings.Repeat("a", 40), Status: task.StatusContracted, CurrentRevision: 2, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
+	taskRecord := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: t.TempDir(), BaselineCommit: strings.Repeat("a", 40), Status: task.StatusContracted, CurrentRevision: 2, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
 	taskRecord.SourceWorkspaceHash = strings.Repeat("c", 64)
 	taskRecord.WorkspaceID = workspacemapping.ID(taskRecord.VaultID, taskRecord.SourceWorkspaceHash)
 	contract := task.ContractRevision{TaskID: taskRecord.ID, Revision: 2, BaselineCommit: taskRecord.BaselineCommit, Goal: "Keep Decision revisions consistent", AllowedPaths: []string{"internal/domain/decision/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}
@@ -57,7 +57,7 @@ func TestCompileTaskCreatesOneIdempotentCandidatePerAnsweredDecision(t *testing.
 func TestCompileTaskRejectsCrossVaultAndMalformedEvidence(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
-	taskRecord := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: strings.Repeat("a", 40), Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
+	taskRecord := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: t.TempDir(), BaselineCommit: strings.Repeat("a", 40), Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
 	taskRecord.SourceWorkspaceHash = strings.Repeat("d", 64)
 	taskRecord.WorkspaceID = workspacemapping.ID(taskRecord.VaultID, taskRecord.SourceWorkspaceHash)
 	contract := task.ContractRevision{TaskID: "task-1", Revision: 1, BaselineCommit: taskRecord.BaselineCommit, Goal: "memory decision", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}
@@ -85,7 +85,7 @@ func TestCompileTaskRejectsSecretBeforeCreatingAnyCandidate(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Add(-time.Hour)
 	baseline := strings.Repeat("b", 40)
-	taskRecord := task.Record{ID: "task-secret", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: baseline, Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
+	taskRecord := task.Record{ID: "task-secret", VaultID: "vault-1", WorkspaceRoot: t.TempDir(), BaselineCommit: baseline, Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "task-event"}
 	taskRecord.SourceWorkspaceHash = strings.Repeat("e", 64)
 	taskRecord.WorkspaceID = workspacemapping.ID(taskRecord.VaultID, taskRecord.SourceWorkspaceHash)
 	contract := task.ContractRevision{TaskID: taskRecord.ID, Revision: 1, BaselineCommit: baseline, Goal: "Remember concurrency decisions", AllowedPaths: []string{"internal/**"}, AcceptanceCriteria: []string{"tests pass"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"test", "./..."}, WorkingDirectory: "."}}, Risk: task.RiskLow, CreatedAt: now, EventID: "contract-event"}

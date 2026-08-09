@@ -12,7 +12,7 @@ Existing encrypted contract events predate executable verification and must rema
 ## Decision
 
 - Store each verification command as a policy `rule_id`, an exact ordered argument array, and a repository-relative working directory.
-- Reject absolute, escaping, wildcard, NUL-containing, oversized, or duplicate command definitions in the domain model.
+- Reject Windows drive, UNC, POSIX absolute, escaping, wildcard, NUL-containing, oversized, or duplicate command definitions in the domain model using host-independent repository path semantics.
 - Require at least one verification command at the Vault-session confirmation boundary for new and revised contracts. Continue to decode legacy event payloads whose command collection is absent.
 - Keep command bodies in the encrypted Task Contract event. Do not copy them into materialized Task or revision rows.
 - Treat the rule ID as a request for trusted runtime policy, not as an executable name. A later execution assembly must resolve the rule to an absolute executable and server-owned environment, timeout, and output limit before the Permission Broker sees a `ProcessIntent`.
@@ -26,7 +26,7 @@ The current desktop form authors one structured command per confirmation. The do
 
 ## Verification
 
-- Domain tests reject invalid rule IDs, empty or NUL arguments, escaping and wildcard working directories, and duplicate commands.
+- Domain tests reject invalid rule IDs, empty or NUL arguments, Windows drive, UNC, POSIX absolute, escaping and wildcard working directories, and duplicate commands on every host.
 - SQLite restart tests restore the structured command from the encrypted event payload.
 - Wails tests prove the renderer fields reach the Vault application boundary and that an empty verification set is rejected before persistence.
 - Frontend checking and production build verify the typed structured request.

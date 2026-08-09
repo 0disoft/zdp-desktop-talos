@@ -9,7 +9,7 @@ import (
 func TestContractRevisionRejectsEscapingAndDuplicatePaths(t *testing.T) {
 	t.Parallel()
 	valid := ContractRevision{TaskID: "task-1", Revision: 1, BaselineCommit: "0123456789012345678901234567890123456789", Goal: "Add a contract", AllowedPaths: []string{"internal/task/**"}, AcceptanceCriteria: []string{"tests pass"}, Risk: RiskMedium, CreatedAt: time.Now(), EventID: "event-1"}
-	for _, paths := range [][]string{{"../secret"}, {"internal/task/**", "internal/task/**"}, {"C:/outside"}} {
+	for _, paths := range [][]string{{"../secret"}, {"internal/task/**", "internal/task/**"}, {"C:/outside"}, {`C:\outside`}, {`\\server\share`}, {"/outside"}} {
 		candidate := valid
 		candidate.AllowedPaths = paths
 		if err := candidate.Validate(); !errors.Is(err, ErrInvalidRecord) {
@@ -20,7 +20,7 @@ func TestContractRevisionRejectsEscapingAndDuplicatePaths(t *testing.T) {
 
 func TestRecordRequiresKnownStatusRevisionAndBaseline(t *testing.T) {
 	t.Parallel()
-	record := Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: `C:\repo`, BaselineCommit: "0123456789012345678901234567890123456789", Status: StatusContracted, CurrentRevision: 1, CreatedAt: time.Now(), UpdatedAt: time.Now(), LastEventID: "event-1"}
+	record := Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: t.TempDir(), BaselineCommit: "0123456789012345678901234567890123456789", Status: StatusContracted, CurrentRevision: 1, CreatedAt: time.Now(), UpdatedAt: time.Now(), LastEventID: "event-1"}
 	if err := record.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestContractRevisionMatchesAllowedPaths(t *testing.T) {
 			t.Fatalf("expected allowed: %s", candidate)
 		}
 	}
-	for _, candidate := range []string{"internal/other.go", "frontend/src/main.ts", "../secret", "/absolute"} {
+	for _, candidate := range []string{"internal/other.go", "frontend/src/main.ts", "../secret", "/absolute", "C:/absolute", `C:\absolute`, `\\server\share`} {
 		if contract.AllowsPath(candidate) {
 			t.Fatalf("unexpected allowed: %s", candidate)
 		}
@@ -67,6 +67,8 @@ func TestContractRevisionValidatesStructuredVerificationCommands(t *testing.T) {
 		{RuleID: "go-test", Arguments: []string{""}, WorkingDirectory: "."},
 		{RuleID: "go-test", Arguments: []string{"test"}, WorkingDirectory: "../outside"},
 		{RuleID: "go-test", Arguments: []string{"test"}, WorkingDirectory: "internal/*"},
+		{RuleID: "go-test", Arguments: []string{"test"}, WorkingDirectory: "C:/outside"},
+		{RuleID: "go-test", Arguments: []string{"test"}, WorkingDirectory: `\\server\share`},
 	}
 	for _, command := range cases {
 		candidate := valid

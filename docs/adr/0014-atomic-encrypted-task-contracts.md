@@ -13,7 +13,7 @@ A Task without its first contract revision is not executable state, and a contra
 - Store only a SHA-256 workspace-root identifier and baseline commit on the Task. Keep the actual local path in the encrypted event. Repeat the baseline on each contract pointer and enforce a composite foreign key so a revision cannot silently move to another baseline.
 - Keep contract body fields only in the encrypted event payload. The revision table stores Task ID, revision, baseline, creation time, and event provenance.
 - Bind idempotency to the complete creation intent. Reusing a key with changed goal, scope, baseline, risk, criteria, or verification commands fails closed.
-- Require an active Vault and repository-relative, unique allowed paths before persistence.
+- Require an active Vault and repository-relative, unique allowed paths before persistence. Interpret repository-relative paths with portable slash semantics, independent of the current host, and reject Windows drive, UNC, POSIX absolute, and parent-escaping forms on every platform.
 
 ## Consequences
 
@@ -25,5 +25,6 @@ Task listing can use bounded materialized metadata without decrypting contract b
 - Same-intent replay returns the original identities; changed-intent replay is rejected.
 - A composite foreign key rejects baseline mutation.
 - Restart restores the same Task and contract through encrypted event decryption.
+- Domain tests prove Windows drive, UNC, POSIX absolute, and parent-escaping allowed paths are rejected with the same lexical rules on every host.
 - Restart restores structured verification rule IDs, exact argument arrays, and repository-relative working directories without converting them into shell strings.
 - Contract goal markers are absent from checkpointed database bytes.
