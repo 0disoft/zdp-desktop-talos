@@ -672,6 +672,24 @@ func scanVerificationEvidence(row scanner) (verification.Evidence, error) {
 }
 
 func hashExecutionCommand(value any) ([]byte, error) {
+	switch input := value.(type) {
+	case executionstore.SaveGrantInput:
+		input.OccurredAt = time.Time{}
+		value = input
+	case executionstore.PrepareAttemptInput:
+		input.OccurredAt = time.Time{}
+		value = input
+	case executionstore.FinishAttemptInput:
+		input.OccurredAt = time.Time{}
+		value = input
+	case executionstore.FinishRunInput:
+		input.OccurredAt = time.Time{}
+		value = input
+	case executionstore.FinishExecutionInput:
+		input.Attempt.OccurredAt = time.Time{}
+		input.Run.OccurredAt = time.Time{}
+		value = input
+	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("encode execution command: %w", err)

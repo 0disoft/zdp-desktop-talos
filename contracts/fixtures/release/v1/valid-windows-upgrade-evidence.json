@@ -22,7 +22,7 @@
     "receipt_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
   },
   "new_package": {
-    "version": "0.34.11",
+    "version": "0.34.12",
     "source_commit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "receipt_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   },
@@ -43,8 +43,8 @@
     { "name": "package-verification", "status": "passed" },
     { "name": "old-install", "status": "passed", "application_version": "0.33.0" },
     { "name": "old-vault", "status": "passed", "application_version": "0.33.0", "revision": 1, "retention_days": 30 },
-    { "name": "new-install", "status": "passed", "application_version": "0.34.11" },
-    { "name": "new-vault", "status": "passed", "application_version": "0.34.11", "revision": 2, "retention_days": 45 },
+    { "name": "new-install", "status": "passed", "application_version": "0.34.12" },
+    { "name": "new-vault", "status": "passed", "application_version": "0.34.12", "revision": 2, "retention_days": 45 },
     { "name": "uninstall-retention", "status": "passed", "revision": 2, "retention_days": 45 },
     { "name": "rollback", "status": "passed", "application_version": "0.33.0", "revision": 2, "retention_days": 45 },
     { "name": "purge", "status": "passed", "revision": 2 }

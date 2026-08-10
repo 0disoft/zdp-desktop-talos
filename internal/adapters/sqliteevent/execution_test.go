@@ -31,7 +31,9 @@ func TestPrepareAttemptAtomicallyConsumesOneTimeGrantAndReplays(t *testing.T) {
 	if prepared.Run.State != execution.RunActive || prepared.Attempt.State != execution.AttemptDispatchPending || prepared.Attempt.GrantID != grant.ID {
 		t.Fatalf("prepared=%+v", prepared)
 	}
-	replayed, err := store.PrepareAttempt(ctx, preparedInput)
+	retryInput := preparedInput
+	retryInput.OccurredAt = retryInput.OccurredAt.Add(time.Minute)
+	replayed, err := store.PrepareAttempt(ctx, retryInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +219,38 @@ func TestFinishExecutionAtomicallyClosesAttemptAndRunAndReplays(t *testing.T) {
 	second.IdempotencyKey = "prepare-after-atomic-finish"
 	if _, err := store.PrepareAttempt(ctx, second); err != nil {
 		t.Fatalf("atomic finish did not release workspace: %v", err)
+	}
+}
+
+func TestFinishExecutionReplayIgnoresRetryOccurrenceTime(t *testing.T) {
+	t.Parallel()
+	store, taskRecord, grant, input := executionFixture(t)
+	defer store.Close()
+	ctx := context.Background()
+	if _, err := store.SavePermissionGrant(ctx, executionstore.SaveGrantInput{VaultID: taskRecord.VaultID, Grant: grant, IdempotencyKey: "grant-create"}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := store.PrepareAttempt(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishInput := executionstore.FinishExecutionInput{
+		Attempt: executionstore.FinishAttemptInput{VaultID: taskRecord.VaultID, AttemptID: prepared.Attempt.ID, ExpectedState: execution.AttemptDispatchPending, NextState: execution.AttemptSucceeded, ExitCode: intPointer(0), OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-execution-time-retry", Evidence: evidenceInput(taskRecord, prepared, input.OccurredAt, input.OccurredAt.Add(time.Second))},
+		Run:     executionstore.FinishRunInput{VaultID: taskRecord.VaultID, RunID: prepared.Run.ID, ExpectedState: execution.RunActive, NextState: execution.RunCompleted, OccurredAt: input.OccurredAt.Add(time.Second), IdempotencyKey: "finish-execution-time-retry"},
+	}
+	finished, err := store.FinishExecution(ctx, finishInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry := finishInput
+	retry.Attempt.OccurredAt = retry.Attempt.OccurredAt.Add(time.Minute)
+	retry.Run.OccurredAt = retry.Attempt.OccurredAt
+	replayed, err := store.FinishExecution(ctx, retry)
+	if err != nil {
+		t.Fatalf("same semantic finish with a new retry time failed: %v", err)
+	}
+	if replayed.Attempt.LastEventID != finished.Attempt.LastEventID || replayed.Run.LastEventID != finished.Run.LastEventID {
+		t.Fatalf("retry changed execution result: %+v != %+v", replayed, finished)
 	}
 }
 

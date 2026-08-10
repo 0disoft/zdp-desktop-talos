@@ -1088,6 +1088,10 @@ func (c *Creator) Open(ctx context.Context, vaultID string) (*Session, error) {
 		_ = database.Close()
 		return nil, fmt.Errorf("%w: stored Vault identity or state is invalid", ErrNotCataloged)
 	}
+	if _, err := database.ReconcilePendingAttempts(ctx, vaultID, c.now().UTC()); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("reconcile pending execution attempts: %w", err)
+	}
 	return c.newSession(record, database), nil
 }
 

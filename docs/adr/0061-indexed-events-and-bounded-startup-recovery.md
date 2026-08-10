@@ -12,7 +12,10 @@ Enrollment expiry and staged-artifact recovery are different: time can pass and 
 ## Decision
 
 - Schema 24 adds ordered indexes for `(vault_id, occurred_at, event_id)` and `(schema_version, event_type, occurred_at, event_id)`.
-- Schema 24 adds a `recovery_markers` table keyed by a versioned recovery identity.
+- Schema 24 adds a `recovery_markers` table keyed by a versioned recovery identity. The stored
+  completion version belongs to the recovery algorithm, not the enclosing SQLite schema, so later
+  unrelated schema upgrades do not invalidate a completed recovery. Existing schema-coupled value
+  `24` is accepted once and normalized to recovery version `1`.
 - Workspace mapping, legacy Task snapshot, Memory workspace identity, and legacy Memory snapshot reconciliation run in dependency order only when `legacy-portable-state/v24` is absent.
 - Record the marker only after every compatibility step succeeds. A crash or failure before that insert leaves the recovery retryable and idempotent.
 - Treat a marker with a mismatched schema version as corruption and fail closed.

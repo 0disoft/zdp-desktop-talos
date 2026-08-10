@@ -300,7 +300,7 @@ func TestSchema24IndexesEventsAndMarksLegacyRecoveryComplete(t *testing.T) {
 	assertQueryPlanUsesIndex(t, store.db, "events_vault_order_idx", `SELECT event_id FROM events WHERE vault_id = ? ORDER BY occurred_at, event_id`, "vault-test")
 	assertQueryPlanUsesIndex(t, store.db, "events_schema_type_order_idx", `SELECT event_id FROM events WHERE schema_version = ? AND event_type = ? ORDER BY occurred_at, event_id`, 1, "task.created")
 	var firstCompletedAt string
-	if err := store.db.QueryRowContext(ctx, `SELECT completed_at FROM recovery_markers WHERE recovery_key = ? AND completed_schema_version = ?`, legacyPortableRecoveryKey, currentSchemaVersion).Scan(&firstCompletedAt); err != nil {
+	if err := store.db.QueryRowContext(ctx, `SELECT completed_at FROM recovery_markers WHERE recovery_key = ? AND completed_schema_version = ?`, legacyPortableRecoveryKey, legacyPortableRecoveryVersion).Scan(&firstCompletedAt); err != nil {
 		t.Fatalf("read recovery marker: %v", err)
 	}
 	if err := store.Close(); err != nil {
@@ -321,7 +321,7 @@ func TestOpenRejectsLegacyRecoveryMarkerSchemaMismatch(t *testing.T) {
 	t.Parallel()
 	databasePath := filepath.Join(t.TempDir(), "recovery-marker-mismatch.db")
 	store := openTestStore(t, databasePath)
-	if _, err := store.db.Exec(`UPDATE recovery_markers SET completed_schema_version = ? WHERE recovery_key = ?`, currentSchemaVersion-1, legacyPortableRecoveryKey); err != nil {
+	if _, err := store.db.Exec(`UPDATE recovery_markers SET completed_schema_version = ? WHERE recovery_key = ?`, legacyPortableRecoveryVersion+1, legacyPortableRecoveryKey); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -338,6 +338,27 @@ func TestOpenRejectsLegacyRecoveryMarkerSchemaMismatch(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "recovery marker schema mismatch") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestOpenNormalizesSchemaCoupledLegacyRecoveryMarker(t *testing.T) {
+	t.Parallel()
+	databasePath := filepath.Join(t.TempDir(), "legacy-recovery-marker.db")
+	store := openTestStore(t, databasePath)
+	if _, err := store.db.Exec(`UPDATE recovery_markers SET completed_schema_version = ? WHERE recovery_key = ?`, legacyPortableRecoveryLegacySchemaVersion, legacyPortableRecoveryKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened := openTestStore(t, databasePath)
+	defer reopened.Close()
+	var version int
+	if err := reopened.db.QueryRow(`SELECT completed_schema_version FROM recovery_markers WHERE recovery_key = ?`, legacyPortableRecoveryKey).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != legacyPortableRecoveryVersion {
+		t.Fatalf("normalized recovery version=%d", version)
 	}
 }
 

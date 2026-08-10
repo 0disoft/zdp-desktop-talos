@@ -149,8 +149,21 @@ func TestOpenRequiresCatalogAndLoadsMatchingVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer session.Close()
-	if !databases.opened || session.Record != database.stored {
+	if !databases.opened || session.Record != database.stored || database.reconcileVaultID != vaultID || database.reconcileAt.IsZero() {
 		t.Fatalf("session=%+v database=%+v factory=%+v", session.Record, database.stored, databases)
+	}
+}
+
+func TestOpenFailsClosedWhenPendingExecutionReconciliationFails(t *testing.T) {
+	t.Parallel()
+	createdAt := time.Unix(1_800_000_000, 0).UTC()
+	vaultID := "00000000-0000-7000-8000-000000000001"
+	keys := &fakeKeyStore{value: bytes.Repeat([]byte{3}, vaultKeyBytes), present: true}
+	database := &fakeDatabase{stored: vault.Record{ID: vaultID, Revision: 1, Status: vault.StatusActive, RetentionDays: 30, CreatedAt: createdAt, UpdatedAt: createdAt, LastEventID: "event-1"}, reconcileErr: errors.New("journal unavailable")}
+	creator, _ := NewCreator(keys, &fakeDatabaseFactory{database: database}, &fakeCatalog{entries: []vaultcatalog.Entry{{VaultID: vaultID, CreatedAt: createdAt}}})
+
+	if _, err := creator.Open(context.Background(), vaultID); err == nil || !database.closed {
+		t.Fatalf("open error=%v database=%+v", err, database)
 	}
 }
 
@@ -357,11 +370,14 @@ func (f *fakeDatabaseFactory) Purge(context.Context, string) error {
 }
 
 type fakeDatabase struct {
-	input       vaultstore.CreateInput
-	createErr   error
-	closed      bool
-	stored      vault.Record
-	updateInput vaultstore.UpdateRetentionInput
+	input            vaultstore.CreateInput
+	createErr        error
+	closed           bool
+	stored           vault.Record
+	updateInput      vaultstore.UpdateRetentionInput
+	reconcileVaultID string
+	reconcileAt      time.Time
+	reconcileErr     error
 }
 
 func (d *fakeDatabase) CreateVault(_ context.Context, input vaultstore.CreateInput) (vault.Record, error) {
@@ -446,8 +462,10 @@ func (*fakeDatabase) FinishExecution(context.Context, executionstore.FinishExecu
 func (*fakeDatabase) FinishRun(context.Context, executionstore.FinishRunInput) (execution.Run, error) {
 	return execution.Run{}, executionstore.ErrNotFound
 }
-func (*fakeDatabase) ReconcilePendingAttempts(context.Context, string, time.Time) (int, error) {
-	return 0, nil
+func (d *fakeDatabase) ReconcilePendingAttempts(_ context.Context, vaultID string, occurredAt time.Time) (int, error) {
+	d.reconcileVaultID = vaultID
+	d.reconcileAt = occurredAt
+	return 0, d.reconcileErr
 }
 func (*fakeDatabase) GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error) {
 	return verification.Evidence{}, executionstore.ErrNotFound
