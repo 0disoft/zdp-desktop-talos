@@ -1,0 +1,57 @@
+{
+  "schema": "talos.malicious-repository-corpus/1",
+  "automated_cases": [
+    {
+      "id": "outside-symlink",
+      "boundary": "safe-diff",
+      "expected": "omit-without-following"
+    },
+    {
+      "id": "external-diff-helper",
+      "boundary": "safe-diff",
+      "expected": "ignore-repository-helper"
+    },
+    {
+      "id": "hostile-checkout-hook",
+      "boundary": "worktree-create",
+      "expected": "ignore-repository-hook"
+    },
+    {
+      "id": "oversized-untracked-file",
+      "boundary": "safe-diff",
+      "expected": "truncate-and-mark"
+    },
+    {
+      "id": "dirty-primary-apply",
+      "boundary": "patch-apply",
+      "expected": "reject-conflict"
+    },
+    {
+      "id": "detached-head",
+      "boundary": "repository-inspection",
+      "expected": "report-detached"
+    }
+  ],
+  "declared_limitations": [
+    {
+      "id": "home-directory-read",
+      "owner": "platform-os-sandbox",
+      "reason": "A same-user process can read outside the worktree until native sandboxing is enabled."
+    },
+    {
+      "id": "case-collision",
+      "owner": "native-filesystem-matrix",
+      "reason": "Case-collision behavior requires native case-sensitive and case-insensitive filesystem runners."
+    },
+    {
+      "id": "unicode-normalization-collision",
+      "owner": "native-filesystem-matrix",
+      "reason": "Normalization collisions require native APFS, NTFS, and Linux filesystem fixtures."
+    },
+    {
+      "id": "endless-child-process",
+      "owner": "native-worker-containment",
+      "reason": "Process-tree termination is platform-specific and remains owned by native Job Object and sandbox tests."
+    }
+  ]
+}

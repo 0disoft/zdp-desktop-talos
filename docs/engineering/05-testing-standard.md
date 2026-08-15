@@ -2,7 +2,7 @@
 
 Domain tests cover states and invariants. Property and fuzz tests cover event ordering, duplicate import, conflict merge, path normalization, framing, and redaction. Integration tests cover SQLite/WAL recovery, encrypted blobs, Git worktrees, process cancellation, output caps, and provider schema failures. Desktop E2E covers the real main/worker boundary.
 
-The malicious-repository corpus includes prompt injection, symlinks outside the repository, hostile hooks/helpers, home-directory reads, endless child processes, huge output, ANSI/HTML payloads, case collisions, Unicode normalization, dirty state, and detached HEAD.
+The versioned malicious-repository corpus executes outside-worktree symlink, repository-controlled diff helper, hostile checkout hook, oversized untracked diff, dirty-primary apply, and detached-HEAD cases against the real Git adapter. Prompt/secret injection remains a model-egress test, while output limits and Windows child-tree termination remain worker tests. Home-directory reads are not prevented before a native OS sandbox exists; case and Unicode-normalization collisions require the native filesystem matrix. Those gaps are explicit corpus limitations, not synthetic passing fixtures.
 
 PR tests use fake providers and recorded fixtures. Live provider contracts run separately with dedicated credentials and bounded cost. A test passed before the final patch mutation is stale evidence.
 

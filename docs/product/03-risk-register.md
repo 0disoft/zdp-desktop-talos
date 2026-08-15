@@ -7,7 +7,7 @@
 |---|---|---|---|
 | Memory pollution | stale or inferred rules keep changing good patches | provenance, scope, conflicts, expiry, explicit gate, synthetic exact-set corpus | any missing, unexpected, forbidden, ranking, or determinism corpus regression blocks release |
 | Sandbox illusion | repository tests read user files outside the worktree | honest capability language, restricted environment, platform sandbox milestone | no claim of OS isolation before proof |
-| Prompt injection | README or tool output requests secrets or broader authority | untrusted-content boundary and deterministic broker | malicious-repo fixtures pass |
+| Prompt injection | README or tool output requests secrets or broader authority | untrusted-content boundary and deterministic broker | prompt-egress and malicious-repository gates pass |
 | Secret persistence | credentials enter ledger, logs, model calls, or projections | redaction at collection/storage/egress/export and fail-closed scanner | any secret fixture leak blocks release |
 | Stale evidence | code changes after tests but UI still shows verified | bind evidence to repository revision and diff hash | freshness regression blocks release |
 | Duplicate effects | crash causes a command, patch, or answer to run twice | idempotency key and attempt journal | crash-recovery scenarios pass |
