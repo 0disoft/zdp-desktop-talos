@@ -1,6 +1,6 @@
 {
   "schema": "talos.windows-package-receipt/1",
-  "version": "0.35.0",
+  "version": "0.35.1",
   "architecture": "amd64",
   "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "signature_required": true,

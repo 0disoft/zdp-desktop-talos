@@ -2,7 +2,7 @@
   "schema": "talos.update-manifest/1",
   "release_id": "019f5f1a-3000-7000-8000-000000000001",
   "channel": "beta",
-  "version": "0.35.0",
+  "version": "0.35.1",
   "minimum_current_version": "0.33.0",
   "published_at": "2026-07-19T11:00:00Z",
   "expires_at": "2026-07-20T11:00:00Z",
@@ -11,7 +11,7 @@
     "architecture": "amd64"
   },
   "artifact": {
-    "name": "talos-agent-0.35.0-windows-amd64.exe",
+    "name": "talos-agent-0.35.1-windows-amd64.exe",
     "size_bytes": 1048576,
     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   },

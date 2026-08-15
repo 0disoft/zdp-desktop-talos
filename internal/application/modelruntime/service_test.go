@@ -35,7 +35,7 @@ func TestFixtureProviderCompletesBoundedFakeRepositoryScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != StateCompleted || result.Receipt.Status != planning.EgressCompleted || result.Receipt.RedactionCount == 0 || len(result.Executions) != 1 || executor.requests[0].CommandIndex != 0 {
+	if result.State != StateCompleted || result.Receipt.Status != planning.EgressCompleted || result.Receipt.RedactionCount == 0 || len(result.Executions) != 1 || executor.requests[0].CommandIndex != 0 || executor.requests[0].WorkspaceRoot != store.record.WorkspaceRoot || executor.requests[0].BaselineCommit != store.record.BaselineCommit {
 		t.Fatalf("result=%+v requests=%+v", result, executor.requests)
 	}
 	if strings.Contains(store.lastProviderContext, "sk-proj-") || !strings.Contains(store.lastProviderContext, "[REDACTED]") || !strings.Contains(store.lastProviderContext, "untrusted_data") {

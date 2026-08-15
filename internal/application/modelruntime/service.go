@@ -162,12 +162,17 @@ func (s *Service) Run(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return result, err
 	}
+	record, err := s.store.GetTask(ctx, request.TaskID)
+	if err != nil || record.Status != task.StatusContracted {
+		return result, errors.Join(ErrExecutionIncomplete, err)
+	}
 	result.State = StateCompleted
 	result.Executions = make([]executionruntime.Result, 0, len(result.Plan.Steps))
 	for _, step := range result.Plan.Steps {
 		executionResult, executeErr := s.executor.Execute(ctx, executionruntime.Request{
 			TaskID: request.TaskID, CommandIndex: step.Tool.CommandIndex,
 			IdempotencyKey: toolIdempotencyKey(request.IdempotencyKey, step.Tool.ID),
+			WorkspaceRoot:  record.WorkspaceRoot, BaselineCommit: record.BaselineCommit,
 		})
 		result.Executions = append(result.Executions, executionResult)
 		if executeErr != nil {

@@ -3,7 +3,7 @@
   "schemaVersion": 1,
   "generatorVersion": "0.6.12",
   "version": "0.6.12",
-  "generatedAt": "2026-08-15T11:33:18.163Z",
+  "generatedAt": "2026-08-15T11:59:34.495Z",
   "scope": "general",
   "profile": "desktop-app",
   "addons": [
@@ -751,13 +751,13 @@
     },
     {
       "path": "docs/engineering/05-testing-standard.md",
-      "checksum": "sha256:ccdf312d8bc83442612e82f94a2450791c59d8b4c53889f6cca1bd2923e2545f",
+      "checksum": "sha256:1e607da541c2a377715fcfb687ea659a72999950ed45d175be6f049a490f341f",
       "kind": "document",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:1f4bac44fda4431afe4567cadd6e5d080bcb2e3de09f468a9294251a6233c8e2",
-      "acceptedChecksum": "sha256:ccdf312d8bc83442612e82f94a2450791c59d8b4c53889f6cca1bd2923e2545f",
+      "acceptedChecksum": "sha256:1e607da541c2a377715fcfb687ea659a72999950ed45d175be6f049a490f341f",
       "generatedChecksum": "sha256:1f4bac44fda4431afe4567cadd6e5d080bcb2e3de09f468a9294251a6233c8e2"
     },
     {
@@ -1004,13 +1004,13 @@
     },
     {
       "path": "Taskfile.yml",
-      "checksum": "sha256:aec9af3b96ff46ab117a12c7beec0b34bc01c846a30aa4591b2ee8760648fcac",
+      "checksum": "sha256:a9c281b545e3bd50f22fc8dd7b96b0ff8899c5206f7f55d46af8e49eb1f1f630",
       "kind": "runner",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608",
-      "acceptedChecksum": "sha256:aec9af3b96ff46ab117a12c7beec0b34bc01c846a30aa4591b2ee8760648fcac",
+      "acceptedChecksum": "sha256:a9c281b545e3bd50f22fc8dd7b96b0ff8899c5206f7f55d46af8e49eb1f1f630",
       "generatedChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608"
     },
     {
