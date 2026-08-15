@@ -7,6 +7,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/taskbudget"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 )
 
@@ -16,6 +17,7 @@ var (
 	ErrConflict            = errors.New("execution journal state conflict")
 	ErrIdempotencyConflict = errors.New("execution journal idempotency conflict")
 	ErrGrantUnavailable    = errors.New("permission grant is unavailable")
+	ErrBudgetExceeded      = errors.New("task execution budget exceeded")
 )
 
 type SaveGrantInput struct {
@@ -52,6 +54,7 @@ type PrepareAttemptInput struct {
 	WorkspaceHash  string
 	CapabilityHash string
 	GrantID        string
+	Budget         taskbudget.Policy
 	OccurredAt     time.Time
 	IdempotencyKey string
 }

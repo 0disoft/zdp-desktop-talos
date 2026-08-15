@@ -19,33 +19,35 @@ import (
 const modelEgressEventSchemaVersion = 1
 
 type modelEgressPayload struct {
-	ReceiptID         string                `json:"receipt_id"`
-	TaskID            string                `json:"task_id"`
-	ContractRevision  int                   `json:"contract_revision"`
-	ProviderKey       string                `json:"provider_key"`
-	ModelKey          string                `json:"model_key"`
-	RequestID         string                `json:"request_id"`
-	PromptVersion     string                `json:"prompt_version"`
-	ContextHash       string                `json:"context_hash"`
-	RequestHash       string                `json:"request_hash"`
-	ResponseHash      string                `json:"response_hash,omitempty"`
-	ProviderCallID    string                `json:"provider_call_id,omitempty"`
-	ContextItems      int                   `json:"context_items"`
-	InputBytes        int                   `json:"input_bytes"`
-	OutputBytes       int                   `json:"output_bytes"`
-	RedactionCount    int                   `json:"redaction_count"`
-	InputTokens       int                   `json:"input_tokens"`
-	CachedInputTokens int                   `json:"cached_input_tokens"`
-	OutputTokens      int                   `json:"output_tokens"`
-	Status            planning.EgressStatus `json:"status"`
-	SafeErrorCode     string                `json:"safe_error_code,omitempty"`
-	CreatedAt         string                `json:"created_at"`
-	UpdatedAt         string                `json:"updated_at"`
+	ReceiptID            string                `json:"receipt_id"`
+	TaskID               string                `json:"task_id"`
+	ContractRevision     int                   `json:"contract_revision"`
+	ProviderKey          string                `json:"provider_key"`
+	ModelKey             string                `json:"model_key"`
+	RequestID            string                `json:"request_id"`
+	PromptVersion        string                `json:"prompt_version"`
+	ContextHash          string                `json:"context_hash"`
+	RequestHash          string                `json:"request_hash"`
+	ResponseHash         string                `json:"response_hash,omitempty"`
+	ProviderCallID       string                `json:"provider_call_id,omitempty"`
+	ContextItems         int                   `json:"context_items"`
+	InputBytes           int                   `json:"input_bytes"`
+	OutputBytes          int                   `json:"output_bytes"`
+	RedactionCount       int                   `json:"redaction_count"`
+	InputTokens          int                   `json:"input_tokens"`
+	CachedInputTokens    int                   `json:"cached_input_tokens"`
+	OutputTokens         int                   `json:"output_tokens"`
+	ReservedInputTokens  int                   `json:"reserved_input_tokens,omitempty"`
+	ReservedOutputTokens int                   `json:"reserved_output_tokens,omitempty"`
+	Status               planning.EgressStatus `json:"status"`
+	SafeErrorCode        string                `json:"safe_error_code,omitempty"`
+	CreatedAt            string                `json:"created_at"`
+	UpdatedAt            string                `json:"updated_at"`
 }
 
 func (s *Store) PrepareModelEgress(ctx context.Context, input modelstore.PrepareInput) (planning.EgressReceipt, error) {
 	now := normalizedTime(input.OccurredAt, s.now)
-	if input.VaultID == "" || input.TaskID == "" || input.ContractRevision < 1 || !planning.ValidKey(input.ProviderKey) || !planning.ValidKey(input.ModelKey) || !planning.ValidKey(input.PromptVersion) || input.RequestID == "" || len(input.RequestID) > 96 || !validSHA256(input.ContextHash) || !validSHA256(input.RequestHash) || input.ContextItems < 1 || input.ContextItems > 64 || input.InputBytes < 1 || input.InputBytes > 1<<20 || input.RedactionCount < 0 || input.RedactionCount > 10000 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
+	if input.VaultID == "" || input.TaskID == "" || input.ContractRevision < 1 || !planning.ValidKey(input.ProviderKey) || !planning.ValidKey(input.ModelKey) || !planning.ValidKey(input.PromptVersion) || input.RequestID == "" || len(input.RequestID) > 96 || !validSHA256(input.ContextHash) || !validSHA256(input.RequestHash) || input.ContextItems < 1 || input.ContextItems > 64 || input.InputBytes < 1 || input.InputBytes > 1<<20 || input.RedactionCount < 0 || input.RedactionCount > 10000 || input.ReservedInputTokens < 1 || input.ReservedOutputTokens < 256 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 {
 		return planning.EgressReceipt{}, modelstore.ErrInvalidCommand
 	}
 	requestHash, err := modelEgressCommandHash(input)
@@ -72,6 +74,12 @@ func (s *Store) PrepareModelEgress(ctx context.Context, input modelstore.Prepare
 	if err := tx.QueryRowContext(ctx, `SELECT current_revision, status FROM tasks WHERE task_id = ? AND vault_id = ?`, input.TaskID, input.VaultID).Scan(&revision, &status); err != nil || revision != input.ContractRevision || task.Status(status) != task.StatusContracted {
 		return planning.EgressReceipt{}, modelstore.ErrConflict
 	}
+	if err := reserveModelBudget(ctx, tx, input.VaultID, input.TaskID, now, input.Budget, input.ReservedInputTokens, input.ReservedOutputTokens); err != nil {
+		if errors.Is(err, errTaskBudgetExceeded) {
+			return planning.EgressReceipt{}, modelstore.ErrBudgetExceeded
+		}
+		return planning.EgressReceipt{}, err
+	}
 	receiptID, err := id.UUIDv7(now, s.random)
 	if err != nil {
 		return planning.EgressReceipt{}, err
@@ -81,6 +89,7 @@ func (s *Store) PrepareModelEgress(ctx context.Context, input modelstore.Prepare
 		ProviderKey: input.ProviderKey, ModelKey: input.ModelKey, RequestID: input.RequestID, PromptVersion: input.PromptVersion,
 		ContextHash: input.ContextHash, RequestHash: input.RequestHash, ContextItems: input.ContextItems,
 		InputBytes: input.InputBytes, RedactionCount: input.RedactionCount, Status: planning.EgressPrepared,
+		ReservedInputTokens: input.ReservedInputTokens, ReservedOutputTokens: input.ReservedOutputTokens,
 		CreatedAt: now.Format(time.RFC3339Nano), UpdatedAt: now.Format(time.RFC3339Nano),
 	}
 	record, err := s.modelEgressEvent(input.VaultID, "model.egress.prepared", payload, now)
@@ -93,10 +102,11 @@ func (s *Store) PrepareModelEgress(ctx context.Context, input modelstore.Prepare
 	if _, err := tx.ExecContext(ctx, `INSERT INTO model_egress_receipts(
 		receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version,
 		context_hash, request_hash, response_hash, context_items, input_bytes, output_bytes, redaction_count,
-		input_tokens, cached_input_tokens, output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id
-	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 0, ?, 0, 0, 0, 'prepared', '', ?, ?, ?, ?)`,
+		input_tokens, cached_input_tokens, output_tokens, reserved_input_tokens, reserved_output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 0, ?, 0, 0, 0, ?, ?, 'prepared', '', ?, ?, ?, ?)`,
 		receiptID, input.VaultID, input.TaskID, input.ContractRevision, input.ProviderKey, input.ModelKey, input.RequestID,
 		input.PromptVersion, input.ContextHash, input.RequestHash, input.ContextItems, input.InputBytes, input.RedactionCount,
+		input.ReservedInputTokens, input.ReservedOutputTokens,
 		payload.CreatedAt, payload.UpdatedAt, record.ID, record.ID,
 	); err != nil {
 		return planning.EgressReceipt{}, fmt.Errorf("insert model egress receipt: %w", err)
@@ -148,6 +158,8 @@ func (s *Store) FinishModelEgress(ctx context.Context, input modelstore.FinishIn
 	updated.ProviderCallID = input.ProviderCallID
 	updated.OutputBytes = input.OutputBytes
 	updated.Usage = input.Usage
+	updated.ReservedInputTokens = 0
+	updated.ReservedOutputTokens = 0
 	updated.SafeErrorCode = input.SafeErrorCode
 	updated.UpdatedAt = now
 	updated.LastEventID = "pending-event"
@@ -164,6 +176,13 @@ func (s *Store) FinishModelEgress(ctx context.Context, input modelstore.FinishIn
 		Status: input.NextStatus, SafeErrorCode: input.SafeErrorCode,
 		CreatedAt: current.CreatedAt.Format(time.RFC3339Nano), UpdatedAt: now.Format(time.RFC3339Nano),
 	}
+	exceeded, err := settleModelBudget(ctx, tx, input.VaultID, current.TaskID, now, input.Budget, current.ReservedInputTokens, current.ReservedOutputTokens, input.Usage.InputTokens, input.Usage.OutputTokens)
+	if err != nil {
+		if errors.Is(err, errTaskBudgetExceeded) {
+			return planning.EgressReceipt{}, modelstore.ErrBudgetExceeded
+		}
+		return planning.EgressReceipt{}, err
+	}
 	record, err := s.modelEgressEvent(input.VaultID, "model.egress.finished", payload, now)
 	if err != nil {
 		return planning.EgressReceipt{}, err
@@ -171,7 +190,7 @@ func (s *Store) FinishModelEgress(ctx context.Context, input modelstore.FinishIn
 	if err := s.insertEvent(ctx, tx, record); err != nil {
 		return planning.EgressReceipt{}, err
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE model_egress_receipts SET response_hash = ?, provider_call_id = ?, output_bytes = ?, input_tokens = ?, cached_input_tokens = ?, output_tokens = ?, status = ?, safe_error_code = ?, updated_at = ?, last_event_id = ? WHERE receipt_id = ? AND status = 'prepared'`,
+	result, err := tx.ExecContext(ctx, `UPDATE model_egress_receipts SET response_hash = ?, provider_call_id = ?, output_bytes = ?, input_tokens = ?, cached_input_tokens = ?, output_tokens = ?, reserved_input_tokens = 0, reserved_output_tokens = 0, status = ?, safe_error_code = ?, updated_at = ?, last_event_id = ? WHERE receipt_id = ? AND status = 'prepared'`,
 		input.ResponseHash, input.ProviderCallID, input.OutputBytes, input.Usage.InputTokens, input.Usage.CachedInputTokens, input.Usage.OutputTokens,
 		string(input.NextStatus), input.SafeErrorCode, payload.UpdatedAt, record.ID, current.ID,
 	)
@@ -187,7 +206,14 @@ func (s *Store) FinishModelEgress(ctx context.Context, input modelstore.FinishIn
 	if err := tx.Commit(); err != nil {
 		return planning.EgressReceipt{}, fmt.Errorf("commit model egress finish: %w", err)
 	}
-	return scanModelEgress(s.db.QueryRowContext(ctx, modelEgressSelect+" WHERE receipt_id = ?", current.ID))
+	completed, err := scanModelEgress(s.db.QueryRowContext(ctx, modelEgressSelect+" WHERE receipt_id = ?", current.ID))
+	if err != nil {
+		return planning.EgressReceipt{}, err
+	}
+	if exceeded {
+		return completed, modelstore.ErrBudgetExceeded
+	}
+	return completed, nil
 }
 
 func (s *Store) GetModelEgress(ctx context.Context, receiptID string) (planning.EgressReceipt, error) {
@@ -197,7 +223,7 @@ func (s *Store) GetModelEgress(ctx context.Context, receiptID string) (planning.
 	return scanModelEgress(s.db.QueryRowContext(ctx, modelEgressSelect+" WHERE receipt_id = ?", receiptID))
 }
 
-const modelEgressSelect = `SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts`
+const modelEgressSelect = `SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, reserved_input_tokens, reserved_output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts`
 
 func scanModelEgress(row scanner) (planning.EgressReceipt, error) {
 	var receipt planning.EgressReceipt
@@ -208,6 +234,7 @@ func scanModelEgress(row scanner) (planning.EgressReceipt, error) {
 		&receipt.ProviderCallID,
 		&receipt.ContextItems, &receipt.InputBytes, &receipt.OutputBytes, &receipt.RedactionCount,
 		&receipt.Usage.InputTokens, &receipt.Usage.CachedInputTokens, &receipt.Usage.OutputTokens,
+		&receipt.ReservedInputTokens, &receipt.ReservedOutputTokens,
 		&receipt.Status, &receipt.SafeErrorCode, &createdAt, &updatedAt, &receipt.CreatedEventID, &receipt.LastEventID,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

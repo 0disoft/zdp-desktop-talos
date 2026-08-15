@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/planning"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/taskbudget"
 )
 
 var (
@@ -13,23 +14,27 @@ var (
 	ErrNotFound            = errors.New("model egress receipt was not found")
 	ErrConflict            = errors.New("model egress receipt state conflict")
 	ErrIdempotencyConflict = errors.New("model egress idempotency conflict")
+	ErrBudgetExceeded      = errors.New("task model budget exceeded")
 )
 
 type PrepareInput struct {
-	VaultID          string
-	TaskID           string
-	ContractRevision int
-	ProviderKey      string
-	ModelKey         string
-	RequestID        string
-	PromptVersion    string
-	ContextHash      string
-	RequestHash      string
-	ContextItems     int
-	InputBytes       int
-	RedactionCount   int
-	OccurredAt       time.Time
-	IdempotencyKey   string
+	VaultID              string
+	TaskID               string
+	ContractRevision     int
+	ProviderKey          string
+	ModelKey             string
+	RequestID            string
+	PromptVersion        string
+	ContextHash          string
+	RequestHash          string
+	ContextItems         int
+	InputBytes           int
+	RedactionCount       int
+	ReservedInputTokens  int
+	ReservedOutputTokens int
+	Budget               taskbudget.Policy
+	OccurredAt           time.Time
+	IdempotencyKey       string
 }
 
 type FinishInput struct {
@@ -41,6 +46,7 @@ type FinishInput struct {
 	ProviderCallID string
 	OutputBytes    int
 	Usage          planning.Usage
+	Budget         taskbudget.Policy
 	SafeErrorCode  string
 	OccurredAt     time.Time
 	IdempotencyKey string

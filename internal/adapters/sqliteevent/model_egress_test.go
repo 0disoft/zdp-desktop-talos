@@ -10,6 +10,7 @@ import (
 
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/planning"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/taskbudget"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -36,7 +37,7 @@ func TestModelEgressReceiptLifecycleIsIdempotentAndContainsNoRawPrompt(t *testin
 	prepare := modelstore.PrepareInput{
 		VaultID: vaultID, TaskID: created.Task.ID, ContractRevision: 1, ProviderKey: "fixture", ModelKey: "fixture-plan-v1",
 		RequestID: "request-1", PromptVersion: "planning.v1", ContextHash: strings.Repeat("b", 64), RequestHash: strings.Repeat("c", 64),
-		ContextItems: 2, InputBytes: 512, RedactionCount: 1, OccurredAt: now, IdempotencyKey: "egress-prepare",
+		ContextItems: 2, InputBytes: 512, RedactionCount: 1, ReservedInputTokens: 512, ReservedOutputTokens: 1024, OccurredAt: now, IdempotencyKey: "egress-prepare",
 	}
 	receipt, err := store.PrepareModelEgress(ctx, prepare)
 	if err != nil {
@@ -45,6 +46,10 @@ func TestModelEgressReceiptLifecycleIsIdempotentAndContainsNoRawPrompt(t *testin
 	replayed, err := store.PrepareModelEgress(ctx, prepare)
 	if err != nil || replayed.ID != receipt.ID {
 		t.Fatalf("replayed=%+v error=%v", replayed, err)
+	}
+	var modelCalls int
+	if err := store.db.QueryRow(`SELECT model_calls FROM task_budget_counters WHERE task_id = ?`, created.Task.ID).Scan(&modelCalls); err != nil || modelCalls != 1 {
+		t.Fatalf("model calls=%d error=%v", modelCalls, err)
 	}
 	finish := modelstore.FinishInput{
 		VaultID: vaultID, ReceiptID: receipt.ID, ExpectedStatus: planning.EgressPrepared, NextStatus: planning.EgressCompleted,
@@ -64,6 +69,25 @@ func TestModelEgressReceiptLifecycleIsIdempotentAndContainsNoRawPrompt(t *testin
 	var plaintextCount int
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM events WHERE CAST(payload_envelope AS TEXT) LIKE '%plan safely%'`).Scan(&plaintextCount); err != nil || plaintextCount != 0 {
 		t.Fatalf("raw prompt appeared in event storage: count=%d error=%v", plaintextCount, err)
+	}
+}
+
+func TestModelBudgetReservationIsAtomicAndIdempotent(t *testing.T) {
+	store, _, _ := modelEgressFixture(t)
+	defer store.Close()
+	ctx := context.Background()
+	policy := taskbudget.Policy{MaxModelCalls: 1, MaxToolCalls: 4, MaxInputTokens: 4096, MaxOutputTokens: 2048, MaxWallClock: time.Hour}
+	var taskID, vaultID string
+	if err := store.db.QueryRow(`SELECT task_id, vault_id FROM tasks LIMIT 1`).Scan(&taskID, &vaultID); err != nil {
+		t.Fatal(err)
+	}
+	input := modelstore.PrepareInput{VaultID: vaultID, TaskID: taskID, ContractRevision: 1, ProviderKey: "fixture", ModelKey: "fixture-plan-v1", RequestID: "budget-request", PromptVersion: "planning.v1", ContextHash: strings.Repeat("e", 64), RequestHash: strings.Repeat("f", 64), ContextItems: 1, InputBytes: 256, ReservedInputTokens: 256, ReservedOutputTokens: 512, Budget: policy, OccurredAt: time.Date(2026, 7, 16, 3, 1, 0, 0, time.UTC), IdempotencyKey: "budget-prepare"}
+	if _, err := store.PrepareModelEgress(ctx, input); !errors.Is(err, modelstore.ErrBudgetExceeded) {
+		t.Fatalf("second model reservation error=%v", err)
+	}
+	var calls int
+	if err := store.db.QueryRow(`SELECT model_calls FROM task_budget_counters WHERE task_id = ?`, taskID).Scan(&calls); err != nil || calls != 1 {
+		t.Fatalf("model calls=%d error=%v", calls, err)
 	}
 }
 
@@ -93,7 +117,7 @@ func modelEgressFixture(t *testing.T) (*Store, planning.EgressReceipt, time.Time
 	if err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := store.PrepareModelEgress(ctx, modelstore.PrepareInput{VaultID: vaultID, TaskID: created.Task.ID, ContractRevision: 1, ProviderKey: "fixture", ModelKey: "fixture-plan-v1", RequestID: "request", PromptVersion: "planning.v1", ContextHash: strings.Repeat("b", 64), RequestHash: strings.Repeat("c", 64), ContextItems: 1, InputBytes: 128, OccurredAt: now, IdempotencyKey: "prepare"})
+	receipt, err := store.PrepareModelEgress(ctx, modelstore.PrepareInput{VaultID: vaultID, TaskID: created.Task.ID, ContractRevision: 1, ProviderKey: "fixture", ModelKey: "fixture-plan-v1", RequestID: "request", PromptVersion: "planning.v1", ContextHash: strings.Repeat("b", 64), RequestHash: strings.Repeat("c", 64), ContextItems: 1, InputBytes: 128, ReservedInputTokens: 128, ReservedOutputTokens: 1024, OccurredAt: now, IdempotencyKey: "prepare"})
 	if err != nil {
 		t.Fatal(err)
 	}

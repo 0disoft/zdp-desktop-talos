@@ -15,6 +15,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/planning"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/taskbudget"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/memorycontext"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelprovider"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/modelstore"
@@ -39,6 +40,7 @@ var (
 	ErrReceiptFailed       = errors.New("model egress receipt update failed")
 	ErrExecutionIncomplete = errors.New("model plan execution did not complete")
 	ErrMemoryContextFailed = errors.New("approved memory context assembly failed")
+	ErrTaskBudgetExceeded  = errors.New("task execution budget exceeded")
 )
 
 type Store interface {
@@ -68,10 +70,11 @@ type Policy struct {
 	MaxToolIntents      int
 	AllowSensitive      bool
 	ProviderTimeout     time.Duration
+	TaskBudget          taskbudget.Policy
 }
 
 func (p Policy) validate() error {
-	if !planning.ValidKey(p.ProviderKey) || !planning.ValidKey(p.ModelKey) || p.PromptVersion != PlanningPromptVersion || p.MaxContextItems < 1 || p.MaxContextItems > 63 || p.MaxMemoryCandidates < 1 || p.MaxMemoryCandidates > 200 || p.MaxMemoryItems < 1 || p.MaxMemoryItems > 16 || p.MaxMemoryCandidates < p.MaxMemoryItems || p.MaxMemoryItems > p.MaxContextItems || p.MaxMemoryBytes < 256 || p.MaxMemoryBytes > 256<<10 || p.MaxInputBytes < 1024 || p.MaxInputBytes > 1<<20 || p.MaxOutputBytes < 1024 || p.MaxOutputBytes > 1<<20 || p.MaxSteps < 1 || p.MaxSteps > planning.MaxPlanSteps || p.MaxToolIntents < 1 || p.MaxToolIntents > planning.MaxPlanSteps || p.ProviderTimeout <= 0 || p.ProviderTimeout > 10*time.Minute {
+	if !planning.ValidKey(p.ProviderKey) || !planning.ValidKey(p.ModelKey) || p.PromptVersion != PlanningPromptVersion || p.MaxContextItems < 1 || p.MaxContextItems > 63 || p.MaxMemoryCandidates < 1 || p.MaxMemoryCandidates > 200 || p.MaxMemoryItems < 1 || p.MaxMemoryItems > 16 || p.MaxMemoryCandidates < p.MaxMemoryItems || p.MaxMemoryItems > p.MaxContextItems || p.MaxMemoryBytes < 256 || p.MaxMemoryBytes > 256<<10 || p.MaxInputBytes < 1024 || p.MaxInputBytes > 1<<20 || p.MaxOutputBytes < 1024 || p.MaxOutputBytes > 1<<20 || p.MaxSteps < 1 || p.MaxSteps > planning.MaxPlanSteps || p.MaxToolIntents < 1 || p.MaxToolIntents > planning.MaxPlanSteps || p.ProviderTimeout <= 0 || p.ProviderTimeout > 10*time.Minute || p.TaskBudget.Validate() != nil {
 		return ErrInvalidRequest
 	}
 	return nil
@@ -139,6 +142,9 @@ func WithMemoryContext(provider memorycontext.Provider) Option {
 }
 
 func New(store Store, provider modelprovider.Provider, scanner secretscanner.Scanner, executor Executor, policy Policy, options ...Option) (*Service, error) {
+	if policy.TaskBudget == (taskbudget.Policy{}) {
+		policy.TaskBudget = taskbudget.DefaultPolicy()
+	}
 	if store == nil || provider == nil || scanner == nil || executor == nil || policy.validate() != nil || provider.Key() != policy.ProviderKey {
 		return nil, ErrInvalidRequest
 	}
@@ -232,7 +238,8 @@ func (s *Service) Propose(ctx context.Context, request Request) (Result, error) 
 	providerRequest := modelprovider.Request{
 		RequestID: request.RequestID, ModelKey: s.policy.ModelKey, PromptVersion: s.policy.PromptVersion,
 		Instructions: planningInstructions, Context: blocks, MaxOutputBytes: s.policy.MaxOutputBytes,
-		MaxSteps: s.policy.MaxSteps, MaxToolIntents: s.policy.MaxToolIntents,
+		MaxOutputTokens: boundedOutputTokens(s.policy.MaxOutputBytes, s.policy.TaskBudget.MaxOutputTokens),
+		MaxSteps:        s.policy.MaxSteps, MaxToolIntents: s.policy.MaxToolIntents,
 	}
 	contextHash, err := hashJSON(blocks)
 	if err != nil {
@@ -248,9 +255,13 @@ func (s *Service) Propose(ctx context.Context, request Request) (Result, error) 
 		ProviderKey: s.policy.ProviderKey, ModelKey: s.policy.ModelKey, RequestID: request.RequestID,
 		PromptVersion: s.policy.PromptVersion, ContextHash: contextHash, RequestHash: requestHash,
 		ContextItems: len(blocks), InputBytes: inputBytes, RedactionCount: redactions,
+		ReservedInputTokens: inputBytes, ReservedOutputTokens: providerRequest.MaxOutputTokens, Budget: s.policy.TaskBudget,
 		OccurredAt: now, IdempotencyKey: request.IdempotencyKey + ":egress-prepare",
 	})
 	if err != nil {
+		if errors.Is(err, modelstore.ErrBudgetExceeded) {
+			return Result{State: StateFailed}, ErrTaskBudgetExceeded
+		}
 		return Result{}, errors.Join(ErrReceiptFailed, err)
 	}
 
@@ -284,9 +295,12 @@ func (s *Service) Propose(ctx context.Context, request Request) (Result, error) 
 	receipt, err = s.store.FinishModelEgress(ctx, modelstore.FinishInput{
 		VaultID: record.VaultID, ReceiptID: receipt.ID, ExpectedStatus: planning.EgressPrepared, NextStatus: planning.EgressCompleted,
 		ResponseHash: responseHash, ProviderCallID: response.ProviderCallID, OutputBytes: outputBytes, Usage: response.Usage, OccurredAt: s.now().UTC(),
-		IdempotencyKey: request.IdempotencyKey + ":egress-finish",
+		IdempotencyKey: request.IdempotencyKey + ":egress-finish", Budget: s.policy.TaskBudget,
 	})
 	if err != nil {
+		if errors.Is(err, modelstore.ErrBudgetExceeded) {
+			return Result{State: StateFailed, Plan: response.Plan, Receipt: receipt, MemoryContext: memoryResult}, ErrTaskBudgetExceeded
+		}
 		return Result{State: StateFailed, Plan: response.Plan, Receipt: receipt}, errors.Join(ErrReceiptFailed, err)
 	}
 
@@ -349,12 +363,23 @@ func validatePlan(plan planning.Plan, contract task.ContractRevision, policy Pol
 func (s *Service) finishFailed(ctx context.Context, receipt planning.EgressReceipt, key, code string) (planning.EgressReceipt, error) {
 	failed, err := s.store.FinishModelEgress(context.WithoutCancel(ctx), modelstore.FinishInput{
 		VaultID: receipt.VaultID, ReceiptID: receipt.ID, ExpectedStatus: planning.EgressPrepared, NextStatus: planning.EgressFailed,
-		SafeErrorCode: code, OccurredAt: s.now().UTC(), IdempotencyKey: key + ":egress-finish",
+		SafeErrorCode: code, OccurredAt: s.now().UTC(), IdempotencyKey: key + ":egress-finish", Budget: s.policy.TaskBudget,
 	})
 	if err != nil {
 		return receipt, errors.Join(ErrReceiptFailed, err)
 	}
 	return failed, nil
+}
+
+func boundedOutputTokens(maxOutputBytes, taskLimit int) int {
+	limit := maxOutputBytes / 4
+	if limit < 256 {
+		limit = 256
+	}
+	if taskLimit < limit {
+		return taskLimit
+	}
+	return limit
 }
 
 func providerErrorCode(providerErr, contextErr error) string {

@@ -317,6 +317,46 @@ func TestSchema24IndexesEventsAndMarksLegacyRecoveryComplete(t *testing.T) {
 	}
 }
 
+func TestSchema25AddsDurableTaskBudgetState(t *testing.T) {
+	t.Parallel()
+	store := openTestStore(t, filepath.Join(t.TempDir(), "schema-25.db"))
+	defer store.Close()
+
+	for table, columns := range map[string][]string{
+		"model_egress_receipts": {"reserved_input_tokens", "reserved_output_tokens"},
+		"task_budget_counters":  {"task_id", "vault_id", "started_at", "max_model_calls", "max_tool_calls", "max_input_tokens", "max_output_tokens", "max_wall_clock_ms", "model_calls", "tool_calls", "input_tokens", "output_tokens", "reserved_input_tokens", "reserved_output_tokens", "updated_at"},
+	} {
+		rows, err := store.db.Query("PRAGMA table_info(" + table + ")")
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := make(map[string]bool)
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, dataType string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			found[name] = true
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for _, column := range columns {
+			if !found[column] {
+				t.Fatalf("missing %s.%s", table, column)
+			}
+		}
+	}
+
+	var indexSQL string
+	if err := store.db.QueryRow(`SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'task_budget_counters_vault_updated_idx'`).Scan(&indexSQL); err != nil {
+		t.Fatalf("read task budget index: %v", err)
+	}
+}
+
 func TestOpenRejectsLegacyRecoveryMarkerSchemaMismatch(t *testing.T) {
 	t.Parallel()
 	databasePath := filepath.Join(t.TempDir(), "recovery-marker-mismatch.db")

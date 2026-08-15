@@ -11,6 +11,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/taskbudget"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/taskstore"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/vaultstore"
@@ -57,6 +58,29 @@ func TestPrepareAttemptAtomicallyConsumesOneTimeGrantAndReplays(t *testing.T) {
 	var state string
 	if err := store.db.QueryRow(`SELECT state FROM permission_grants WHERE grant_id = ?`, grant.ID).Scan(&state); err != nil || state != string(permission.GrantConsumed) {
 		t.Fatalf("grant state=%q error=%v", state, err)
+	}
+}
+
+func TestToolBudgetBlocksSecondDistinctAttemptBeforeSideEffects(t *testing.T) {
+	t.Parallel()
+	store, taskRecord, grant, input := executionFixture(t)
+	defer store.Close()
+	ctx := context.Background()
+	grant.Outcome = permission.OutcomeAllowTask
+	input.Budget = taskbudget.Policy{MaxModelCalls: 1, MaxToolCalls: 1, MaxInputTokens: 1024, MaxOutputTokens: 1024, MaxWallClock: time.Hour}
+	if _, err := store.SavePermissionGrant(ctx, executionstore.SaveGrantInput{VaultID: taskRecord.VaultID, Grant: grant, IdempotencyKey: "budget-grant"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PrepareAttempt(ctx, input); err != nil {
+		t.Fatal(err)
+	}
+	input.IdempotencyKey = "prepare-attempt-2"
+	input.OccurredAt = input.OccurredAt.Add(time.Second)
+	if _, err := store.PrepareAttempt(ctx, input); !errors.Is(err, executionstore.ErrBudgetExceeded) {
+		t.Fatalf("second tool reservation error=%v", err)
+	}
+	if count := tableCount(t, store, "attempts"); count != 1 {
+		t.Fatalf("attempts=%d", count)
 	}
 }
 

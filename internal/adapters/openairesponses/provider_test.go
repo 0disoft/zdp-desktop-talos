@@ -79,6 +79,7 @@ func TestProviderMapsRateLimitAndRejectsMalformedOutput(t *testing.T) {
 		{name: "rate limit", code: http.StatusTooManyRequests, body: `{"error":{"message":"ignored"}}`, want: modelprovider.ErrRateLimited},
 		{name: "unknown plan field", code: http.StatusOK, body: `{"id":"resp_2","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{\"schema_version\":1,\"summary\":\"bad\",\"steps\":[],\"unexpected\":true}"}]}],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}`, want: modelprovider.ErrInvalidResponse},
 		{name: "refusal", code: http.StatusOK, body: `{"id":"resp_3","status":"completed","output":[{"type":"message","content":[{"type":"refusal","refusal":"cannot comply"}]}],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}`, want: modelprovider.ErrInvalidResponse},
+		{name: "missing usage", code: http.StatusOK, body: `{"id":"resp_4","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"{\"schema_version\":1,\"summary\":\"Run focused verification.\",\"steps\":[{\"id\":\"verify\",\"purpose\":\"Run tests\",\"tool\":{\"id\":\"verify-tool\",\"kind\":\"verification_command\",\"command_index\":0}}]}"}]}]}`, want: modelprovider.ErrInvalidResponse},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -100,7 +101,7 @@ func validRequest() modelprovider.Request {
 	return modelprovider.Request{
 		RequestID: "request-1", ModelKey: "model-test", PromptVersion: "planning.v2", Instructions: "Return a plan.",
 		Context:        []modelprovider.ContextBlock{{ID: "task-contract", Kind: "task_contract", Authority: "untrusted_data", SourceRef: "task-contract", Sensitivity: event.SensitivityPrivate, Content: "bounded context"}},
-		MaxOutputBytes: 16 << 10, MaxSteps: 4, MaxToolIntents: 4,
+		MaxOutputBytes: 16 << 10, MaxOutputTokens: 4096, MaxSteps: 4, MaxToolIntents: 4,
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const currentSchemaVersion = 24
+const currentSchemaVersion = 25
 
 var ErrUnsupportedSchema = errors.New("sqlite event store schema is newer than this application")
 
@@ -585,6 +585,31 @@ var migrations = []migration{
 			) STRICT`,
 		},
 	},
+	{
+		version: 25,
+		statements: []string{
+			`ALTER TABLE model_egress_receipts ADD COLUMN reserved_input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_input_tokens >= 0)`,
+			`ALTER TABLE model_egress_receipts ADD COLUMN reserved_output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (reserved_output_tokens >= 0)`,
+			`CREATE TABLE task_budget_counters (
+				task_id TEXT PRIMARY KEY REFERENCES tasks(task_id) ON DELETE RESTRICT,
+				vault_id TEXT NOT NULL REFERENCES vault_states(vault_id) ON DELETE RESTRICT,
+				started_at TEXT NOT NULL,
+				max_model_calls INTEGER NOT NULL CHECK (max_model_calls > 0),
+				max_tool_calls INTEGER NOT NULL CHECK (max_tool_calls > 0),
+				max_input_tokens INTEGER NOT NULL CHECK (max_input_tokens > 0),
+				max_output_tokens INTEGER NOT NULL CHECK (max_output_tokens > 0),
+				max_wall_clock_ms INTEGER NOT NULL CHECK (max_wall_clock_ms > 0),
+				model_calls INTEGER NOT NULL CHECK (model_calls >= 0),
+				tool_calls INTEGER NOT NULL CHECK (tool_calls >= 0),
+				input_tokens INTEGER NOT NULL CHECK (input_tokens >= 0),
+				output_tokens INTEGER NOT NULL CHECK (output_tokens >= 0),
+				reserved_input_tokens INTEGER NOT NULL CHECK (reserved_input_tokens >= 0),
+				reserved_output_tokens INTEGER NOT NULL CHECK (reserved_output_tokens >= 0),
+				updated_at TEXT NOT NULL
+			) STRICT`,
+			`CREATE INDEX task_budget_counters_vault_updated_idx ON task_budget_counters(vault_id, updated_at, task_id)`,
+		},
+	},
 }
 
 func applyMigrations(ctx context.Context, db *sql.DB) error {
@@ -633,7 +658,8 @@ func validateSchema(ctx context.Context, db *sql.DB) error {
 		`SELECT action_id, vault_id, task_id, kind, state, contract_revision, patch_hash, worktree_state_hash, evidence_id, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM patch_actions LIMIT 0`,
 		`SELECT task_id, status, action_id, completed_at, event_id FROM task_outcomes LIMIT 0`,
 		`SELECT vault_id, membership_id, state, revision, created_at, updated_at, last_event_id FROM account_links LIMIT 0`,
-		`SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts LIMIT 0`,
+		`SELECT receipt_id, vault_id, task_id, contract_revision, provider_key, model_key, request_id, prompt_version, context_hash, request_hash, response_hash, provider_call_id, context_items, input_bytes, output_bytes, redaction_count, input_tokens, cached_input_tokens, output_tokens, reserved_input_tokens, reserved_output_tokens, status, safe_error_code, created_at, updated_at, created_event_id, last_event_id FROM model_egress_receipts LIMIT 0`,
+		`SELECT task_id, vault_id, started_at, max_model_calls, max_tool_calls, max_input_tokens, max_output_tokens, max_wall_clock_ms, model_calls, tool_calls, input_tokens, output_tokens, reserved_input_tokens, reserved_output_tokens, updated_at FROM task_budget_counters INDEXED BY task_budget_counters_vault_updated_idx WHERE vault_id = '' ORDER BY updated_at, task_id LIMIT 0`,
 		`SELECT memory_id, vault_id, kind, state, scope_kind, workspace_root_hash, workspace_id, sensitivity, confidence, revision, created_at, updated_at, reviewed_at, expires_at, superseded_by_memory_id, created_event_id, last_event_id FROM memory_records LIMIT 0`,
 		`SELECT vault_id, device_id, public_key, state, revision, next_sequence, created_at, updated_at, last_event_id FROM sync_devices LIMIT 0`,
 		`SELECT pack_id, vault_id, device_id, sequence_start, sequence_end, event_count, ciphertext_hash, pack_envelope, state, received_at, event_id FROM sync_pack_receipts LIMIT 0`,

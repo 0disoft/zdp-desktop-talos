@@ -114,6 +114,17 @@ func TestRuntimeBlocksOversizedContextBeforeReceipt(t *testing.T) {
 	}
 }
 
+func TestRuntimeStopsBeforeProviderWhenTaskBudgetIsExhausted(t *testing.T) {
+	service, store, executor := newFixture(t)
+	store.prepareErr = modelstore.ErrBudgetExceeded
+	_, err := service.Run(context.Background(), Request{
+		TaskID: store.record.ID, RequestID: "request-budget", IdempotencyKey: "model-run-budget",
+	})
+	if !errors.Is(err, ErrTaskBudgetExceeded) || store.lastProviderContext != "" || len(executor.requests) != 0 {
+		t.Fatalf("error=%v provider_context=%q requests=%+v", err, store.lastProviderContext, executor.requests)
+	}
+}
+
 func TestApprovedMemoryChangesLaterFixturePlanAndRemainsExplainable(t *testing.T) {
 	service, store, _ := newFixture(t)
 	service.memories = memoryAssembler{result: memorycontext.Result{Items: []memorycontext.Item{{
@@ -204,6 +215,7 @@ type runtimeStore struct {
 	prepareCalls        int
 	lastProviderContext string
 	receiptMetadata     string
+	prepareErr          error
 }
 
 func (s *runtimeStore) GetTask(context.Context, string) (task.Record, error) { return s.record, nil }
@@ -220,11 +232,15 @@ func (*runtimeStore) ReviseTaskContract(context.Context, taskstore.ReviseInput) 
 func (s *runtimeStore) PrepareModelEgress(_ context.Context, input modelstore.PrepareInput) (planning.EgressReceipt, error) {
 	s.prepareCalls++
 	s.prepared = input
+	if s.prepareErr != nil {
+		return planning.EgressReceipt{}, s.prepareErr
+	}
 	s.receipt = planning.EgressReceipt{
 		ID: "receipt-1", VaultID: input.VaultID, TaskID: input.TaskID, ContractRevision: input.ContractRevision,
 		ProviderKey: input.ProviderKey, ModelKey: input.ModelKey, RequestID: input.RequestID, PromptVersion: input.PromptVersion,
 		ContextHash: input.ContextHash, RequestHash: input.RequestHash, ContextItems: input.ContextItems, InputBytes: input.InputBytes,
-		RedactionCount: input.RedactionCount, Status: planning.EgressPrepared, CreatedAt: s.now, UpdatedAt: s.now,
+		RedactionCount: input.RedactionCount, ReservedInputTokens: input.ReservedInputTokens, ReservedOutputTokens: input.ReservedOutputTokens,
+		Status: planning.EgressPrepared, CreatedAt: s.now, UpdatedAt: s.now,
 		CreatedEventID: "prepared-event", LastEventID: "prepared-event",
 	}
 	s.receiptMetadata = strings.Join([]string{input.ProviderKey, input.ModelKey, input.RequestHash, input.ContextHash}, ":")
@@ -237,6 +253,8 @@ func (s *runtimeStore) FinishModelEgress(_ context.Context, input modelstore.Fin
 	s.receipt.ProviderCallID = input.ProviderCallID
 	s.receipt.OutputBytes = input.OutputBytes
 	s.receipt.Usage = input.Usage
+	s.receipt.ReservedInputTokens = 0
+	s.receipt.ReservedOutputTokens = 0
 	s.receipt.SafeErrorCode = input.SafeErrorCode
 	s.receipt.LastEventID = "finished-event"
 	return s.receipt, nil

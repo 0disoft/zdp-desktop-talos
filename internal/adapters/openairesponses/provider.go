@@ -55,7 +55,7 @@ func New(credentials CredentialSource, client *http.Client) (*Provider, error) {
 func (p *Provider) Key() string { return ProviderKey }
 
 func (p *Provider) GeneratePlan(ctx context.Context, request modelprovider.Request) (modelprovider.Response, error) {
-	if p == nil || p.credentials == nil || p.client == nil || ctx == nil || !planning.ValidOpaqueID(request.RequestID) || !planning.ValidKey(request.ModelKey) || request.PromptVersion == "" || strings.TrimSpace(request.Instructions) == "" || len(request.Context) == 0 || request.MaxOutputBytes < 1 || request.MaxOutputBytes > 1<<20 || request.MaxSteps < 1 || request.MaxSteps > planning.MaxPlanSteps || request.MaxToolIntents < 1 || request.MaxToolIntents > planning.MaxPlanSteps {
+	if p == nil || p.credentials == nil || p.client == nil || ctx == nil || !planning.ValidOpaqueID(request.RequestID) || !planning.ValidKey(request.ModelKey) || request.PromptVersion == "" || strings.TrimSpace(request.Instructions) == "" || len(request.Context) == 0 || request.MaxOutputBytes < 1 || request.MaxOutputBytes > 1<<20 || request.MaxOutputTokens < 256 || request.MaxOutputTokens > 1<<20 || request.MaxSteps < 1 || request.MaxSteps > planning.MaxPlanSteps || request.MaxToolIntents < 1 || request.MaxToolIntents > planning.MaxPlanSteps {
 		return modelprovider.Response{}, modelprovider.ErrInvalidResponse
 	}
 	key, err := p.credentials.Load(ctx)
@@ -82,7 +82,7 @@ func (p *Provider) GeneratePlan(ctx context.Context, request modelprovider.Reque
 			Type: "json_schema", Name: "talos_plan", Description: "A bounded Talos verification plan", Strict: true,
 			Schema: planSchema(request.MaxSteps, request.MaxToolIntents),
 		}},
-		MaxOutputTokens: maxOutputTokens(request.MaxOutputBytes),
+		MaxOutputTokens: request.MaxOutputTokens,
 		Store:           false,
 	}
 	body, err := json.Marshal(wire)
@@ -136,7 +136,7 @@ func (p *Provider) GeneratePlan(ctx context.Context, request modelprovider.Reque
 		return modelprovider.Response{}, modelprovider.ErrInvalidResponse
 	}
 	usage := planning.Usage{InputTokens: decoded.Usage.InputTokens, CachedInputTokens: decoded.Usage.InputTokenDetails.CachedTokens, OutputTokens: decoded.Usage.OutputTokens}
-	if usage.Validate() != nil {
+	if usage.Validate() != nil || usage.InputTokens < 1 || usage.OutputTokens < 1 {
 		return modelprovider.Response{}, modelprovider.ErrInvalidResponse
 	}
 	return modelprovider.Response{Plan: plan, ProviderCallID: decoded.ID, Usage: usage}, nil
@@ -268,11 +268,3 @@ func planSchema(maxSteps, maxTools int) map[string]any {
 
 var _ modelprovider.Provider = (*Provider)(nil)
 var _ CredentialSource = EnvironmentCredential{}
-
-func maxOutputTokens(maxOutputBytes int) int {
-	tokens := maxOutputBytes / 4
-	if tokens < 256 {
-		return 256
-	}
-	return tokens
-}

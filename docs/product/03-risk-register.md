@@ -15,4 +15,4 @@
 | Wails v3 churn | framework changes leak into domain/application code | isolate transport and pin exact validated version | dependency drift and platform build gate |
 | Git history leak | sensitive projection survives deletion | structural export exclusion and encrypted packs | export scanner must pass |
 | Permission fatigue | users approve broad dangerous scopes | task/capability grants with expiry and no blanket shell grant | UX and policy review |
-| Endless repair loop | model consumes unbounded time and cost | attempt, time, token, and cost budgets | budget exhaustion scenario passes |
+| Endless repair loop | model consumes unbounded time and cost | durable Task-wide call, tool, token, and wall-clock reservations; no autonomous repair loop | exhaustion stops before provider or worker side effects; monetary ceiling remains blocked on trusted price data |

@@ -95,46 +95,50 @@ func (u Usage) Validate() error {
 }
 
 type EgressReceipt struct {
-	ID               string
-	VaultID          string
-	TaskID           string
-	ContractRevision int
-	ProviderKey      string
-	ModelKey         string
-	RequestID        string
-	PromptVersion    string
-	ContextHash      string
-	RequestHash      string
-	ResponseHash     string
-	ProviderCallID   string
-	ContextItems     int
-	InputBytes       int
-	OutputBytes      int
-	RedactionCount   int
-	Usage            Usage
-	Status           EgressStatus
-	SafeErrorCode    string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	CreatedEventID   string
-	LastEventID      string
+	ID                   string
+	VaultID              string
+	TaskID               string
+	ContractRevision     int
+	ProviderKey          string
+	ModelKey             string
+	RequestID            string
+	PromptVersion        string
+	ContextHash          string
+	RequestHash          string
+	ResponseHash         string
+	ProviderCallID       string
+	ContextItems         int
+	InputBytes           int
+	OutputBytes          int
+	RedactionCount       int
+	ReservedInputTokens  int
+	ReservedOutputTokens int
+	Usage                Usage
+	Status               EgressStatus
+	SafeErrorCode        string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	CreatedEventID       string
+	LastEventID          string
 }
 
 func (r EgressReceipt) Validate() error {
-	if r.ID == "" || r.VaultID == "" || r.TaskID == "" || r.ContractRevision < 1 || !keyPattern.MatchString(r.ProviderKey) || !keyPattern.MatchString(r.ModelKey) || r.RequestID == "" || len(r.RequestID) > 96 || !keyPattern.MatchString(r.PromptVersion) || !hashPattern.MatchString(r.ContextHash) || !hashPattern.MatchString(r.RequestHash) || r.ContextItems < 1 || r.ContextItems > 64 || r.InputBytes < 1 || r.InputBytes > 1<<20 || r.OutputBytes < 0 || r.OutputBytes > 1<<20 || r.RedactionCount < 0 || r.RedactionCount > 10000 || r.CreatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) || r.CreatedEventID == "" || r.LastEventID == "" || r.Usage.Validate() != nil {
+	if r.ID == "" || r.VaultID == "" || r.TaskID == "" || r.ContractRevision < 1 || !keyPattern.MatchString(r.ProviderKey) || !keyPattern.MatchString(r.ModelKey) || r.RequestID == "" || len(r.RequestID) > 96 || !keyPattern.MatchString(r.PromptVersion) || !hashPattern.MatchString(r.ContextHash) || !hashPattern.MatchString(r.RequestHash) || r.ContextItems < 1 || r.ContextItems > 64 || r.InputBytes < 1 || r.InputBytes > 1<<20 || r.OutputBytes < 0 || r.OutputBytes > 1<<20 || r.RedactionCount < 0 || r.RedactionCount > 10000 || r.ReservedInputTokens < 0 || r.ReservedOutputTokens < 0 || r.CreatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) || r.CreatedEventID == "" || r.LastEventID == "" || r.Usage.Validate() != nil {
 		return ErrInvalidReceipt
 	}
 	switch r.Status {
 	case EgressPrepared:
-		if r.ResponseHash != "" || r.ProviderCallID != "" || r.OutputBytes != 0 || r.SafeErrorCode != "" || r.Usage != (Usage{}) {
+		legacyUnreserved := r.ReservedInputTokens == 0 && r.ReservedOutputTokens == 0
+		boundedReservation := r.ReservedInputTokens >= 1 && r.ReservedOutputTokens >= 256
+		if r.ResponseHash != "" || r.ProviderCallID != "" || r.OutputBytes != 0 || r.SafeErrorCode != "" || r.Usage != (Usage{}) || (!legacyUnreserved && !boundedReservation) {
 			return ErrInvalidReceipt
 		}
 	case EgressCompleted:
-		if !hashPattern.MatchString(r.ResponseHash) || !ValidOpaqueID(r.ProviderCallID) || r.OutputBytes == 0 || r.SafeErrorCode != "" {
+		if !hashPattern.MatchString(r.ResponseHash) || !ValidOpaqueID(r.ProviderCallID) || r.OutputBytes == 0 || r.SafeErrorCode != "" || r.ReservedInputTokens != 0 || r.ReservedOutputTokens != 0 {
 			return ErrInvalidReceipt
 		}
 	case EgressFailed:
-		if r.ResponseHash != "" || r.ProviderCallID != "" || r.OutputBytes != 0 || !errorCodePattern.MatchString(r.SafeErrorCode) {
+		if r.ResponseHash != "" || r.ProviderCallID != "" || r.OutputBytes != 0 || !errorCodePattern.MatchString(r.SafeErrorCode) || r.ReservedInputTokens != 0 || r.ReservedOutputTokens != 0 {
 			return ErrInvalidReceipt
 		}
 	default:

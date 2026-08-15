@@ -186,6 +186,12 @@ func (s *Store) PrepareAttempt(ctx context.Context, input executionstore.Prepare
 		}
 		consumeGrant = grant.Outcome == permission.OutcomeAllowOnce
 	}
+	if err := reserveToolBudget(ctx, tx, input.VaultID, input.TaskID, occurredAt, input.Budget); err != nil {
+		if errors.Is(err, errTaskBudgetExceeded) {
+			return executionstore.Prepared{}, executionstore.ErrBudgetExceeded
+		}
+		return executionstore.Prepared{}, err
+	}
 	payload := executionPayload{GrantID: input.GrantID, TaskID: input.TaskID, WorkspaceHash: input.WorkspaceHash, CapabilityHash: input.CapabilityHash, RunID: runID, AttemptID: attemptID, CallID: callID, AttemptState: execution.AttemptDispatchPending, OccurredAt: occurredAt.Format(time.RFC3339Nano)}
 	record, err := s.executionEvent(input.VaultID, "execution.attempt.prepared", payload, occurredAt)
 	if err != nil {

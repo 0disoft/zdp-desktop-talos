@@ -13,6 +13,7 @@ import (
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/execution"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/permission"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/task"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/taskbudget"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/verification"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/executionstore"
@@ -27,6 +28,7 @@ var (
 	ErrPermissionDenied    = errors.New("process execution permission denied")
 	ErrJournalFailed       = errors.New("execution journal update failed")
 	ErrEvidenceUnavailable = errors.New("verification evidence could not be created")
+	ErrTaskBudgetExceeded  = errors.New("task execution budget exceeded")
 )
 
 type Store interface {
@@ -74,6 +76,7 @@ type Coordinator struct {
 	broker    Evaluator
 	worktrees repository.WorktreeManager
 	workers   workerruntime.Factory
+	budget    taskbudget.Policy
 	now       func() time.Time
 }
 
@@ -81,7 +84,7 @@ func New(store Store, broker Evaluator, worktrees repository.WorktreeManager, wo
 	if store == nil || broker == nil || worktrees == nil || workers == nil {
 		return nil, ErrInvalidRequest
 	}
-	return &Coordinator{store: store, broker: broker, worktrees: worktrees, workers: workers, now: func() time.Time { return time.Now().UTC() }}, nil
+	return &Coordinator{store: store, broker: broker, worktrees: worktrees, workers: workers, budget: taskbudget.DefaultPolicy(), now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
 func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, error) {
@@ -131,8 +134,11 @@ func (c *Coordinator) Execute(ctx context.Context, request Request) (Result, err
 		return result, ErrPermissionDenied
 	}
 	now := c.now().UTC()
-	journal, err := c.store.PrepareAttempt(ctx, executionstore.PrepareAttemptInput{VaultID: record.VaultID, TaskID: record.ID, WorkspaceHash: workspaceHash, CapabilityHash: evaluation.Capability.IntentHash, GrantID: evaluation.MatchedGrantID, OccurredAt: now, IdempotencyKey: request.IdempotencyKey + ":prepare"})
+	journal, err := c.store.PrepareAttempt(ctx, executionstore.PrepareAttemptInput{VaultID: record.VaultID, TaskID: record.ID, WorkspaceHash: workspaceHash, CapabilityHash: evaluation.Capability.IntentHash, GrantID: evaluation.MatchedGrantID, Budget: c.budget, OccurredAt: now, IdempotencyKey: request.IdempotencyKey + ":prepare"})
 	if err != nil {
+		if errors.Is(err, executionstore.ErrBudgetExceeded) {
+			return result, ErrTaskBudgetExceeded
+		}
 		return result, fmt.Errorf("%w: %v", ErrJournalFailed, err)
 	}
 	result.RunID, result.AttemptID, result.CallID = journal.Run.ID, journal.Attempt.ID, journal.Attempt.CallID

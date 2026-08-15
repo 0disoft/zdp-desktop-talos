@@ -25,14 +25,15 @@ type ContextBlock struct {
 }
 
 type Request struct {
-	RequestID      string
-	ModelKey       string
-	PromptVersion  string
-	Instructions   string
-	Context        []ContextBlock
-	MaxOutputBytes int
-	MaxSteps       int
-	MaxToolIntents int
+	RequestID       string
+	ModelKey        string
+	PromptVersion   string
+	Instructions    string
+	Context         []ContextBlock
+	MaxOutputBytes  int
+	MaxOutputTokens int
+	MaxSteps        int
+	MaxToolIntents  int
 }
 
 type Response struct {

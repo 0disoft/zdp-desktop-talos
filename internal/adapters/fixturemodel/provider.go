@@ -43,7 +43,7 @@ func (p *Provider) GeneratePlan(ctx context.Context, request modelprovider.Reque
 	if err := ctx.Err(); err != nil {
 		return modelprovider.Response{}, err
 	}
-	if p == nil || request.ModelKey != p.modelKey || request.RequestID == "" || request.PromptVersion == "" || request.Instructions == "" || len(request.Context) == 0 || request.MaxSteps < len(p.commands) || request.MaxToolIntents < len(p.commands) || request.MaxOutputBytes <= 0 {
+	if p == nil || request.ModelKey != p.modelKey || request.RequestID == "" || request.PromptVersion == "" || request.Instructions == "" || len(request.Context) == 0 || request.MaxSteps < len(p.commands) || request.MaxToolIntents < len(p.commands) || request.MaxOutputBytes <= 0 || request.MaxOutputTokens < 256 {
 		return modelprovider.Response{}, modelprovider.ErrInvalidResponse
 	}
 	for _, block := range request.Context {
