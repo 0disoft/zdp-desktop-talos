@@ -136,6 +136,7 @@ func TestWindowsPackageReceiptContractIsStrict(t *testing.T) {
 		"expectedArtifactNames",
 		"Select-Object -Unique",
 		"FileAttributes]::ReparsePoint",
+		"Security.Cryptography.SHA256",
 		"signature-required receipt",
 	} {
 		if !strings.Contains(verifier, expected) {
@@ -148,7 +149,7 @@ func TestWindowsPackageVerifierAcceptsOnlyTheExactReceiptArtifactSet(t *testing.
 	t.Parallel()
 	root := repositoryRoot(t)
 	temporary := t.TempDir()
-	version := "0.35.2"
+	version := "0.35.3"
 	commit := strings.Repeat("a", 40)
 	names := []string{
 		"talos-desktop.exe",

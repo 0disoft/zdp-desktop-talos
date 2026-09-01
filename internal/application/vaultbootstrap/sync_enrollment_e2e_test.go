@@ -115,11 +115,11 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 		t.Fatal(err)
 	}
 	mapped, replayed, err := mapper.Map(ctx, workspaceremap.MapInput{VaultID: accepted.Session.Record.ID, TaskID: createdTask.Task.ID, LocalPath: targetWorkspace, ExpectedRevision: 0, IdempotencyKey: "target-workspace-map"})
-	if err != nil || replayed || mapped.LocalRoot != targetWorkspace || mapped.VerifiedBaseline != baseline {
+	if err != nil || replayed || !sameEnrollmentTestDirectory(mapped.LocalRoot, targetWorkspace) || mapped.VerifiedBaseline != baseline {
 		t.Fatalf("mapped=%+v replayed=%v error=%v", mapped, replayed, err)
 	}
 	targetTask, err := accepted.Session.database.GetTask(ctx, createdTask.Task.ID)
-	if err != nil || targetTask.CurrentRevision != 1 || targetTask.WorkspaceRoot != targetWorkspace {
+	if err != nil || targetTask.CurrentRevision != 1 || !sameEnrollmentTestDirectory(targetTask.WorkspaceRoot, targetWorkspace) {
 		t.Fatalf("target task=%+v error=%v", targetTask, err)
 	}
 	targetMemoryDatabase, err := accepted.Session.MemoryDatabase()
@@ -182,6 +182,12 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 	if _, err := accepted.Session.ExportNextSyncPack(ctx, 64); !errors.Is(err, syncidentity.ErrDeviceRevoked) {
 		t.Fatalf("revoked device export error=%v", err)
 	}
+}
+
+func sameEnrollmentTestDirectory(left, right string) bool {
+	leftInfo, leftErr := os.Stat(left)
+	rightInfo, rightErr := os.Stat(right)
+	return leftErr == nil && rightErr == nil && os.SameFile(leftInfo, rightInfo)
 }
 
 func enrollmentWorkspacePair(t *testing.T) (string, string, string) {

@@ -128,7 +128,15 @@ foreach ($artifact in $artifacts) {
     if ($artifactItem.PSIsContainer -or ($artifactItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
         throw "Package artifact must be a regular file: $($artifact.name)"
     }
-    $actualHash = (Get-FileHash -LiteralPath $resolvedArtifact -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hashAlgorithm = [Security.Cryptography.SHA256]::Create()
+    $artifactStream = [IO.File]::OpenRead($resolvedArtifact)
+    try {
+        $actualHash = ([BitConverter]::ToString($hashAlgorithm.ComputeHash($artifactStream))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $artifactStream.Dispose()
+        $hashAlgorithm.Dispose()
+    }
     if ($actualHash -ne $artifact.sha256) {
         throw "SHA-256 mismatch for $($artifact.name)."
     }

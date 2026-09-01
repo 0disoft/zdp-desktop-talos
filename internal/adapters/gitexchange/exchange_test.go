@@ -96,9 +96,13 @@ func TestExchangeRejectsIgnoredPacksDetachedHeadAndNestedRoot(t *testing.T) {
 func TestReadClearsPackBytesWhenRepositoryChanges(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
+	resolvedRoot, err := canonicalRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	now := time.Date(2026, 7, 18, 16, 0, 0, 0, time.UTC)
-	first := cleanTestSnapshot(root, strings.Repeat("a", 40), now)
-	second := cleanTestSnapshot(root, strings.Repeat("b", 40), now.Add(time.Second))
+	first := cleanTestSnapshot(resolvedRoot, strings.Repeat("a", 40), now)
+	second := cleanTestSnapshot(resolvedRoot, strings.Repeat("b", 40), now.Add(time.Second))
 	inspector := &snapshotSequence{snapshots: []workspace.RepositorySnapshot{first, second}}
 	files := &memoryExchange{packs: []syncexchange.ReadPack{{StoredPack: syncexchange.StoredPack{RelativePath: "vaults/v/packs/d/2026/07/00000000000000000001-00000000000000000001-x.talos-pack", SequenceStart: 1, SequenceEnd: 1}, Encoded: []byte("sensitive-pack")}}}
 	exchange, err := New(inspector, trackedAlways{}, files)
