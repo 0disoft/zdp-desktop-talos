@@ -6,6 +6,7 @@
 
 - Product scope source: docs/product/02-spec.md
 - Architecture decisions source: docs/adr/*.md
+- Post-MVP extraction sequence source: docs/adr/0064-evidence-gated-post-mvp-extraction-sequence.md
 - Operational standard source: docs/ops/00-operational-contract.md
 - Validation source: VALIDATION.md
 - Agent routing source: .agents/context-map.md
