@@ -134,7 +134,7 @@ func TestEnrollmentEstablishesBidirectionalTrustAndReplaysAcrossIndependentVault
 	if err != nil || len(assembled.Items) != 1 || assembled.Items[0].MemoryID != approvedMemory.ID || assembled.Items[0].Content != approvedMemory.Statement {
 		t.Fatalf("assembled=%+v error=%v", assembled, err)
 	}
-	if _, err := accepted.Session.ReviseTaskContract(ctx, ReviseTaskContractInput{TaskID: targetTask.ID, ExpectedRevision: 1, WorkspaceRoot: targetWorkspace, BaselineCommit: baseline, Goal: "return the synced revision", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the revision replays on the source device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "target-revision"}); err != nil {
+	if _, err := accepted.Session.ReviseTaskContract(ctx, ReviseTaskContractInput{TaskID: targetTask.ID, ExpectedRevision: 1, WorkspaceRoot: targetTask.WorkspaceRoot, BaselineCommit: baseline, Goal: "return the synced revision", AllowedPaths: []string{"internal/**"}, ForbiddenActions: []string{"git.push"}, AcceptanceCriteria: []string{"the revision replays on the source device"}, VerificationCommands: []task.VerificationCommand{{RuleID: "go-test", Arguments: []string{"./..."}, WorkingDirectory: "."}}, Risk: task.RiskMedium, IdempotencyKey: "target-revision"}); err != nil {
 		t.Fatal(err)
 	}
 	targetPack, err := accepted.Session.ExportNextSyncPack(ctx, 64)
