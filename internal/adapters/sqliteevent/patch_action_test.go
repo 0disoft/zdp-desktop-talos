@@ -2,6 +2,7 @@ package sqliteevent
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -49,6 +50,29 @@ func TestPatchApplyJournalClosesTaskAtomicallyAndReplays(t *testing.T) {
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM task_outcomes WHERE task_id = ? AND action_id = ?`, taskRecord.ID, prepared.Action.ID).Scan(&outcomes); err != nil || outcomes != 1 {
 		t.Fatalf("outcomes=%d error=%v", outcomes, err)
 	}
+	replayInput := patchstore.ReplayInput{VaultID: input.VaultID, TaskID: input.TaskID, Kind: input.Kind, ContractRevision: input.ContractRevision, PatchHash: input.PatchHash, IdempotencyKey: input.IdempotencyKey}
+	prior, err := store.FindPatchAction(ctx, replayInput)
+	if err != nil || prior.ID != prepared.Action.ID || prior.State != patchaction.StateSucceeded {
+		t.Fatalf("saved action=%+v error=%v", prior, err)
+	}
+	for _, change := range []func(*patchstore.ReplayInput){
+		func(in *patchstore.ReplayInput) { in.VaultID = "different-vault" },
+		func(in *patchstore.ReplayInput) { in.TaskID = "different-task" },
+		func(in *patchstore.ReplayInput) { in.Kind = patchaction.KindDiscard },
+		func(in *patchstore.ReplayInput) { in.ContractRevision++ },
+		func(in *patchstore.ReplayInput) { in.PatchHash = repeatHash("f") },
+		func(in *patchstore.ReplayInput) { in.IdempotencyKey = "patch-evidence" },
+	} {
+		changed := replayInput
+		change(&changed)
+		if _, err := store.FindPatchAction(ctx, changed); !errors.Is(err, patchstore.ErrIdempotencyConflict) {
+			t.Fatalf("changed replay accepted: %+v error=%v", changed, err)
+		}
+	}
+	replayInput.IdempotencyKey = "new-patch-command"
+	if _, err := store.FindPatchAction(ctx, replayInput); !errors.Is(err, patchstore.ErrNotFound) {
+		t.Fatalf("new request error=%v", err)
+	}
 }
 
 func TestDiscardJournalDoesNotRequireEvidence(t *testing.T) {
@@ -66,6 +90,10 @@ func TestDiscardJournalDoesNotRequireEvidence(t *testing.T) {
 	current, err := store.GetTask(ctx, taskRecord.ID)
 	if err != nil || current.Status != task.StatusDiscarded {
 		t.Fatalf("task=%+v error=%v", current, err)
+	}
+	replayed, err := store.FindPatchAction(ctx, patchstore.ReplayInput{VaultID: taskRecord.VaultID, TaskID: taskRecord.ID, Kind: patchaction.KindDiscard, ContractRevision: taskRecord.CurrentRevision, PatchHash: repeatHash("e"), IdempotencyKey: "patch-discard"})
+	if err != nil || replayed.ID != prepared.Action.ID || replayed.State != patchaction.StateSucceeded {
+		t.Fatalf("discard replay=%+v error=%v", replayed, err)
 	}
 }
 

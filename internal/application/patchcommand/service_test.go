@@ -2,6 +2,7 @@ package patchcommand
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -59,6 +60,7 @@ type commandStore struct {
 	contract               task.ContractRevision
 	replay                 bool
 	preparedBeforeMutation bool
+	prior                  *patchaction.Record
 }
 
 func (*commandStore) CreateTaskContract(context.Context, taskstore.CreateInput) (taskstore.Created, error) {
@@ -73,6 +75,15 @@ func (s *commandStore) GetTaskContract(context.Context, string, int) (task.Contr
 }
 func (*commandStore) GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error) {
 	return verification.Evidence{}, nil
+}
+func (s *commandStore) FindPatchAction(_ context.Context, input patchstore.ReplayInput) (patchaction.Record, error) {
+	if s.prior == nil {
+		return patchaction.Record{}, patchstore.ErrNotFound
+	}
+	if s.prior.VaultID != input.VaultID || s.prior.TaskID != input.TaskID || s.prior.Kind != input.Kind || s.prior.ContractRevision != input.ContractRevision || s.prior.PatchHash != input.PatchHash {
+		return patchaction.Record{}, patchstore.ErrIdempotencyConflict
+	}
+	return *s.prior, nil
 }
 func (s *commandStore) PreparePatchAction(_ context.Context, input patchstore.PrepareInput) (patchstore.Prepared, error) {
 	s.preparedBeforeMutation = true
@@ -105,4 +116,56 @@ func repeatCommand(value string) string {
 		result += value
 	}
 	return result[:64]
+}
+
+func TestExecuteReplaysBeforeReviewingTerminalOrChangedWorktree(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		kind    patchaction.Kind
+		state   patchaction.State
+		code    string
+		status  task.Status
+		wantErr error
+	}{
+		{"applied", patchaction.KindApply, patchaction.StateSucceeded, "", task.StatusCompleted, nil},
+		{"discarded", patchaction.KindDiscard, patchaction.StateSucceeded, "", task.StatusDiscarded, nil},
+		{"failed", patchaction.KindApply, patchaction.StateFailed, "PATCH_CONFLICT", task.StatusContracted, ErrPatchConflict},
+		{"pending", patchaction.KindApply, patchaction.StatePending, "", task.StatusContracted, ErrActionUnresolved},
+		{"unknown", patchaction.KindApply, patchaction.StateUnknown, "PATCH_OUTCOME_UNKNOWN", task.StatusContracted, ErrActionUnresolved},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			record, contract, _, request := gateFixture()
+			record.Status, request.Kind = tc.status, tc.kind
+			prior := patchaction.Record{ID: "saved-action", VaultID: record.VaultID, TaskID: record.ID, Kind: tc.kind, State: tc.state, ContractRevision: request.ExpectedRevision, PatchHash: request.ExpectedPatchHash, SafeErrorCode: tc.code}
+			store := &commandStore{record: record, contract: contract, prior: &prior}
+			service, err := New(store, unavailableReplayWorktree{}, unavailableReplayWorktree{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := service.Execute(context.Background(), request)
+			if !errors.Is(err, tc.wantErr) || !result.Replayed || result.Action.ID != prior.ID || result.TaskStatus != tc.status || store.preparedBeforeMutation {
+				t.Fatalf("result=%+v error=%v prepared=%v", result, err, store.preparedBeforeMutation)
+			}
+			request.ExpectedPatchHash = repeatCommand("f")
+			if _, err := service.Execute(context.Background(), request); !errors.Is(err, patchstore.ErrIdempotencyConflict) {
+				t.Fatalf("changed request error=%v", err)
+			}
+		})
+	}
+}
+
+// A successful discard removes its worktree; a retry must never need it again.
+type unavailableReplayWorktree struct{}
+
+func (unavailableReplayWorktree) Get(context.Context, string) (patchreview.Result, error) {
+	return patchreview.Result{}, errors.New("review must not run for replay")
+}
+func (unavailableReplayWorktree) Open(context.Context, repository.CreateWorktreeInput) (worktree.Record, error) {
+	return worktree.Record{}, errors.New("worktree must not open for replay")
+}
+func (unavailableReplayWorktree) Apply(context.Context, worktree.Record, string) error {
+	return errors.New("apply must not run for replay")
+}
+func (unavailableReplayWorktree) Discard(context.Context, worktree.Record, string) error {
+	return errors.New("discard must not run for replay")
 }

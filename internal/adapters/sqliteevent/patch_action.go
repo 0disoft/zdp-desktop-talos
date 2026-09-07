@@ -31,6 +31,31 @@ type patchActionPayload struct {
 	OccurredAt        string            `json:"occurred_at"`
 }
 
+func (s *Store) FindPatchAction(ctx context.Context, input patchstore.ReplayInput) (patchaction.Record, error) {
+	if ctx == nil || input.VaultID == "" || input.TaskID == "" || input.ContractRevision < 1 || len(input.PatchHash) != 64 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || (input.Kind != patchaction.KindApply && input.Kind != patchaction.KindDiscard) {
+		return patchaction.Record{}, patchstore.ErrInvalidCommand
+	}
+	var eventID string
+	err := s.db.QueryRowContext(ctx, "SELECT event_id FROM idempotency_keys WHERE idempotency_key = ?", input.IdempotencyKey).Scan(&eventID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return patchaction.Record{}, patchstore.ErrNotFound
+	}
+	if err != nil {
+		return patchaction.Record{}, err
+	}
+	action, err := scanPatchAction(s.db.QueryRowContext(ctx, patchActionSelect+" WHERE created_event_id = ?", eventID))
+	if errors.Is(err, patchstore.ErrNotFound) {
+		return patchaction.Record{}, patchstore.ErrIdempotencyConflict
+	}
+	if err != nil {
+		return patchaction.Record{}, err
+	}
+	if action.VaultID != input.VaultID || action.TaskID != input.TaskID || action.Kind != input.Kind || action.ContractRevision != input.ContractRevision || action.PatchHash != input.PatchHash {
+		return patchaction.Record{}, patchstore.ErrIdempotencyConflict
+	}
+	return action, nil
+}
+
 func (s *Store) PreparePatchAction(ctx context.Context, input patchstore.PrepareInput) (patchstore.Prepared, error) {
 	now := normalizedTime(input.OccurredAt, s.now)
 	if input.VaultID == "" || input.TaskID == "" || input.ContractRevision < 1 || len(input.PatchHash) != 64 || len(input.WorktreeStateHash) != 64 || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 128 || (input.Kind != patchaction.KindApply && input.Kind != patchaction.KindDiscard) || (input.Kind == patchaction.KindApply && input.EvidenceID == "") {

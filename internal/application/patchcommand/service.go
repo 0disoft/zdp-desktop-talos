@@ -92,6 +92,12 @@ func (s *Service) Execute(ctx context.Context, request Request) (Result, error) 
 	if !sameWorkspace(record.WorkspaceRoot, request.WorkspaceRoot) || record.BaselineCommit != request.BaselineCommit {
 		return Result{}, ErrWorkspaceMismatch
 	}
+	replayInput := patchstore.ReplayInput{VaultID: record.VaultID, TaskID: record.ID, Kind: request.Kind, ContractRevision: request.ExpectedRevision, PatchHash: request.ExpectedPatchHash, IdempotencyKey: request.IdempotencyKey}
+	if previous, err := s.store.FindPatchAction(ctx, replayInput); err == nil {
+		return replayAction(previous, record.Status)
+	} else if !errors.Is(err, patchstore.ErrNotFound) {
+		return Result{}, err
+	}
 	contract, err := s.store.GetTaskContract(ctx, record.ID, record.CurrentRevision)
 	if err != nil {
 		return Result{}, err
@@ -112,20 +118,19 @@ func (s *Service) Execute(ctx context.Context, request Request) (Result, error) 
 		evidenceID = review.Evidence.ID
 	}
 	prepared, err := s.store.PreparePatchAction(ctx, patchstore.PrepareInput{VaultID: record.VaultID, TaskID: record.ID, Kind: request.Kind, ContractRevision: request.ExpectedRevision, PatchHash: request.ExpectedPatchHash, WorktreeStateHash: review.StateHash, EvidenceID: evidenceID, OccurredAt: s.now(), IdempotencyKey: request.IdempotencyKey})
+	if errors.Is(err, patchstore.ErrIdempotencyConflict) {
+		// Another copy of this request may have prepared after our first lookup.
+		// Compare caller identity instead of freshly generated evidence/time.
+		if previous, lookupErr := s.store.FindPatchAction(ctx, replayInput); lookupErr == nil {
+			return replayAction(previous, record.Status)
+		}
+	}
 	if err != nil {
 		return Result{}, err
 	}
 	result := Result{Action: prepared.Action, TaskStatus: record.Status, Replayed: prepared.Replayed}
 	if prepared.Replayed {
-		switch prepared.Action.State {
-		case patchaction.StateSucceeded:
-			result.TaskStatus = outcomeStatus(prepared.Action.Kind)
-			return result, nil
-		case patchaction.StateFailed:
-			return result, errorForCode(prepared.Action.SafeErrorCode)
-		default:
-			return result, ErrActionUnresolved
-		}
+		return replayAction(prepared.Action, record.Status)
 	}
 
 	mutationErr := s.mutate(ctx, request.Kind, owned, request.ExpectedPatchHash)
@@ -140,6 +145,19 @@ func (s *Service) Execute(ctx context.Context, request Request) (Result, error) 
 		result.TaskStatus = outcomeStatus(request.Kind)
 	}
 	return result, publicErr
+}
+
+func replayAction(action patchaction.Record, currentStatus task.Status) (Result, error) {
+	result := Result{Action: action, TaskStatus: currentStatus, Replayed: true}
+	switch action.State {
+	case patchaction.StateSucceeded:
+		result.TaskStatus = outcomeStatus(action.Kind)
+		return result, nil
+	case patchaction.StateFailed:
+		return result, errorForCode(action.SafeErrorCode)
+	default:
+		return result, ErrActionUnresolved
+	}
 }
 
 func (s *Service) mutate(ctx context.Context, kind patchaction.Kind, owned worktree.Record, patchHash string) error {

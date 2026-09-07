@@ -470,6 +470,9 @@ func (d *fakeDatabase) ReconcilePendingAttempts(_ context.Context, vaultID strin
 func (*fakeDatabase) GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error) {
 	return verification.Evidence{}, executionstore.ErrNotFound
 }
+func (*fakeDatabase) FindPatchAction(context.Context, patchstore.ReplayInput) (patchaction.Record, error) {
+	return patchaction.Record{}, patchstore.ErrNotFound
+}
 func (*fakeDatabase) PreparePatchAction(context.Context, patchstore.PrepareInput) (patchstore.Prepared, error) {
 	return patchstore.Prepared{}, patchstore.ErrNotFound
 }

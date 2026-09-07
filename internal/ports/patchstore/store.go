@@ -33,6 +33,18 @@ type Prepared struct {
 	Replayed bool
 }
 
+// ReplayInput contains only the caller-owned identity of a patch command.
+// Generated timestamps, evidence selection and current worktree state do not
+// change the identity of a request whose outcome has already been journaled.
+type ReplayInput struct {
+	VaultID          string
+	TaskID           string
+	Kind             patchaction.Kind
+	ContractRevision int
+	PatchHash        string
+	IdempotencyKey   string
+}
+
 type FinishInput struct {
 	VaultID        string
 	ActionID       string
@@ -44,6 +56,7 @@ type FinishInput struct {
 }
 
 type Store interface {
+	FindPatchAction(context.Context, ReplayInput) (patchaction.Record, error)
 	PreparePatchAction(context.Context, PrepareInput) (Prepared, error)
 	FinishPatchAction(context.Context, FinishInput) (patchaction.Record, error)
 }

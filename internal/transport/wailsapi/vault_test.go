@@ -639,6 +639,9 @@ func (*serviceDatabase) ReconcilePendingAttempts(context.Context, string, time.T
 func (*serviceDatabase) GetLatestVerificationEvidence(context.Context, string, string) (verification.Evidence, error) {
 	return verification.Evidence{}, executionstore.ErrNotFound
 }
+func (*serviceDatabase) FindPatchAction(context.Context, patchstore.ReplayInput) (patchaction.Record, error) {
+	return patchaction.Record{}, patchstore.ErrNotFound
+}
 func (*serviceDatabase) PreparePatchAction(context.Context, patchstore.PrepareInput) (patchstore.Prepared, error) {
 	return patchstore.Prepared{}, patchstore.ErrNotFound
 }
