@@ -58,6 +58,10 @@ func (m *WorktreeManager) Review(ctx context.Context, record worktree.Record) (r
 func (m *WorktreeManager) reviewDiffs(ctx context.Context, record worktree.Record, changes []workspace.Change) ([]repository.FileDiff, error) {
 	diffs := make([]repository.FileDiff, 0, len(changes))
 	remaining := maxDiffBytesTotal
+	stats, err := m.reviewNumstats(ctx, record.Root, changes)
+	if err != nil {
+		return nil, err
+	}
 	for index, change := range changes {
 		if index >= maxDiffFiles {
 			diffs = append(diffs, repository.FileDiff{Path: change.Path, OmittedReason: "file_limit"})
@@ -68,7 +72,7 @@ func (m *WorktreeManager) reviewDiffs(ctx context.Context, record worktree.Recor
 		if change.Kind == workspace.ChangeUntracked {
 			diff, err = reviewUntrackedDiff(record.Root, change.Path)
 		} else {
-			diff, err = m.reviewTrackedDiff(ctx, record.Root, change)
+			diff, err = m.reviewTrackedDiff(ctx, record.Root, change, stats)
 		}
 		if err != nil {
 			return nil, err
@@ -86,19 +90,55 @@ func (m *WorktreeManager) reviewDiffs(ctx context.Context, record worktree.Recor
 	return diffs, nil
 }
 
-func (m *WorktreeManager) reviewTrackedDiff(ctx context.Context, root string, change workspace.Change) (repository.FileDiff, error) {
+func (m *WorktreeManager) reviewNumstats(ctx context.Context, root string, changes []workspace.Change) (map[string]repository.FileDiff, error) {
+	args := []string{"diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", "HEAD", "--"}
+	for index, change := range changes {
+		if index >= maxDiffFiles {
+			break
+		}
+		if change.Kind == workspace.ChangeUntracked {
+			continue
+		}
+		args = append(args, change.Path)
+		if change.OriginalPath != "" {
+			args = append(args, change.OriginalPath)
+		}
+	}
+	stats := make(map[string]repository.FileDiff)
+	if len(args) == 8 {
+		return stats, nil
+	}
+	output, err := m.git(ctx, root, args...)
+	if err != nil || output.exitCode != 0 {
+		return nil, repository.ErrWorktreeSnapshotFailed
+	}
+	for _, entry := range bytes.Split(output.stdout, []byte{0}) {
+		if len(entry) == 0 {
+			continue
+		}
+		fields := bytes.SplitN(entry, []byte{'\t'}, 3)
+		if len(fields) != 3 {
+			return nil, repository.ErrWorktreeSnapshotFailed
+		}
+		added, deleted, binary := parseNumstat(entry)
+		stats[string(fields[2])] = repository.FileDiff{AddedLines: added, DeletedLines: deleted, Binary: binary}
+	}
+	return stats, nil
+}
+
+func (m *WorktreeManager) reviewTrackedDiff(ctx context.Context, root string, change workspace.Change, stats map[string]repository.FileDiff) (repository.FileDiff, error) {
 	paths := []string{change.Path}
 	if change.OriginalPath != "" {
 		paths = append(paths, change.OriginalPath)
 	}
-	numstatArgs := []string{"diff", "--numstat", "--no-renames", "HEAD", "--"}
-	numstat, err := m.git(ctx, root, append(numstatArgs, paths...)...)
-	if err != nil || numstat.exitCode != 0 {
-		return repository.FileDiff{}, repository.ErrWorktreeSnapshotFailed
+	result := repository.FileDiff{Path: change.Path}
+	for _, path := range paths {
+		stat := stats[path]
+		result.AddedLines += stat.AddedLines
+		result.DeletedLines += stat.DeletedLines
+		result.Binary = result.Binary || stat.Binary
 	}
-	added, deleted, binary := parseNumstat(numstat.stdout)
-	result := repository.FileDiff{Path: change.Path, Binary: binary, AddedLines: added, DeletedLines: deleted}
-	if binary {
+	if result.Binary {
 		result.OmittedReason = "binary"
 		return result, nil
 	}

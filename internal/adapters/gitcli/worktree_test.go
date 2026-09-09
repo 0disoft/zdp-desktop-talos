@@ -9,11 +9,35 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspace"
+	"github.com/0disoft/zdp-desktop-talos/internal/domain/worktree"
 	"github.com/0disoft/zdp-desktop-talos/internal/ports/repository"
 )
 
 const testTaskID = "01900000-0000-7000-8000-000000000001"
+
+func TestReviewDiffsBatchesNumstat(t *testing.T) {
+	numstats, patches := 0, 0
+	manager := &WorktreeManager{timeout: time.Second, run: func(_ context.Context, _ string, args, _ []string) (result, error) {
+		for _, arg := range args {
+			if arg == "--numstat" {
+				numstats++
+				return result{stdout: []byte("1\t2\tfirst.txt\x003\t4\tsecond.txt\x00")}, nil
+			}
+		}
+		patches++
+		return result{stdout: []byte("+reviewed\n")}, nil
+	}}
+	diffs, err := manager.reviewDiffs(context.Background(), worktree.Record{Root: t.TempDir()}, []workspace.Change{{Path: "first.txt", Kind: workspace.ChangeTracked}, {Path: "second.txt", Kind: workspace.ChangeTracked}})
+	if err != nil || len(diffs) != 2 || numstats != 1 || patches != 2 {
+		t.Fatalf("diffs=%+v numstats=%d patches=%d err=%v", diffs, numstats, patches, err)
+	}
+	if diffs[0].AddedLines != 1 || diffs[1].DeletedLines != 4 {
+		t.Fatalf("counts=%+v", diffs)
+	}
+}
 
 func TestWorktreeLifecycleLeavesPrimaryUntouched(t *testing.T) {
 	t.Parallel()

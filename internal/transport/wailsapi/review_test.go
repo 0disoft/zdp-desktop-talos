@@ -74,17 +74,68 @@ func (s *patchReviewStoreStub) GetLatestVerificationEvidence(context.Context, st
 }
 
 type patchReviewWorktreesStub struct {
-	record worktree.Record
-	review repository.WorktreeReview
-	opened bool
+	blocked chan struct{}
+	record  worktree.Record
+	review  repository.WorktreeReview
+	opened  bool
 }
 
 func (s *patchReviewWorktreesStub) Open(context.Context, repository.CreateWorktreeInput) (worktree.Record, error) {
 	s.opened = true
 	return s.record, nil
 }
-func (s *patchReviewWorktreesStub) Review(context.Context, worktree.Record) (repository.WorktreeReview, error) {
+func (s *patchReviewWorktreesStub) Review(ctx context.Context, _ worktree.Record) (repository.WorktreeReview, error) {
+	if s.blocked != nil {
+		close(s.blocked)
+		<-ctx.Done()
+		return repository.WorktreeReview{}, ctx.Err()
+	}
 	return s.review, nil
+}
+
+func TestPatchReviewLeaseAllowsStatusAndLockCancellation(t *testing.T) {
+	now := time.Now().UTC()
+	baseline := strings.Repeat("a", 40)
+	record := task.Record{ID: "task-1", VaultID: "vault-1", WorkspaceRoot: t.TempDir(), BaselineCommit: baseline, Status: task.StatusContracted, CurrentRevision: 1, CreatedAt: now, UpdatedAt: now, LastEventID: "event-1"}
+	worktrees := &patchReviewWorktreesStub{blocked: make(chan struct{})}
+	core, err := patchreview.New(&patchReviewStoreStub{record: record}, worktrees, patchReviewScannerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vault := openTaskTestVault(t, &serviceDatabase{})
+	service := NewPatchReviewService(vault, openWorkspaceForTest(t, record.WorkspaceRoot, baseline), patchReviewFactoryStub{service: core}, nil)
+	done := make(chan PatchReviewResult, 1)
+	go func() { done <- service.GetTaskReview(PatchReviewRequest{TaskID: record.ID}) }()
+	select {
+	case <-worktrees.blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("review did not start")
+	}
+	status := make(chan VaultStatus, 1)
+	go func() { status <- vault.Status() }()
+	select {
+	case <-status:
+	case <-time.After(time.Second):
+		t.Fatal("review blocks Vault status")
+	}
+	locked := make(chan VaultResult, 1)
+	go func() { locked <- vault.Lock("cancel-review") }()
+	select {
+	case result := <-done:
+		if result.Error == nil {
+			t.Fatal("cancelled review succeeded")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("lock did not cancel review")
+	}
+	select {
+	case result := <-locked:
+		if result.Error != nil {
+			t.Fatalf("lock=%+v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("lock did not finish")
+	}
 }
 
 type patchReviewScannerStub struct{}

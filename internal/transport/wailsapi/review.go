@@ -94,14 +94,14 @@ func (s *PatchReviewService) GetTaskReview(request PatchReviewRequest) PatchRevi
 		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}
 	}
-	s.vault.mu.Lock()
-	defer s.vault.mu.Unlock()
-	if s.vault.session == nil {
+	lease, err := s.vault.acquireSessionLease(context.Background())
+	if err != nil {
 		mapped := MapError(patchreview.ErrInvalidRequest, correlationID)
 		mapped.Code, mapped.Message = "VAULT_NOT_OPEN", "패치를 확인하려면 Vault를 먼저 열어 주세요."
 		return PatchReviewResult{Error: &mapped}
 	}
-	store, err := s.vault.session.ExecutionDatabase()
+	defer lease.Release()
+	store, err := lease.Session.ExecutionDatabase()
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}
@@ -111,7 +111,7 @@ func (s *PatchReviewService) GetTaskReview(request PatchReviewRequest) PatchRevi
 		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}
 	}
-	review, err := service.GetForWorkspace(context.Background(), strings.TrimSpace(request.TaskID), snapshot.Root, snapshot.BaselineCommit)
+	review, err := service.GetForWorkspace(lease.Context, strings.TrimSpace(request.TaskID), snapshot.Root, snapshot.BaselineCommit)
 	if err != nil {
 		mapped := MapError(err, correlationID)
 		return PatchReviewResult{Error: &mapped}
