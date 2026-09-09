@@ -12,6 +12,7 @@ Task completion also cannot be a renderer choice. It must follow the current imm
 ## Decision
 
 - Treat apply and discard as explicit idempotent commands with a durable `patch_actions` journal.
+- Resolve an existing caller key after Vault/workspace identity checks but before fresh-review checks. Compare Task, action kind, revision, and patch hash; replay the recorded result even after completion or worktree removal, and reject changed intent under the same key.
 - Persist `pending` before the Git mutation. Finish as `succeeded`, `failed`, or `unknown`; a replay of `pending` or `unknown` never repeats the external mutation automatically.
 - Bind every action to Task ID, contract revision, patch hash, worktree state hash, and, for apply, the exact verification evidence ID.
 - Require apply to pass the deterministic Completion Gate: current contracted Task, exact revision and patch hash, fresh evidence, zero secret findings, every changed path and rename origin inside allowed paths, and no unresolved blocking Decision.

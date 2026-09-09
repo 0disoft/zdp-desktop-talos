@@ -18,7 +18,7 @@ Task Contracts must evolve without overwriting prior decisions. Two windows, ret
 
 ## Consequences
 
-Concurrent revision attempts have one winner and one explicit conflict. Historical revisions remain decryptable and auditable, while the Task row points to the latest accepted revision. The desktop can revise the current in-session Task; restart-time Task discovery and listing remain a later runtime usability slice rather than a persistence invariant.
+Concurrent revision attempts have one winner and one explicit conflict. Historical revisions remain decryptable and auditable, while the Task row points to the latest accepted revision. The desktop can list up to 50 recent contracts for the unlocked Vault and the active mapped workspace and baseline, including after restart. Selecting one restores the current contract without executing commands or applying patches. Later actions still enforce current revision, workspace, and review gates; contract editing preserves additional verification commands and existing forbidden actions.
 
 ## Verification
 

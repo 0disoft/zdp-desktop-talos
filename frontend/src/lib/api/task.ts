@@ -30,6 +30,25 @@ export type TaskStatus = {
 
 export type TaskResult = { task?: TaskStatus; error?: TalosError };
 
+export type TaskDetail = Omit<TaskContractInput, 'risk'> & { task: TaskStatus };
+
+export async function listTaskContracts(): Promise<{tasks: TaskDetail[]; error?: TalosError}> {
+  const value: unknown = await Call.ByName(`${service}.ListContracts`, correlationID());
+  if (!isObject(value) || !Array.isArray(value.tasks) || value.tasks.length > 50) throw new Error('TASK_RESPONSE_INVALID');
+  if (value.error !== undefined) return { tasks: [], error: parseError(value.error) };
+  const stringList = (input: unknown): string[] => {
+    if (!Array.isArray(input) || !input.every((item) => typeof item === 'string')) throw new Error('TASK_RESPONSE_INVALID');
+    return input;
+  };
+  return { tasks: value.tasks.map((item): TaskDetail => {
+    if (!isObject(item) || typeof item.goal !== 'string' || !Array.isArray(item.verification_commands) || item.verification_commands.length === 0) throw new Error('TASK_RESPONSE_INVALID');
+    return { task: parseTask(item.task), goal: item.goal, allowed_paths: stringList(item.allowed_paths), forbidden_actions: stringList(item.forbidden_actions), acceptance_criteria: stringList(item.acceptance_criteria), verification_commands: item.verification_commands.map((command): VerificationCommandInput => {
+      if (!isObject(command) || typeof command.rule_id !== 'string' || typeof command.working_directory !== 'string') throw new Error('TASK_RESPONSE_INVALID');
+      return { rule_id: command.rule_id, arguments: stringList(command.arguments), working_directory: command.working_directory };
+    }) };
+  }) };
+}
+
 export async function createTaskContract(input: TaskContractInput): Promise<TaskResult> {
   const request = { ...input, request_id: correlationID(), correlation_id: correlationID() };
   return parseResult(await Call.ByName(`${service}.CreateContract`, request));

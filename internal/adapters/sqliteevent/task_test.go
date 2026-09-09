@@ -76,6 +76,20 @@ func TestTaskAndFirstContractCommitAtomicallyAndSurviveRestart(t *testing.T) {
 
 	reopened := openTestStore(t, path)
 	defer reopened.Close()
+	listed, err := reopened.ListTaskContracts(ctx, taskstore.ListInput{VaultID: input.VaultID, WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: input.BaselineCommit, Limit: 50})
+	if err != nil || len(listed) != 1 || listed[0].Task.ID != created.Task.ID || listed[0].Contract.Goal != input.Goal {
+		t.Fatalf("restart discovery=%+v err=%v", listed, err)
+	}
+	for _, scope := range []taskstore.ListInput{
+		{VaultID: "other-vault", WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: input.BaselineCommit, Limit: 50},
+		{VaultID: input.VaultID, WorkspaceRoot: t.TempDir(), BaselineCommit: input.BaselineCommit, Limit: 50},
+		{VaultID: input.VaultID, WorkspaceRoot: input.WorkspaceRoot, BaselineCommit: strings.Repeat("f", 40), Limit: 50},
+	} {
+		listed, err := reopened.ListTaskContracts(ctx, scope)
+		if err != nil || len(listed) != 0 {
+			t.Fatalf("cross-scope discovery=%+v err=%v", listed, err)
+		}
+	}
 	restoredTask, err := reopened.GetTask(ctx, created.Task.ID)
 	if err != nil {
 		t.Fatal(err)

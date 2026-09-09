@@ -13,7 +13,8 @@
     type VaultStatus,
   } from './lib/api/vault';
   import { closeWorkspace, inspectRepository, type WorkspaceStatus } from './lib/api/workspace';
-  import { createTaskContract, reviseTaskContract, type TaskStatus } from './lib/api/task';
+  import { createTaskContract, reviseTaskContract, type TaskStatus, type TaskDetail, type VerificationCommandInput } from './lib/api/task';
+  import TaskHistory from './features/task/TaskHistory.svelte';
   import { answerDecision, listDecisions, resolveDecisionConflict, type DecisionItem } from './lib/api/decision';
   import { listPermissionRequests, resolvePermissionRequest, type PermissionOutcome, type PermissionRequest } from './lib/api/permission';
   import { executeVerification, type ExecutionStatus } from './lib/api/execution';
@@ -48,6 +49,8 @@
   let taskRisk = $state<'low' | 'medium' | 'high'>('medium');
   let allowVerificationNetwork = $state(false);
   let editingTask = $state(false);
+  let restoredForbidden = $state<string[] | null>(null);
+  let extraVerification = $state<VerificationCommandInput[]>([]);
   let decisions = $state<DecisionItem[]>([]);
   let decisionDrafts = $state<Record<string, string>>({});
   let permissionRequests = $state<PermissionRequest[]>([]);
@@ -211,13 +214,13 @@
       const input = {
         goal: taskGoal.trim(),
         allowed_paths: uniqueLines(taskPaths),
-        forbidden_actions: ['git.push', 'git.commit', 'dependency.install', ...(allowVerificationNetwork ? [] : ['network.egress'])],
+        forbidden_actions: [...(restoredForbidden ?? ['git.push', 'git.commit', 'dependency.install']).filter((action) => action !== 'network.egress'), ...(allowVerificationNetwork ? [] : ['network.egress'])],
         acceptance_criteria: uniqueLines(taskCriteria),
         verification_commands: [{
           rule_id: taskVerificationRule.trim(),
           arguments: argumentLines(taskVerificationArguments),
           working_directory: taskVerificationDirectory.trim() || '.',
-        }],
+        }, ...extraVerification],
         risk: taskRisk,
       };
       const result = task
@@ -473,10 +476,21 @@
 
 
   function clearPrivateTaskState() {
+    restoredForbidden = null; extraVerification = [];
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
     memoryCandidates = []; lifecycleMemories = []; appliedMemories = []; memoryEligible = 0; supersedeTargets = {}; projectionPreview = null; modelConsent = false; planProposal = null;
     taskGoal = ''; taskPaths = ''; taskCriteria = '';
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.'; allowVerificationNetwork = false;
+  }
+
+  function selectExistingTask(detail: TaskDetail) {
+    clearPrivateTaskState();
+    task = detail.task; taskGoal = detail.goal; taskPaths = detail.allowed_paths.join('\n'); taskCriteria = detail.acceptance_criteria.join('\n'); taskRisk = detail.task.risk;
+    restoredForbidden = [...detail.forbidden_actions];
+    allowVerificationNetwork = !detail.forbidden_actions.includes('network.egress');
+    const first = detail.verification_commands[0];
+    taskVerificationRule = first.rule_id; taskVerificationArguments = first.arguments.join('\n'); taskVerificationDirectory = first.working_directory;
+    extraVerification = detail.verification_commands.slice(1);
   }
 
   function localError(code: string, message: string): TalosError {
@@ -611,12 +625,18 @@
         <span class:unlocked={task !== null} class="status-dot waiting" aria-hidden="true"></span>
         <h2>Task Contract</h2>
       </div>
+      {#if vault.state === 'unlocked' && workspace.state === 'open'}
+        {#key `${vault.vault_id}:${workspace.root}:${workspace.baseline_commit}`}
+          <TaskHistory disabled={loading} onselect={selectExistingTask} />
+        {/key}
+      {/if}
       <strong>{task ? `${task.status === 'completed' ? '적용 완료' : task.status === 'discarded' ? '폐기 완료' : '확정'} · revision ${task.revision}` : '작성 대기'}</strong>
       <p>{task ? `${task.risk} risk · ${task.baseline_commit.slice(0, 12)}` : '목표와 수정 범위, 완료 조건을 먼저 고정합니다.'}</p>
       {#if task && !editingTask}
         <div class="task-summary">
           <code>{task.task_id}</code>
           <button type="button" class="secondary" onclick={() => (editingTask = true)} disabled={loading || task.status !== 'contracted'}>계약 수정</button>
+          <button type="button" class="secondary" onclick={clearPrivateTaskState} disabled={loading}>새 작업 작성</button>
         </div>
       {:else}
         <div class="task-actions">
@@ -624,6 +644,7 @@
           <label><span>수정 가능 경로 · 한 줄에 하나</span><textarea bind:value={taskPaths} rows="3" disabled={loading} placeholder="internal/domain/**"></textarea></label>
           <label><span>완료 조건 · 한 줄에 하나</span><textarea bind:value={taskCriteria} rows="3" disabled={loading} placeholder="관련 테스트가 통과한다"></textarea></label>
           <label><span>검증 규칙</span><input bind:value={taskVerificationRule} maxlength="64" autocomplete="off" spellcheck="false" disabled={loading} placeholder="go-test" /></label>
+          {#if extraVerification.length}<small>추가 검증 명령 {extraVerification.length}개는 기존 계약 그대로 유지됩니다.</small>{/if}
           <label><span>검증 인수 · 한 줄에 하나</span><textarea bind:value={taskVerificationArguments} rows="3" disabled={loading} placeholder={'test\n./...'}></textarea></label>
           <label><span>실행 폴더 · 저장소 기준</span><input bind:value={taskVerificationDirectory} maxlength="4096" autocomplete="off" spellcheck="false" disabled={loading} placeholder="." /></label>
           <label><span>검증 네트워크</span><input type="checkbox" bind:checked={allowVerificationNetwork} disabled={loading} /> 테스트 코드의 외부 통신 가능성을 명시적으로 허용</label>

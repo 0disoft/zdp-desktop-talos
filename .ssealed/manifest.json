@@ -3,7 +3,7 @@
   "schemaVersion": 1,
   "generatorVersion": "0.6.12",
   "version": "0.6.12",
-  "generatedAt": "2026-09-01T06:32:42.372Z",
+  "generatedAt": "2026-09-09T13:27:58.871Z",
   "scope": "general",
   "profile": "desktop-app",
   "addons": [
@@ -1004,13 +1004,13 @@
     },
     {
       "path": "Taskfile.yml",
-      "checksum": "sha256:f889c2aae67e4b66f56465fd0c01f5dd1651a603ee83cd07af33b9075c4214c8",
+      "checksum": "sha256:204a144e94f5ed856992251eebe085244f849410dbc7989a6195ba22def8390a",
       "kind": "runner",
       "ownership": "seeded",
       "presence": "optional",
       "status": "active",
       "initialChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608",
-      "acceptedChecksum": "sha256:f889c2aae67e4b66f56465fd0c01f5dd1651a603ee83cd07af33b9075c4214c8",
+      "acceptedChecksum": "sha256:204a144e94f5ed856992251eebe085244f849410dbc7989a6195ba22def8390a",
       "generatedChecksum": "sha256:49f6943e2b386422347c9d73032e04d69dec3d31230170256506a471a68c6608"
     },
     {

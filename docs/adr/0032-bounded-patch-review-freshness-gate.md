@@ -17,6 +17,7 @@ Sending an unrestricted Git diff to the renderer would create a second data-egre
 - Return repository-relative paths, rename origins, change kinds, index/worktree status, the current state hash, and bounded evidence metadata. Do not return the owned worktree path, executable, environment, stdout, stderr, or raw diff content.
 - Classify the result as `fresh` only when baseline commit, current contract revision, and worktree state hash all match the newest evidence. Classify mismatches as `stale` with a stable reason code and missing evidence as `unverified`.
 - Treat this service as read-only. Apply, discard, and task completion remain separate explicit commands.
+- Use a cancellable Vault session lease rather than holding the Vault-wide status mutex during Git inspection. Locking the Vault cancels the review and waits for its lease before closing storage. Batch tracked-file statistics while retaining per-file text limits and both state snapshots.
 
 ## Consequences
 

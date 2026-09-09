@@ -7,7 +7,7 @@ on:
         description: Exact Talos application version to package
         required: true
         type: string
-        default: 0.35.3
+        default: 0.36.0
 
 permissions:
   contents: read

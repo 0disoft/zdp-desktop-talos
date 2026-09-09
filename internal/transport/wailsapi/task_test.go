@@ -38,6 +38,10 @@ func TestTaskServiceReinspectsCleanBaselineAndPersistsContract(t *testing.T) {
 	if len(database.taskInput.VerificationCommands) != 1 || database.taskInput.VerificationCommands[0].RuleID != "go-test" || database.taskInput.VerificationCommands[0].WorkingDirectory != "." {
 		t.Fatalf("verification=%+v", database.taskInput.VerificationCommands)
 	}
+	listed := service.ListContracts("list-existing")
+	if listed.Error != nil || len(listed.Tasks) != 1 || listed.Tasks[0].Task.TaskID != result.Task.TaskID {
+		t.Fatalf("listed=%+v", listed)
+	}
 	database.taskCreated.Task.CurrentRevision = 2
 	database.taskCreated.Task.UpdatedAt = now.Add(time.Minute)
 	database.taskCreated.Task.LastEventID = "event-2"

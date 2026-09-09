@@ -597,6 +597,13 @@ func (d *serviceDatabase) ListActiveMemories(_ context.Context, input memorystor
 	}
 	return result, nil
 }
+func (d *serviceDatabase) ListTaskContracts(_ context.Context, input taskstore.ListInput) ([]taskstore.Created, error) {
+	if input.VaultID != d.taskCreated.Task.VaultID || input.WorkspaceRoot != d.taskCreated.Task.WorkspaceRoot || input.BaselineCommit != d.taskCreated.Task.BaselineCommit {
+		return nil, taskstore.ErrInvalidCommand
+	}
+	return []taskstore.Created{d.taskCreated}, nil
+}
+
 func (d *serviceDatabase) ListMemories(_ context.Context, input memorystore.ListInput) ([]memory.Record, error) {
 	result := make([]memory.Record, 0, input.Limit)
 	for _, record := range d.memoryRecords {
