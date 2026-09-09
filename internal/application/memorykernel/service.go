@@ -77,7 +77,7 @@ func (s *Service) ExpireDue(ctx context.Context, vaultID string, at time.Time, l
 		return nil, ErrInvalidRequest
 	}
 	at = at.UTC()
-	records, err := s.store.ListMemories(ctx, memorystore.ListInput{VaultID: vaultID, Limit: limit})
+	records, err := s.store.ListMemories(ctx, memorystore.ListInput{VaultID: vaultID, Limit: limit, ExpiredAt: at})
 	if err != nil {
 		return nil, err
 	}

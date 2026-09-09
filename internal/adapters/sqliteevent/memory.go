@@ -295,6 +295,9 @@ func (s *Store) ListMemories(ctx context.Context, input memorystore.ListInput) (
 	if input.VaultID == "" || input.Limit < 1 || input.Limit > 200 {
 		return nil, memorystore.ErrInvalidCommand
 	}
+	if !input.ExpiredAt.IsZero() {
+		return s.listMemories(ctx, memorySelect+` WHERE vault_id = ? AND state IN (?, ?) AND expires_at != '' AND julianday(expires_at) <= julianday(?) ORDER BY julianday(expires_at), memory_id LIMIT ?`, input.VaultID, string(memory.StateApproved), string(memory.StateStable), input.ExpiredAt.UTC().Format(time.RFC3339Nano), input.Limit)
+	}
 	return s.listMemories(ctx, memorySelect+" WHERE vault_id = ? ORDER BY updated_at DESC, memory_id LIMIT ?", input.VaultID, input.Limit)
 }
 
@@ -320,10 +323,34 @@ func (s *Store) listMemories(ctx context.Context, query string, arguments ...any
 		return nil, fmt.Errorf("close memory pointers: %w", err)
 	}
 	result := make([]memory.Record, 0, len(pointers))
+	if len(pointers) == 0 {
+		return result, nil
+	}
+	ids := make([]any, 0, len(pointers))
 	for _, pointer := range pointers {
-		eventRecord, err := s.Get(ctx, pointer.lastEventID)
+		ids = append(ids, pointer.lastEventID)
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	eventRows, err := s.db.QueryContext(ctx, `SELECT event_id, vault_id, event_type, schema_version, sensitivity, payload_envelope, occurred_at FROM events WHERE event_id IN (`+placeholders+`)`, ids...)
+	if err != nil {
+		return nil, fmt.Errorf("query memory events: %w", err)
+	}
+	defer eventRows.Close()
+	events := make(map[string]event.Record, len(pointers))
+	for eventRows.Next() {
+		record, err := s.scanRecord(eventRows)
 		if err != nil {
 			return nil, err
+		}
+		events[record.ID] = record
+	}
+	if err := eventRows.Err(); err != nil {
+		return nil, err
+	}
+	for _, pointer := range pointers {
+		eventRecord, ok := events[pointer.lastEventID]
+		if !ok {
+			return nil, ErrNotFound
 		}
 		record, err := memoryFromEvent(eventRecord)
 		if err != nil {

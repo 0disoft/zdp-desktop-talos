@@ -39,6 +39,9 @@ func TestExpireDueTransitionsOnlyExpiredActiveMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated, err := service.ExpireDue(context.Background(), "vault", now, 10)
+	if store.listInput.ExpiredAt != now || store.listInput.Limit != 10 || store.listInput.VaultID != "vault" {
+		t.Fatalf("expiry filter not forwarded: %+v", store.listInput)
+	}
 	if err != nil || len(updated) != 1 || updated[0].ID != "expired" || updated[0].State != memory.StateStale || len(store.transitions) != 1 || store.transitions[0].OccurredAt != now {
 		t.Fatalf("updated=%+v transitions=%+v error=%v", updated, store.transitions, err)
 	}
@@ -49,6 +52,7 @@ type fakeStore struct {
 }
 
 type expiryStore struct {
+	listInput   memorystore.ListInput
 	records     []memory.Record
 	transitions []memorystore.TransitionInput
 }
@@ -76,7 +80,8 @@ func (*expiryStore) ListMemoryCandidates(context.Context, string, int) ([]memory
 func (s *expiryStore) ListActiveMemories(context.Context, memorystore.ListActiveInput) ([]memory.Record, error) {
 	return append([]memory.Record(nil), s.records...), nil
 }
-func (s *expiryStore) ListMemories(context.Context, memorystore.ListInput) ([]memory.Record, error) {
+func (s *expiryStore) ListMemories(_ context.Context, input memorystore.ListInput) ([]memory.Record, error) {
+	s.listInput = input
 	return append([]memory.Record(nil), s.records...), nil
 }
 

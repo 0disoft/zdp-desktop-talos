@@ -56,6 +56,8 @@ type ListActiveInput struct {
 type ListInput struct {
 	VaultID string
 	Limit   int
+	// ExpiredAt restricts results to due active records before applying Limit.
+	ExpiredAt time.Time
 }
 
 type Reader interface {

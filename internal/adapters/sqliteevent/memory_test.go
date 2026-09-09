@@ -8,11 +8,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/0disoft/zdp-desktop-talos/internal/application/memorykernel"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/event"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/memory"
 	"github.com/0disoft/zdp-desktop-talos/internal/domain/workspacemapping"
@@ -250,4 +252,62 @@ func TestMemoryExpiryAndSupersessionAreAtomicAndContextSafe(t *testing.T) {
 func portableMemoryScope(vaultID, workspaceRoot string) memory.Scope {
 	sourceHash := workspaceRootHash(workspaceRoot)
 	return memory.Scope{Kind: memory.ScopeWorkspace, WorkspaceID: workspacemapping.ID(vaultID, sourceHash), SourceWorkspaceHash: sourceHash}
+}
+
+func TestExpirySweepFindsOldRecordsBeyondRecentPage(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 9, 7, 1, 0, 0, 0, time.UTC)
+	store := openTestStore(t, filepath.Join(t.TempDir(), "expiry-pages.db"))
+	defer store.Close()
+	vaultID := "00000000-0000-7000-8000-000000000001"
+	if _, err := store.CreateVault(ctx, vaultstore.CreateInput{VaultID: vaultID, RetentionDays: 30, OccurredAt: now, IdempotencyKey: "vault"}); err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := store.Append(ctx, eventstore.AppendInput{VaultID: vaultID, Type: "decision.answer.recorded", SchemaVersion: 1, Sensitivity: event.SensitivityPrivate, Payload: []byte(`{"safe":true}`), OccurredAt: now, IdempotencyKey: "evidence"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var due []string
+	for i := 0; i < 203; i++ {
+		key := fmt.Sprintf("candidate-%d", i)
+		record, err := store.CreateMemoryCandidate(ctx, memorystore.CreateCandidateInput{VaultID: vaultID, Kind: memory.KindDecision, Scope: memory.Scope{Kind: memory.ScopeVault}, Statement: key, Rationale: "User reviewed rule", EvidenceEventIDs: []string{evidence.ID}, SourceActor: "user", Confidence: 80, Sensitivity: event.SensitivityPrivate, OccurredAt: now.Add(time.Duration(i) * time.Second), IdempotencyKey: key})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i < 2 {
+			_, err = store.TransitionMemory(ctx, memorystore.TransitionInput{VaultID: vaultID, MemoryID: record.ID, ExpectedRevision: 1, NextState: memory.StateApproved, Reason: "approved", ExpiresAt: now.Add(time.Hour), OccurredAt: now.Add(time.Duration(i) * time.Second), IdempotencyKey: key + ":approve"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			due = append(due, record.ID)
+		}
+	}
+	recent, err := store.ListMemories(ctx, memorystore.ListInput{VaultID: vaultID, Limit: 200})
+	if err != nil || len(recent) != 200 {
+		t.Fatalf("recent=%d err=%v", len(recent), err)
+	}
+	for _, record := range recent {
+		if record.ID == due[0] || record.ID == due[1] {
+			t.Fatal("expired records must be outside the recent page")
+		}
+	}
+	service, err := memorykernel.New(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		batch, err := service.ExpireDue(ctx, vaultID, now.Add(time.Hour), 1)
+		if err != nil || len(batch) != 1 {
+			t.Fatalf("batch=%+v err=%v", batch, err)
+		}
+		if seen[batch[0].ID] || batch[0].State != memory.StateStale {
+			t.Fatalf("unexpected batch: %+v", batch)
+		}
+		seen[batch[0].ID] = true
+	}
+	batch, err := service.ExpireDue(ctx, vaultID, now.Add(time.Hour), 1)
+	if err != nil || len(batch) != 0 || !seen[due[0]] || !seen[due[1]] {
+		t.Fatalf("batch=%+v seen=%v err=%v", batch, seen, err)
+	}
 }
