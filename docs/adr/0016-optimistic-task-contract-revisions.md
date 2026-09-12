@@ -25,6 +25,8 @@ Concurrent revision attempts have one winner and one explicit conflict. Historic
 Task discovery also supports status filtering before the page limit, stable creation-time/ID cursors, and goal matching over each bounded 50-record encrypted page. Empty search pages may have a continuation cursor; no plaintext goal index is created. Other baselines can be inspected read-only within the same active workspace mapping. The legacy list operation retains its existing latest-update ordering and baseline scope.
 
 - sequential revision 1 to 2 and current-head reads;
+- goal searches skip empty pages sequentially, stopping at a match, end, error or five pages; blank queries read one page;
+- cancelling discards the in-flight response and starts no further pages; already displayed results remain available after completion;
 - stale revision rejection without extra pointer rows;
 - concurrent same-revision updates produce one success and one conflict;
 - create and revision idempotency replay after the head advances;
