@@ -627,7 +627,7 @@
       </div>
       {#if vault.state === 'unlocked' && workspace.state === 'open'}
         {#key `${vault.vault_id}:${workspace.root}:${workspace.baseline_commit}`}
-          <TaskHistory disabled={loading} onselect={selectExistingTask} />
+          <TaskHistory disabled={loading} baseline={workspace.baseline_commit ?? ''} onselect={selectExistingTask} />
         {/key}
       {/if}
       <strong>{task ? `${task.status === 'completed' ? '적용 완료' : task.status === 'discarded' ? '폐기 완료' : '확정'} · revision ${task.revision}` : '작성 대기'}</strong>

@@ -31,16 +31,18 @@ export type TaskStatus = {
 export type TaskResult = { task?: TaskStatus; error?: TalosError };
 
 export type TaskDetail = Omit<TaskContractInput, 'risk'> & { task: TaskStatus };
+export type TaskPageInput = { cursor: string; status: string; query: string; all_baselines: boolean };
 
-export async function listTaskContracts(): Promise<{tasks: TaskDetail[]; error?: TalosError}> {
-  const value: unknown = await Call.ByName(`${service}.ListContracts`, correlationID());
+export async function listTaskContracts(input?: TaskPageInput): Promise<{tasks: TaskDetail[]; error?: TalosError; next_cursor: string}> {
+  const value: unknown = input ? await Call.ByName(`${service}.PageContracts`, {...input, correlation_id: correlationID()}) : await Call.ByName(`${service}.ListContracts`, correlationID());
   if (!isObject(value) || !Array.isArray(value.tasks) || value.tasks.length > 50) throw new Error('TASK_RESPONSE_INVALID');
-  if (value.error !== undefined) return { tasks: [], error: parseError(value.error) };
+  if (value.next_cursor !== undefined && (typeof value.next_cursor !== 'string' || value.next_cursor.length > 512)) throw new Error('TASK_RESPONSE_INVALID');
+  if (value.error !== undefined) return { tasks: [], error: parseError(value.error), next_cursor: '' };
   const stringList = (input: unknown): string[] => {
     if (!Array.isArray(input) || !input.every((item) => typeof item === 'string')) throw new Error('TASK_RESPONSE_INVALID');
     return input;
   };
-  return { tasks: value.tasks.map((item): TaskDetail => {
+  return { next_cursor: typeof value.next_cursor === 'string' ? value.next_cursor : '', tasks: value.tasks.map((item): TaskDetail => {
     if (!isObject(item) || typeof item.goal !== 'string' || !Array.isArray(item.verification_commands) || item.verification_commands.length === 0) throw new Error('TASK_RESPONSE_INVALID');
     return { task: parseTask(item.task), goal: item.goal, allowed_paths: stringList(item.allowed_paths), forbidden_actions: stringList(item.forbidden_actions), acceptance_criteria: stringList(item.acceptance_criteria), verification_commands: item.verification_commands.map((command): VerificationCommandInput => {
       if (!isObject(command) || typeof command.rule_id !== 'string' || typeof command.working_directory !== 'string') throw new Error('TASK_RESPONSE_INVALID');

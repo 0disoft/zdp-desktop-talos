@@ -42,6 +42,17 @@ func TestTaskServiceReinspectsCleanBaselineAndPersistsContract(t *testing.T) {
 	if listed.Error != nil || len(listed.Tasks) != 1 || listed.Tasks[0].Task.TaskID != result.Task.TaskID {
 		t.Fatalf("listed=%+v", listed)
 	}
+	page := service.PageContracts(TaskPageRequest{Query: "contracts"})
+	if page.Error != nil || len(page.Tasks) != 1 {
+		t.Fatalf("search=%+v", page)
+	}
+	page = service.PageContracts(TaskPageRequest{Query: "absent"})
+	if page.Error != nil || len(page.Tasks) != 0 || page.Scanned != 1 {
+		t.Fatalf("empty search=%+v", page)
+	}
+	if invalid := service.PageContracts(TaskPageRequest{Cursor: "invalid"}); invalid.Error == nil {
+		t.Fatal("invalid cursor accepted")
+	}
 	database.taskCreated.Task.CurrentRevision = 2
 	database.taskCreated.Task.UpdatedAt = now.Add(time.Minute)
 	database.taskCreated.Task.LastEventID = "event-2"
