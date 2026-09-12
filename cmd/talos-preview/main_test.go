@@ -1,10 +1,30 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestPreviewDiagnosticHasOnlyBoundedLifecycleFields(t *testing.T) {
+	var output bytes.Buffer
+	if err := writeDiagnostic(&output, "app_exited", "wait", time.Now(), 17, true); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(output.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 5 || got["event"] != "app_exited" || got["stage"] != "wait" || got["exit_code"] != float64(17) || got["timeout"] != true {
+		t.Fatalf("unexpected diagnostic: %s", output.String())
+	}
+	if _, ok := got["elapsed_ms"].(float64); !ok {
+		t.Fatal("missing elapsed time")
+	}
+}
 
 func TestPreviewEnvironmentIsolatesProfileAndDropsProviderCredentials(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "profile")

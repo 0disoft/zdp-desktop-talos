@@ -18,3 +18,12 @@ Check create/open/lock, task selection, page navigation, empty search continuati
 read-only old baselines, partial progress recovery and window restart. Existing
 backend revision, permission and patch freshness gates remain mandatory. Installer
 and N-1 upgrade checks still require their dedicated runners.
+
+The bundle's `preview-diagnostic.jsonl` is replaced on each launch and contains
+at most three lifecycle records: launcher start, child start and exit/failure.
+Only stage names, elapsed milliseconds, exit code and timeout state are recorded;
+paths, environment, raw errors and child output are excluded.
+`app_started` means process creation, not a rendered or responsive window.
+A final `app_exited` record distinguishes a completed child process from a window
+discovery failure; a missing final record can also mean the launcher was terminated.
+Failures before opening the diagnostic file cannot be recorded there.
