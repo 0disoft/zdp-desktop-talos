@@ -51,6 +51,8 @@
   let editingTask = $state(false);
   let restoredForbidden = $state<string[] | null>(null);
   let extraVerification = $state<VerificationCommandInput[]>([]);
+  let progressGeneration = 0;
+  let progressState = $state<'idle' | 'loading' | 'ready' | 'partial'>('idle');
   let decisions = $state<DecisionItem[]>([]);
   let decisionDrafts = $state<Record<string, string>>({});
   let permissionRequests = $state<PermissionRequest[]>([]);
@@ -476,6 +478,7 @@
 
 
   function clearPrivateTaskState() {
+    progressGeneration++; progressState = 'idle';
     restoredForbidden = null; extraVerification = [];
     task = null; decisions = []; permissionRequests = []; decisionDrafts = {}; execution = null; patchReview = null; editingTask = false; discardConfirmation = false;
     memoryCandidates = []; lifecycleMemories = []; appliedMemories = []; memoryEligible = 0; supersedeTargets = {}; projectionPreview = null; modelConsent = false; planProposal = null;
@@ -483,7 +486,7 @@
     taskVerificationRule = 'go-test'; taskVerificationArguments = 'test\n./...'; taskVerificationDirectory = '.'; allowVerificationNetwork = false;
   }
 
-  function selectExistingTask(detail: TaskDetail) {
+  async function selectExistingTask(detail: TaskDetail) {
     clearPrivateTaskState();
     task = detail.task; taskGoal = detail.goal; taskPaths = detail.allowed_paths.join('\n'); taskCriteria = detail.acceptance_criteria.join('\n'); taskRisk = detail.task.risk;
     restoredForbidden = [...detail.forbidden_actions];
@@ -491,6 +494,25 @@
     const first = detail.verification_commands[0];
     taskVerificationRule = first.rule_id; taskVerificationArguments = first.arguments.join('\n'); taskVerificationDirectory = first.working_directory;
     extraVerification = detail.verification_commands.slice(1);
+    await restoreTaskProgress();
+  }
+
+  async function restoreTaskProgress() {
+    if (!task || vault.state !== 'unlocked') return;
+    const selected = task.task_id;
+    const generation = ++progressGeneration;
+    progressState = 'loading'; loading = true; latestError = null;
+    const results = await Promise.allSettled([listDecisions(selected), listPermissionRequests(selected), getTaskReview(selected)]);
+    if (generation !== progressGeneration || task?.task_id !== selected || vault.state !== 'unlocked') return;
+    let incomplete = false;
+    const [questions, permissions, review] = results;
+    if (questions.status === 'fulfilled' && !questions.value.error) decisions = questions.value.decisions;
+    else incomplete = true;
+    if (permissions.status === 'fulfilled' && !permissions.value.error) permissionRequests = permissions.value.requests;
+    else incomplete = true;
+    if (review.status === 'fulfilled' && !review.value.error) patchReview = review.value.review ?? null;
+    else if (review.status !== 'fulfilled' || review.value.error?.code !== 'PATCH_REVIEW_NOT_READY') incomplete = true;
+    progressState = incomplete ? 'partial' : 'ready'; loading = false;
   }
 
   function localError(code: string, message: string): TalosError {
@@ -637,6 +659,16 @@
           <code>{task.task_id}</code>
           <button type="button" class="secondary" onclick={() => (editingTask = true)} disabled={loading || task.status !== 'contracted'}>계약 수정</button>
           <button type="button" class="secondary" onclick={clearPrivateTaskState} disabled={loading}>새 작업 작성</button>
+        </div>
+        <div aria-live="polite">
+          {#if progressState === 'loading'}<p>작업 진행 상황을 불러오는 중입니다.</p>
+          {:else if progressState !== 'idle'}
+            <p>미해결 질문 {decisions.filter((item) => item.state !== 'answered').length}개 · 승인 대기 {permissionRequests.length}개</p>
+            <p>{patchReview?.evidence ? `최근 성공 검증: ${new Date(patchReview.evidence.finished_at).toLocaleString()}` : '확인된 성공 검증이 없습니다.'}</p>
+            <p>{task.status !== 'contracted' ? '종료된 작업입니다. 후속 변경은 새 작업으로 시작해 주세요.' : decisions.some((item) => item.category === 'blocking' && item.state !== 'answered') ? '먼저 차단 질문에 답해 주세요.' : permissionRequests.length ? '대기 중인 실행 승인 내용을 확인해 주세요.' : patchReview?.status === 'fresh' ? '패치 내용을 확인한 뒤 적용 여부를 결정해 주세요.' : '검증을 실행해 현재 변경의 증거를 갱신해 주세요.'}</p>
+            {#if progressState === 'partial'}<p role="status">일부 진행 상황을 불러오지 못했습니다. 표시된 수치는 확인된 항목만 포함합니다.</p>{/if}
+            <button type="button" class="secondary" onclick={restoreTaskProgress} disabled={loading}>진행 상황 다시 불러오기</button>
+          {/if}
         </div>
       {:else}
         <div class="task-actions">
